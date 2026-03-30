@@ -385,7 +385,7 @@ async function startGame(name: string) {
     ui.addChatMessage("", "T=chat · F5=3rd person · Ctrl=sprint · /help", true);
 
   } else {
-    const serverAddr = (window as any).__getServerAddr?.() ?? "localhost:2567";
+    const serverAddr = (window as any).__getServerAddr?.() ?? "localhost:8471";
     mp = new MultiplayerManager(scene, world, {
       onStatusChange: s => ui.setConnectionStatus(s),
       onChat:         (n, t, sys) => ui.addChatMessage(n, t, sys),

@@ -5,7 +5,7 @@ export default defineConfig({
     port: 3000,
     proxy: {
       "/colyseus": {
-        target: "http://localhost:2567",
+        target: "http://localhost:8471",
         ws: true,
         changeOrigin: true,
       },

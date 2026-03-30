@@ -305,7 +305,7 @@
       <div id="serverRow">
         <span>Server:</span>
         <input id="serverInput" class="mc-input" type="text"
-               value="localhost:2567" placeholder="host:port"/>
+               value="localhost:8471" placeholder="host:port"/>
       </div>
 
       <button class="play-btn" id="playBtn">▶  PLAY</button>
@@ -360,7 +360,7 @@
     window.__getSelectedMode = () => selectedMode;
     window.__getServerAddr  = () => {
       const v = document.getElementById('serverInput').value.trim();
-      return v || 'localhost:2567';
+      return v || 'localhost:8471';
     };
   </script>
   <script type="module" src="/src/main.ts"></script>
