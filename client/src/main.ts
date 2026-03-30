@@ -265,6 +265,18 @@ let regenTimer  = 0;
 let hungerTimer = 0;
 let lastMoved   = new THREE.Vector3();
 
+// ── Enchantments ──────────────────────────────────────────────────────────────
+
+const enchants = { sharpness: 0, protection: 0, speed: 0 };
+
+// ── Potions ───────────────────────────────────────────────────────────────────
+
+const potionEffects = { strength: 0, speed: 0 };
+
+// ── Day/Night cycle tracking ──────────────────────────────────────────────────
+
+let prevDayTime = 0;
+
 // ── Command handler ───────────────────────────────────────────────────────────
 
 function handleCommand(cmd: string, playerName: string): boolean {
@@ -509,6 +521,29 @@ async function startGame(name: string) {
     }
   };
 
+  // Enchantment selection
+  ui.onEnchant = (type: string) => {
+    if (xpLevel >= 3) {
+      xpLevel -= 3;
+      xp -= 3 * 10;
+      ui.updateXP(xp, xpLevel);
+
+      if (type === "sharpness") {
+        enchants.sharpness = 1;
+        ui.addChatMessage("", "Applied Sharpness I (+2 damage)!", true);
+      } else if (type === "protection") {
+        enchants.protection = 1;
+        ui.addChatMessage("", "Applied Protection I (+3 armor)!", true);
+      } else if (type === "speed") {
+        enchants.speed = 1;
+        ui.addChatMessage("", "Applied Speed I (+20% movement)!", true);
+      }
+      sounds.play("eat");
+    } else {
+      ui.addChatMessage("", "Not enough XP levels!", true);
+    }
+  };
+
   // Attack
   document.addEventListener("mousedown", e => {
     if (e.button !== 0 || !document.pointerLockElement) return;
@@ -533,7 +568,7 @@ async function startGame(name: string) {
     }
 
     attackRaycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
-    const result = mobManager?.tryAttack(attackRaycaster);
+    const result = mobManager?.tryAttack(attackRaycaster, enchants);
     if (result) {
       sounds.play("hit");
       // Check if mob died and spawn drops/XP
@@ -561,20 +596,30 @@ async function startGame(name: string) {
       if (!document.pointerLockElement || ui.isChatOpen()) return;
       e.preventDefault();
 
-      // Check for bed interaction first
-      const bedRaycaster = new THREE.Raycaster();
-      bedRaycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
-      bedRaycaster.far = 5;
-      const hits = bedRaycaster.intersectObjects(world.getMeshes());
+      // Check for enchanting table interaction
+      const enchantRaycaster = new THREE.Raycaster();
+      enchantRaycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
+      enchantRaycaster.far = 5;
+      const enchantHits = enchantRaycaster.intersectObjects(world.getMeshes());
 
-      for (const hit of hits) {
+      for (const hit of enchantHits) {
         const meshPos = hit.point.clone().add(hit.face!.normal.clone().multiplyScalar(0.1));
         const bx = Math.round(meshPos.x);
         const by = Math.round(meshPos.y);
         const bz = Math.round(meshPos.z);
-        const bedBlock = world.getBlock(bx, by, bz);
+        const enchantBlock = world.getBlock(bx, by, bz);
 
-        if (bedBlock && bedBlock.type === 34) { // Bed block type
+        if (enchantBlock && enchantBlock.type === 40) { // Enchanting Table
+          if (xpLevel >= 5) {
+            ui.showEnchantUI(xpLevel);
+            return;
+          } else {
+            ui.addChatMessage("", "You need 5+ XP levels to enchant!", true);
+            return;
+          }
+        }
+
+        if (enchantBlock && enchantBlock.type === 34) { // Bed block type
           // Check if it's night time
           if (dayTime > 0.7 || dayTime < 0.25) {
             ui.addChatMessage("", "Sleeping...", true);
@@ -591,6 +636,45 @@ async function startGame(name: string) {
             ui.addChatMessage("", "You can only sleep at night!", true);
           }
           return;
+        }
+      }
+
+      // Check for villager interaction
+      if (mobManager) {
+        const villagerRaycaster = new THREE.Raycaster();
+        villagerRaycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
+        villagerRaycaster.far = 3;
+        const villagerMobs = mobManager.getAllMobsForDisplay();
+        const villagerMeshes: Array<{ mesh: THREE.Object3D; mobId: string; type: string }> = [];
+
+        for (const { id, mob } of villagerMobs) {
+          if (mob.type === "villager") {
+            mob.group.traverse(obj => {
+              if ((obj as THREE.Mesh).isMesh) {
+                villagerMeshes.push({ mesh: obj, mobId: id, type: mob.type });
+              }
+            });
+          }
+        }
+
+        const villagerHits = villagerRaycaster.intersectObjects(villagerMeshes.map(v => v.mesh));
+        if (villagerHits.length > 0) {
+          const firstHit = villagerHits[0];
+          const villagerInfo = villagerMeshes.find(v => v.mesh === firstHit.object);
+          if (villagerInfo) {
+            const trades = [
+              { give: "45", giveName: "5 Wheat", receive: "food", receiveName: "1 Bread" },
+              { give: "14", giveName: "3 Iron Ore", receive: "36", receiveName: "1 Iron Chestplate" },
+              { give: "5", giveName: "10 Wood", receive: "33", receiveName: "1 Fishing Rod" },
+              { give: "39", giveName: "1 Compass", receive: "46", receiveName: "1 Enchanted Book" },
+            ];
+            ui.showTradeUI(trades);
+            ui.onTrade = (tradeIndex) => {
+              // Handle trade
+              ui.addChatMessage("", "Trade accepted!", true);
+            };
+            return;
+          }
         }
       }
 
@@ -948,6 +1032,50 @@ function animate() {
         }
       }
     }
+
+    // ── Lava damage ───────────────────────────────────────────────────────────
+    if (player.gameMode === "survival") {
+      const px = Math.round(player.position.x);
+      const py = Math.round(player.position.y);
+      const pz = Math.round(player.position.z);
+      const blockAtPlayer = world.getBlock(px, py, pz);
+      if (blockAtPlayer && blockAtPlayer.type === 47) { // Lava
+        regenTimer += dt;
+        if (regenTimer > 0.5) {
+          regenTimer = 0;
+          player.takeDamage(2);
+          ui.updateHearts(player.health, player.maxHealth);
+        }
+      }
+    }
+
+    // ── Potion effects ────────────────────────────────────────────────────────
+    potionEffects.strength = Math.max(0, potionEffects.strength - dt);
+    potionEffects.speed = Math.max(0, potionEffects.speed - dt);
+
+    // ── Day/Night ambient events ───────────────────────────────────────────────
+    if (prevDayTime < 0.22 && dayTime >= 0.22) {
+      ui.addChatMessage("", "Dawn breaks...", true);
+    }
+    if (prevDayTime < 0.73 && dayTime >= 0.73) {
+      ui.addChatMessage("", "Night falls... watch out for monsters!", true);
+    }
+    if (prevDayTime < 0.95 && dayTime >= 0.95) {
+      // Chance to spawn extra zombies/skeletons at midnight
+      if (mobManager && Math.random() < 0.5) {
+        const spawnCount = 3 + Math.floor(Math.random() * 3);
+        for (let i = 0; i < spawnCount; i++) {
+          const angle = Math.random() * Math.PI * 2;
+          const dist = 20 + Math.random() * 15;
+          const x = player.position.x + Math.cos(angle) * dist;
+          const z = player.position.z + Math.sin(angle) * dist;
+          const y = world.getSurfaceHeight(Math.round(x), Math.round(z)) + 1.5;
+          const type = Math.random() < 0.5 ? "zombie" : "skeleton";
+          mobManager.spawnMob(type, x, y, z);
+        }
+      }
+    }
+    prevDayTime = dayTime;
 
     ui.updatePosition(player.position.x, player.position.y, player.position.z);
     ui.updateTime(dayTime);

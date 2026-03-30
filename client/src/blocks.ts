@@ -50,6 +50,14 @@ export const BLOCK_TYPES: Record<number, {
   37: { name: "Iron Leggings",  color: 0x777777 },
   38: { name: "Iron Boots",     color: 0x666666 },
   39: { name: "Compass",        color: 0xffdd00 },
+  40: { name: "Enchanting Table", color: 0x6633cc },
+  41: { name: "Brewing Stand",  color: 0x884400 },
+  42: { name: "Nether Wart",    color: 0xaa1111, solid: false },
+  43: { name: "Sugar",          color: 0xffffff, solid: false },
+  44: { name: "Red Mushroom",   color: 0xdd2222, solid: false },
+  45: { name: "Wheat",          color: 0xffee77, solid: false },
+  46: { name: "Enchanted Book", color: 0x3333ff },
+  47: { name: "Lava",           color: 0xff4400, emissive: 0xff8800 },
 };
 
 // Hotbar presets — what shows in the 8 hotbar slots by default

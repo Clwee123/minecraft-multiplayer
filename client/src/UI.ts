@@ -695,4 +695,188 @@ export class UI {
       this.playerListPanel = null;
     }
   }
+
+  // ── Enchanting UI ─────────────────────────────────────────────────────────
+
+  private enchantPanel: HTMLElement | null = null;
+  onEnchant: ((type: string) => void) | null = null;
+
+  showEnchantUI(level: number): void {
+    if (this.enchantPanel) return;
+
+    this.enchantPanel = document.createElement("div");
+    this.enchantPanel.style.cssText = `
+      position: fixed;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      background: #6633cc;
+      border: 4px solid #3d1f7d;
+      padding: 20px;
+      width: 300px;
+      z-index: 1000;
+      border-radius: 4px;
+      box-shadow: 0 0 30px rgba(102, 51, 204, 0.6);
+    `;
+
+    const title = document.createElement("h2");
+    title.textContent = "Enchanting Table";
+    title.style.cssText = "color: #ffff99; margin: 0 0 10px 0; text-align: center; font-family: Arial, sans-serif; font-size: 16px;";
+    this.enchantPanel.appendChild(title);
+
+    const costText = document.createElement("div");
+    costText.textContent = `XP Level: ${level}`;
+    costText.style.cssText = "color: #cccccc; text-align: center; margin-bottom: 15px; font-size: 12px;";
+    this.enchantPanel.appendChild(costText);
+
+    const enchants = [
+      { type: "sharpness", name: "Sharpness I", desc: "+2 Damage (Cost: 3 XP)", cost: 3 },
+      { type: "protection", name: "Protection I", desc: "+3 Armor (Cost: 3 XP)", cost: 3 },
+      { type: "speed", name: "Speed I", desc: "+20% Movement (Cost: 3 XP)", cost: 3 },
+    ];
+
+    for (const ench of enchants) {
+      const btn = document.createElement("button");
+      btn.style.cssText = `
+        display: block;
+        width: 100%;
+        padding: 10px;
+        margin: 8px 0;
+        background: ${level >= ench.cost ? "#5a4a8a" : "#3a2a5a"};
+        color: ${level >= ench.cost ? "#ffff99" : "#888888"};
+        border: 2px solid #3d1f7d;
+        border-radius: 2px;
+        cursor: ${level >= ench.cost ? "pointer" : "not-allowed"};
+        font-family: Arial, sans-serif;
+        font-weight: bold;
+        font-size: 12px;
+      `;
+      btn.textContent = ench.name;
+      btn.title = ench.desc;
+      if (level >= ench.cost) {
+        btn.addEventListener("click", () => {
+          this.onEnchant?.(ench.type);
+          this.hideEnchantUI();
+        });
+      }
+      this.enchantPanel.appendChild(btn);
+    }
+
+    const closeBtn = document.createElement("button");
+    closeBtn.style.cssText = `
+      display: block;
+      width: 100%;
+      padding: 10px;
+      margin: 8px 0;
+      background: #3a2a4a;
+      color: #cccccc;
+      border: 2px solid #1d0f3d;
+      border-radius: 2px;
+      cursor: pointer;
+      font-family: Arial, sans-serif;
+      font-weight: bold;
+    `;
+    closeBtn.textContent = "Close";
+    closeBtn.addEventListener("click", () => this.hideEnchantUI());
+    this.enchantPanel.appendChild(closeBtn);
+
+    document.body.appendChild(this.enchantPanel);
+  }
+
+  hideEnchantUI(): void {
+    if (this.enchantPanel) {
+      this.enchantPanel.remove();
+      this.enchantPanel = null;
+    }
+  }
+
+  isEnchantOpen(): boolean {
+    return this.enchantPanel !== null;
+  }
+
+  // ── Trading UI ────────────────────────────────────────────────────────────
+
+  private tradePanel: HTMLElement | null = null;
+  onTrade: ((tradeIndex: number) => void) | null = null;
+
+  showTradeUI(trades: Array<{ give: string; giveName: string; receive: string; receiveName: string }>): void {
+    if (this.tradePanel) return;
+
+    this.tradePanel = document.createElement("div");
+    this.tradePanel.style.cssText = `
+      position: fixed;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      background: #8B7355;
+      border: 4px solid #4a3a2a;
+      padding: 20px;
+      width: 320px;
+      z-index: 1000;
+      border-radius: 4px;
+      box-shadow: 0 0 30px rgba(0,0,0,0.7);
+    `;
+
+    const title = document.createElement("h2");
+    title.textContent = "Villager Trades";
+    title.style.cssText = "color: #ffff99; margin: 0 0 15px 0; text-align: center; font-family: Arial, sans-serif;";
+    this.tradePanel.appendChild(title);
+
+    for (let i = 0; i < trades.length; i++) {
+      const trade = trades[i];
+      const btn = document.createElement("button");
+      btn.style.cssText = `
+        display: block;
+        width: 100%;
+        padding: 10px;
+        margin: 8px 0;
+        background: #6a5a4a;
+        color: #ffff99;
+        border: 2px solid #3a2a1a;
+        border-radius: 2px;
+        cursor: pointer;
+        font-family: Arial, sans-serif;
+        font-weight: bold;
+        font-size: 12px;
+        text-align: left;
+      `;
+      btn.textContent = `${trade.giveName} → ${trade.receiveName}`;
+      btn.addEventListener("click", () => {
+        this.onTrade?.(i);
+        this.hideTradeUI();
+      });
+      this.tradePanel.appendChild(btn);
+    }
+
+    const closeBtn = document.createElement("button");
+    closeBtn.style.cssText = `
+      display: block;
+      width: 100%;
+      padding: 10px;
+      margin: 8px 0;
+      background: #8B3333;
+      color: white;
+      border: 2px solid #5B0000;
+      border-radius: 2px;
+      cursor: pointer;
+      font-family: Arial, sans-serif;
+      font-weight: bold;
+    `;
+    closeBtn.textContent = "Close";
+    closeBtn.addEventListener("click", () => this.hideTradeUI());
+    this.tradePanel.appendChild(closeBtn);
+
+    document.body.appendChild(this.tradePanel);
+  }
+
+  hideTradeUI(): void {
+    if (this.tradePanel) {
+      this.tradePanel.remove();
+      this.tradePanel = null;
+    }
+  }
+
+  isTradeOpen(): boolean {
+    return this.tradePanel !== null;
+  }
 }

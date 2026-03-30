@@ -22,6 +22,16 @@ export class World {
   constructor(scene: THREE.Scene) {
     this.scene = scene;
     this.generateTerrain();
+    this.placeVillages();
+  }
+
+  // Store village centers for mob spawning
+  getVillageCenters(): Array<[number, number, number]> {
+    return [
+      [-60, 0, -60],
+      [60, 0, 20],
+      [-20, 0, 80],
+    ];
   }
 
   // ── Terrain height ─────────────────────────────────────────────────────────
@@ -119,6 +129,15 @@ export class World {
         if (h < SEA_LEVEL) {
           for (let y = h + 1; y <= SEA_LEVEL; y++) {
             this.placeBlock(wx, y, wz, 7, false);
+          }
+        }
+
+        // Lava pools in deep underground
+        if (h > 5 && Math.random() < 0.003) {
+          for (let dy = Math.max(0, h - 8); dy <= h - 5; dy++) {
+            if (Math.random() < 0.6) {
+              this.placeBlock(wx, dy, wz, 47, false);
+            }
           }
         }
 
@@ -251,5 +270,91 @@ export class World {
   setChestInventory(x: number, y: number, z: number, items: number[]) {
     const k = `${x},${y},${z}`;
     this.chestInventory.set(k, items);
+  }
+
+  // ── Village generation ─────────────────────────────────────────────────────
+
+  private placeVillages() {
+    // Place 2-3 villages at fixed positions
+    this.placeVillage(-60, -60);
+    this.placeVillage(60, 20);
+    this.placeVillage(-20, 80);
+  }
+
+  private placeVillage(cx: number, cz: number) {
+    const cy = this.getSurfaceHeight(cx, cz);
+
+    // Place well at center
+    this.placeWell(cx, cy, cz);
+
+    // Place 3-5 houses around center
+    const housePositions: [number, number][] = [
+      [-12, -10], [12, -10], [-12, 12], [12, 12], [0, -16],
+    ];
+
+    for (const [dx, dz] of housePositions) {
+      const hx = cx + dx;
+      const hz = cz + dz;
+      const hy = this.getSurfaceHeight(hx, hz);
+      this.placeHouse(hx, hy, hz, 8, 5, 6);
+    }
+  }
+
+  private placeHouse(x: number, y: number, z: number, w: number, h: number, d: number) {
+    // Floor (cobblestone)
+    for (let dx = 0; dx < w; dx++) {
+      for (let dz = 0; dz < d; dz++) {
+        this.placeBlock(x + dx, y + 1, z + dz, 11, false);
+      }
+    }
+
+    // Walls (planks)
+    for (let dx = 0; dx < w; dx++) {
+      for (let dz = 0; dz < d; dz++) {
+        for (let dy = 0; dy < h; dy++) {
+          // Only place walls on edges
+          if (dx === 0 || dx === w - 1 || dz === 0 || dz === d - 1) {
+            this.placeBlock(x + dx, y + 2 + dy, z + dz, 10, false);
+          }
+        }
+      }
+    }
+
+    // Door cutout on front wall (center bottom, 2 blocks tall, 1 wide)
+    const doorX = x + Math.floor(w / 2);
+    this.removeBlock(doorX, y + 2, z);
+    this.removeBlock(doorX, y + 3, z);
+
+    // Windows on side walls
+    const windowZ1 = z + 1;
+    const windowZ2 = z + d - 2;
+    this.removeBlock(x, y + 3, windowZ1);
+    this.placeBlock(x, y + 3, windowZ1, 9, true);
+    this.removeBlock(x + w - 1, y + 3, windowZ1);
+    this.placeBlock(x + w - 1, y + 3, windowZ1, 9, true);
+
+    // Roof (planks on top)
+    for (let dx = 0; dx < w; dx++) {
+      for (let dz = 0; dz < d; dz++) {
+        this.placeBlock(x + dx, y + 2 + h, z + dz, 10, false);
+      }
+    }
+
+    // Torch inside near door (glowstone for light)
+    this.placeBlock(doorX + 1, y + 3, z + 1, 19, false);
+  }
+
+  private placeWell(x: number, y: number, z: number) {
+    // Cobblestone ring 3x3 at y+1
+    for (let dx = 0; dx < 3; dx++) {
+      for (let dz = 0; dz < 3; dz++) {
+        if (dx !== 1 || dz !== 1) {
+          this.placeBlock(x + dx - 1, y + 1, z + dz - 1, 11, false);
+        }
+      }
+    }
+
+    // Water in center 1x1
+    this.placeBlock(x, y + 1, z, 7, false);
   }
 }

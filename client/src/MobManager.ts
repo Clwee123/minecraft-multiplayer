@@ -54,7 +54,7 @@ export class MobManager {
 
   spawnMob(type: MobType, x: number, y: number, z: number, id?: string): Mob {
     const mobId    = id ?? uid();
-    const maxHp    = type === "zombie" ? 20 : type === "creeper" ? 20 : type === "skeleton" ? 20 : type === "chicken" ? 4 : type === "cow" ? 16 : type === "sheep" ? 12 : type === "horse" ? 30 : 10;
+    const maxHp    = type === "zombie" ? 20 : type === "creeper" ? 20 : type === "skeleton" ? 20 : type === "chicken" ? 4 : type === "cow" ? 16 : type === "sheep" ? 12 : type === "horse" ? 30 : type === "villager" ? 20 : 10;
     const data: MobData = {
       id: mobId, type, x, y, z,
       rotY:      rnd(0, Math.PI * 2),
@@ -117,7 +117,7 @@ export class MobManager {
 
   // ── Raycast attack from player (called on left-click) ────────────────────
   // Returns { hit: true, mobId, damage } if a mob was struck
-  tryAttack(raycaster: THREE.Raycaster): { mobId: string; damage: number } | null {
+  tryAttack(raycaster: THREE.Raycaster, enchants?: { sharpness: number; protection: number; speed: number }): { mobId: string; damage: number } | null {
     if (this.attackCooldown > 0) return null;
     const meshes: THREE.Object3D[] = [];
     const idMap   = new Map<THREE.Object3D, string>();
@@ -136,7 +136,11 @@ export class MobManager {
     if (!mobId) return null;
 
     const lm     = this.mobs.get(mobId)!;
-    const damage = 5;
+    let damage = 5;
+    // Apply sharpness enchantment
+    if (enchants?.sharpness) {
+      damage += 2 * enchants.sharpness;
+    }
     lm.mob.health -= damage;
     lm.mob.showDamage(lm.mob.health);
     if (lm.mob.health <= 0) lm.mob.die();
@@ -226,6 +230,8 @@ export class MobManager {
       this.animalAI(lm, dt, dist, dx2, dz2, spd);
     } else if (d.type === "horse") {
       this.horseAI(lm, dt, dist, dx2, dz2, playerPos);
+    } else if (d.type === "villager") {
+      this.villagerAI(lm, dt, playerPos);
     } else if (d.type === "zombie") {
       this.zombieAI(lm, dt, dist, dx2, dz2, playerPos);
     } else if (d.type === "creeper") {
@@ -473,6 +479,20 @@ export class MobManager {
 
     this.scene.add(arrowMesh);
     this.arrows.push({ mesh: arrowMesh, vel, life: 3 });
+  }
+
+  private villagerAI(lm: LocalMob, dt: number, playerPos: THREE.Vector3) {
+    const d = lm.data;
+    // Villagers stand idle and rotate to face player when nearby
+    const dx = playerPos.x - d.x;
+    const dz = playerPos.z - d.z;
+    const playerDist = Math.sqrt(dx * dx + dz * dz);
+
+    if (playerDist < 10) {
+      // Face player
+      d.rotY = Math.atan2(dx, dz);
+    }
+    // Villagers don't move or attack - they just stand still
   }
 
   getAllMobsForDisplay(): Array<{ id: string; mob: Mob }> {
