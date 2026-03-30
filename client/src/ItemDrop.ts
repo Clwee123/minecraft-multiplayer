@@ -104,6 +104,14 @@ const ITEM_COLORS: Record<string, number> = {
   bone: 0xffffcc,
   arrow: 0xaa7733,
   string: 0xddddcc,
+  salmon: 0xff6644,
+  cod: 0x996644,
+  tropical_fish: 0xffaa00,
+  pufferfish: 0xffff00,
+  iron_helmet: 0x888888,
+  iron_chestplate: 0x888888,
+  iron_leggings: 0x777777,
+  iron_boots: 0x666666,
 };
 
 export const MOB_DROPS: Record<string, Array<{ item: string; chance: number; min: number; max: number }>> = {

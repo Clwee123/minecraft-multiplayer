@@ -239,6 +239,14 @@ interface Arrow {
 }
 const playerArrows: Arrow[] = [];
 
+interface FishingBobber {
+  mesh: THREE.Mesh;
+  vel: THREE.Vector3;
+  inWater: boolean;
+  waitTimer: number;
+}
+let fishingBobber: FishingBobber | null = null;
+
 // ── TNT System ────────────────────────────────────────────────────────────────
 
 let netherMode = false;
@@ -386,6 +394,49 @@ async function startGame(name: string) {
     sounds.play("hurt");
   };
   player.onOpenChat  = () => { ui.openChatInput(); player.setChatOpen(true); };
+
+  // Fishing rod right-click handler
+  player.onRightClick = () => {
+    if (player.selectedBlockType === 33) { // Fishing Rod
+      if (fishingBobber) {
+        // Reel in
+        scene.remove(fishingBobber.mesh);
+        fishingBobber.mesh.geometry.dispose();
+        (fishingBobber.mesh.material as THREE.MeshBasicMaterial).dispose();
+        if (fishingBobber.inWater) {
+          // Random chance to catch a fish
+          const fishes = ["Salmon", "Cod", "Tropical Fish", "Pufferfish"];
+          const fish = fishes[Math.floor(Math.random() * fishes.length)];
+          ui.addChatMessage("", `You caught a ${fish}!`, true);
+          hunger = Math.min(maxHunger, hunger + 2);
+          ui.updateHunger(hunger, maxHunger);
+          sounds.play("eat");
+        }
+        fishingBobber = null;
+      } else {
+        // Cast bobber
+        const rayDir = new THREE.Vector3(0, 0, -1)
+          .applyAxisAngle(new THREE.Vector3(1, 0, 0), player.camera.rotation.x)
+          .applyAxisAngle(new THREE.Vector3(0, 1, 0), player.camera.rotation.y);
+
+        const bobberGeo = new THREE.SphereGeometry(0.15, 8, 8);
+        const bobberMat = new THREE.MeshBasicMaterial({ color: 0x0066cc });
+        const bobberMesh = new THREE.Mesh(bobberGeo, bobberMat);
+        bobberMesh.position.copy(player.position);
+        bobberMesh.position.y += 0.6;
+        scene.add(bobberMesh);
+
+        fishingBobber = {
+          mesh: bobberMesh,
+          vel: rayDir.clone().multiplyScalar(15),
+          inWater: false,
+          waitTimer: 2 + Math.random() * 6,
+        };
+      }
+      return; // Don't place the rod
+    }
+  };
+
   player.onBreakBlock = (x, y, z) => {
     const b = world.getBlock(x, y, z);
     if (!b) return;
@@ -504,11 +555,46 @@ async function startGame(name: string) {
     }
   });
 
-  // E key for inventory
+  // E key for inventory and bed interaction
   document.addEventListener("keydown", e => {
     if (e.key === "e" || e.key === "E") {
       if (!document.pointerLockElement || ui.isChatOpen()) return;
       e.preventDefault();
+
+      // Check for bed interaction first
+      const bedRaycaster = new THREE.Raycaster();
+      bedRaycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
+      bedRaycaster.far = 5;
+      const hits = bedRaycaster.intersectObjects(world.getMeshes());
+
+      for (const hit of hits) {
+        const meshPos = hit.point.clone().add(hit.face!.normal.clone().multiplyScalar(0.1));
+        const bx = Math.round(meshPos.x);
+        const by = Math.round(meshPos.y);
+        const bz = Math.round(meshPos.z);
+        const bedBlock = world.getBlock(bx, by, bz);
+
+        if (bedBlock && bedBlock.type === 34) { // Bed block type
+          // Check if it's night time
+          if (dayTime > 0.7 || dayTime < 0.25) {
+            ui.addChatMessage("", "Sleeping...", true);
+            dayTime = 0.25; // Skip to morning
+            player.health = Math.min(player.maxHealth, player.health + 3);
+            hunger = Math.min(maxHunger, hunger + 4);
+            ui.updateHearts(player.health, player.maxHealth);
+            ui.updateHunger(hunger, maxHunger);
+            sounds.play("eat");
+            setTimeout(() => {
+              ui.addChatMessage("", "You woke up!", true);
+            }, 2000);
+          } else {
+            ui.addChatMessage("", "You can only sleep at night!", true);
+          }
+          return;
+        }
+      }
+
+      // Otherwise open inventory
       if (inventoryOpen) {
         ui.hideInventory();
         inventoryOpen = false;
@@ -590,6 +676,12 @@ async function startGame(name: string) {
   itemDrops.onPickup = (item) => {
     sounds.play("eat");
     ui.addChatMessage("", "Picked up: " + item, true);
+
+    // Handle armor items
+    if (item === "iron_helmet" || item === "iron_chestplate" || item === "iron_leggings" || item === "iron_boots") {
+      player.armor = Math.min(20, player.armor + 5);
+      ui.addChatMessage("", `Armor: ${(player.armor / 20 * 100).toFixed(0)}%`, true);
+    }
   };
 
   if (isSingleplayer) {
@@ -725,6 +817,41 @@ function animate() {
     weather.update(dt, player.position, (scene.fog as THREE.Fog).color);
     itemDrops.update(dt, player.position);
     xpOrbs.update(dt, player.position);
+
+    // Update fishing bobber
+    if (fishingBobber) {
+      fishingBobber.vel.y -= 20 * dt; // gravity
+      fishingBobber.mesh.position.add(fishingBobber.vel.clone().multiplyScalar(dt));
+
+      // Check if near water
+      const bx = Math.round(fishingBobber.mesh.position.x);
+      const by = Math.round(fishingBobber.mesh.position.y);
+      const bz = Math.round(fishingBobber.mesh.position.z);
+      const block = world.getBlock(bx, by, bz);
+
+      if (block && block.type === 7 && !fishingBobber.inWater) {
+        // Hit water - stop and bob
+        fishingBobber.inWater = true;
+        fishingBobber.vel.set(0, 0, 0);
+        fishingBobber.mesh.position.y = by + 0.5;
+      }
+
+      if (fishingBobber.inWater) {
+        fishingBobber.waitTimer -= dt;
+        // Bob effect
+        fishingBobber.mesh.position.y = by + 0.5 + Math.sin(performance.now() * 0.003) * 0.1;
+
+        if (fishingBobber.waitTimer <= 0) {
+          // Time to catch! Flash the bobber
+          (fishingBobber.mesh.material as THREE.MeshBasicMaterial).color.set(0xffff00);
+          setTimeout(() => {
+            if (fishingBobber?.mesh.material) {
+              (fishingBobber.mesh.material as THREE.MeshBasicMaterial).color.set(0x0066cc);
+            }
+          }, 300);
+        }
+      }
+    }
 
     // Update arrows
     for (let i = playerArrows.length - 1; i >= 0; i--) {

@@ -43,10 +43,17 @@ export const BLOCK_TYPES: Record<number, {
   30: { name: "Wool (Green)",   color: 0x2a7a2a },
   31: { name: "Chest",          color: 0x8b6914 },
   32: { name: "Bow",            color: 0x8B6914 },
+  33: { name: "Fishing Rod",    color: 0x8b6914 },
+  34: { name: "Bed",            color: 0xff4444 },
+  35: { name: "Iron Helmet",    color: 0x888888 },
+  36: { name: "Iron Chestplate", color: 0x888888 },
+  37: { name: "Iron Leggings",  color: 0x777777 },
+  38: { name: "Iron Boots",     color: 0x666666 },
+  39: { name: "Compass",        color: 0xffdd00 },
 };
 
 // Hotbar presets — what shows in the 8 hotbar slots by default
-export const HOTBAR_BLOCKS = [1, 3, 11, 4, 5, 10, 8, 9, 19, 18, 32];
+export const HOTBAR_BLOCKS = [1, 3, 11, 4, 5, 10, 8, 9, 19, 18, 32, 33, 34, 39];
 
 export function getBlockName(type: number): string {
   return BLOCK_TYPES[type]?.name ?? "Unknown";

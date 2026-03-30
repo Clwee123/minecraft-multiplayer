@@ -25,6 +25,7 @@ export class Player {
   health      = 20;
   maxHealth   = 20;
   invincible  = 0;
+  armor       = 0;
 
   private fallStartY   = 0;
   private wasOnGround  = false;
@@ -62,6 +63,7 @@ export class Player {
   onOpenChat?:  () => void;
   onDied?:      () => void;
   onHealthChanged?: (hp: number) => void;
+  onRightClick?: () => void;  // For fishing rod and special interactions
 
   getYaw(): number { return this.yaw; }
 
@@ -186,7 +188,8 @@ export class Player {
   takeDamage(amount: number) {
     if (this.gameMode === "creative") return;
     if (this.invincible > 0) return;
-    this.health = Math.max(0, this.health - amount);
+    const reducedDamage = amount * (1 - this.armor / 20);
+    this.health = Math.max(0, this.health - reducedDamage);
     this.invincible = 0.5;
     this.onHealthChanged?.(this.health);
     if (this.health <= 0) this.onDied?.();
@@ -210,6 +213,9 @@ export class Player {
   }
 
   private placeBlock() {
+    // Call special right-click handler first (for fishing rod, etc.)
+    this.onRightClick?.();
+
     const hit = this.raycast();
     if (!hit) return;
     const pos = hit.point.clone().add(hit.face!.normal.clone().multiplyScalar(0.5));

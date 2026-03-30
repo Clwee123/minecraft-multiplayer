@@ -1,6 +1,6 @@
 import * as THREE from "three";
 
-export type MobType = "pig" | "zombie" | "chicken" | "cow" | "sheep" | "creeper" | "skeleton";
+export type MobType = "pig" | "zombie" | "chicken" | "cow" | "sheep" | "creeper" | "skeleton" | "horse";
 
 export interface MobData {
   id:      string;
@@ -51,6 +51,7 @@ export class Mob {
       case "sheep":   this.buildSheep();   break;
       case "creeper": this.buildCreeper(); break;
       case "skeleton": this.buildSkeleton(); break;
+      case "horse":   this.buildHorse();   break;
     }
 
     this.hpSprite = this.buildHpBar();
@@ -444,6 +445,52 @@ export class Mob {
     }
   }
 
+  private buildHorse() {
+    const BROWN  = 0xc8a46e;
+    const DARK   = 0x5a3a2a;
+    const BLACK  = 0x1a1a1a;
+
+    // Body
+    const body = this.box(0.9, 0.8, 1.6, BROWN);
+    body.position.set(0, 0.45, 0);
+    this.group.add(body);
+
+    // Head
+    const head = this.box(0.4, 0.5, 0.6, BROWN);
+    this.headGroup.add(head);
+    // Eyes
+    const eyeL = this.box(0.1, 0.1, 0.05, 0x222222);
+    eyeL.position.set(-0.15, 0.1, 0.32); this.headGroup.add(eyeL);
+    const eyeR = eyeL.clone(); eyeR.position.x = 0.15; this.headGroup.add(eyeR);
+    // Ears
+    const earL = this.box(0.12, 0.24, 0.08, DARK);
+    earL.position.set(-0.18, 0.32, 0.1); this.headGroup.add(earL);
+    const earR = earL.clone(); earR.position.x = 0.18; this.headGroup.add(earR);
+    this.headGroup.position.set(0, 0.6, 0.8);
+    this.group.add(this.headGroup);
+
+    // Mane (dark thin plane on neck)
+    const mane = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.3, 0.5),
+      new THREE.MeshLambertMaterial({ color: DARK })
+    );
+    mane.position.set(0, 0.8, 0.3);
+    mane.rotation.x = 0.3;
+    this.group.add(mane);
+
+    // 4 Legs
+    const legPositions: [number, number][] = [[-0.28, -0.6], [0.28, -0.6], [-0.28, 0.6], [0.28, 0.6]];
+    for (const [lx, lz] of legPositions) {
+      const g = new THREE.Group();
+      const leg = this.box(0.2, 0.7, 0.2, BROWN);
+      leg.position.y = -0.35;
+      g.add(leg);
+      g.position.set(lx, 0.1, lz);
+      this.group.add(g);
+      this.legs.push(g);
+    }
+  }
+
   // ── HP bar ────────────────────────────────────────────────────────────────
 
   private buildHpBar(): THREE.Sprite {
@@ -454,7 +501,7 @@ export class Mob {
     const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false });
     const sp  = new THREE.Sprite(mat);
     sp.scale.set(1.2, 0.18, 1);
-    const hpY: Record<MobType, number> = { pig: 1.4, chicken: 1.0, zombie: 1.6, cow: 1.8, sheep: 1.7, creeper: 1.9, skeleton: 1.9 };
+    const hpY: Record<MobType, number> = { pig: 1.4, chicken: 1.0, zombie: 1.6, cow: 1.8, sheep: 1.7, creeper: 1.9, skeleton: 1.9, horse: 2.2 };
     sp.position.y = hpY[this.type] ?? 1.6;
     return sp;
   }
@@ -546,7 +593,7 @@ export class Mob {
 
     // Flash (red for most, green for creeper, white for skeleton)
     const origColors: Record<MobType, number> = {
-      pig: 0xf9a8a8, zombie: 0x77bb77, chicken: 0xffffff, cow: 0x7a4a2a, sheep: 0xdddddd, creeper: 0x4a8a2a, skeleton: 0xcccccc,
+      pig: 0xf9a8a8, zombie: 0x77bb77, chicken: 0xffffff, cow: 0x7a4a2a, sheep: 0xdddddd, creeper: 0x4a8a2a, skeleton: 0xcccccc, horse: 0xc8a46e,
     };
     const origColor = origColors[this.type] ?? 0xffffff;
     const damageColor = this.type === "creeper" ? 0x8aca5a : this.type === "skeleton" ? 0xffffff : 0xff4444;

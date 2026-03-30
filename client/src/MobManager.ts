@@ -54,7 +54,7 @@ export class MobManager {
 
   spawnMob(type: MobType, x: number, y: number, z: number, id?: string): Mob {
     const mobId    = id ?? uid();
-    const maxHp    = type === "zombie" ? 20 : type === "creeper" ? 20 : type === "skeleton" ? 20 : type === "chicken" ? 4 : type === "cow" ? 16 : type === "sheep" ? 12 : 10;
+    const maxHp    = type === "zombie" ? 20 : type === "creeper" ? 20 : type === "skeleton" ? 20 : type === "chicken" ? 4 : type === "cow" ? 16 : type === "sheep" ? 12 : type === "horse" ? 30 : 10;
     const data: MobData = {
       id: mobId, type, x, y, z,
       rotY:      rnd(0, Math.PI * 2),
@@ -78,7 +78,7 @@ export class MobManager {
                    ? (this.world as any).getSurfaceHeight(Math.floor(x), Math.floor(z)) + 1.5
                    : 20;
     const roll   = Math.random();
-    const type: MobType = roll < 0.25 ? "pig" : roll < 0.38 ? "chicken" : roll < 0.52 ? "cow" : roll < 0.65 ? "sheep" : roll < 0.82 ? "zombie" : roll < 0.92 ? "creeper" : "skeleton";
+    const type: MobType = roll < 0.22 ? "pig" : roll < 0.35 ? "chicken" : roll < 0.48 ? "cow" : roll < 0.60 ? "sheep" : roll < 0.70 ? "horse" : roll < 0.80 ? "zombie" : roll < 0.90 ? "creeper" : "skeleton";
     this.spawnMob(type, x, y, z);
   }
 
@@ -224,6 +224,8 @@ export class MobManager {
     if (d.type === "pig" || d.type === "chicken" || d.type === "cow" || d.type === "sheep") {
       const spd = d.type === "chicken" ? 3.5 : d.type === "cow" ? 2.0 : d.type === "sheep" ? 2.2 : 2.5;
       this.animalAI(lm, dt, dist, dx2, dz2, spd);
+    } else if (d.type === "horse") {
+      this.horseAI(lm, dt, dist, dx2, dz2, playerPos);
     } else if (d.type === "zombie") {
       this.zombieAI(lm, dt, dist, dx2, dz2, playerPos);
     } else if (d.type === "creeper") {
@@ -261,6 +263,54 @@ export class MobManager {
       // Walking
       d.x += Math.sin(d.rotY) * speed * dt;
       d.z += Math.cos(d.rotY) * speed * dt;
+      if (lm.timer <= 0) {
+        d.state  = "idle";
+        lm.timer = rnd(2, 5);
+      }
+    }
+  }
+
+  private horseAI(lm: LocalMob, dt: number, playerDist: number, _dx: number, _dz: number, playerPos: THREE.Vector3) {
+    const d = lm.data;
+    const SPEED = 5.0; // Horses move faster
+
+    // Flee from zombies/skeletons
+    const shouldFlee = Array.from(this.mobs.values()).some(m =>
+      (m.data.type === "zombie" || m.data.type === "skeleton") &&
+      Math.hypot(m.data.x - d.x, m.data.z - d.z) < 15
+    );
+
+    if (shouldFlee) {
+      d.state = "fleeing";
+      lm.timer = 3;
+    }
+
+    if (d.state === "fleeing") {
+      // Find nearest threat and run away
+      let threatX = 0, threatZ = 0;
+      for (const m of this.mobs.values()) {
+        if ((m.data.type === "zombie" || m.data.type === "skeleton") && m.data.id !== d.id) {
+          threatX = m.data.x;
+          threatZ = m.data.z;
+          break;
+        }
+      }
+      if (threatX !== 0 || threatZ !== 0) {
+        d.rotY = Math.atan2(d.x - threatX, d.z - threatZ);
+      }
+      d.x += Math.sin(d.rotY) * SPEED * dt;
+      d.z += Math.cos(d.rotY) * SPEED * dt;
+      if (lm.timer <= 0) d.state = "idle";
+    } else if (d.state === "idle") {
+      if (lm.timer <= 0) {
+        d.state   = Math.random() < 0.5 ? "walking" : "idle";
+        d.rotY    = Math.random() * Math.PI * 2;
+        lm.timer  = rnd(1.5, 4);
+      }
+    } else {
+      // Walking
+      d.x += Math.sin(d.rotY) * SPEED * dt;
+      d.z += Math.cos(d.rotY) * SPEED * dt;
       if (lm.timer <= 0) {
         d.state  = "idle";
         lm.timer = rnd(2, 5);
