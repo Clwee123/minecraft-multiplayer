@@ -26,21 +26,22 @@ window.addEventListener("resize", () => {
 
 const scene  = new THREE.Scene();
 scene.background = new THREE.Color(0x87ceeb);
-scene.fog        = new THREE.Fog(0x87ceeb, 40, 130);
+scene.fog        = new THREE.Fog(0x87ceeb, 50, 150);
 
-const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.05, 200);
+const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.05, 250);
 
 // Lighting
-const ambient = new THREE.AmbientLight(0xffffff, 0.55);
+const ambient = new THREE.AmbientLight(0xffffff, 0.6);
 scene.add(ambient);
 
-const sun = new THREE.DirectionalLight(0xfff4e0, 1.3);
+const sun = new THREE.DirectionalLight(0xfff4e0, 1.4);
 sun.position.set(50, 100, 50);
 sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048);
-sun.shadow.camera.near = 0.5; sun.shadow.camera.far = 300;
-sun.shadow.camera.left = -80; sun.shadow.camera.right = 80;
-sun.shadow.camera.top  =  80; sun.shadow.camera.bottom = -80;
+sun.shadow.camera.near = 0.5;
+sun.shadow.camera.far  = 300;
+sun.shadow.camera.left = sun.shadow.camera.bottom = -100;
+sun.shadow.camera.right = sun.shadow.camera.top   =  100;
 scene.add(sun);
 
 const hemi = new THREE.HemisphereLight(0x87ceeb, 0x4a7c4a, 0.35);
@@ -56,26 +57,68 @@ let mp:          MultiplayerManager | null = null;
 let mobManager:  MobManager | null = null;
 let isSingleplayer = true;
 
-// ── Raycaster for mob attacks (shared) ───────────────────────────────────────
-
 const attackRaycaster = new THREE.Raycaster();
 attackRaycaster.far   = 5;
 
-// ── Gamemode command handler ──────────────────────────────────────────────────
+// ── Command handler ───────────────────────────────────────────────────────────
 
-function handleCommand(cmd: string): boolean {
+function handleCommand(cmd: string, playerName: string): boolean {
   const parts = cmd.trim().toLowerCase().split(/\s+/);
-  if (parts[0] !== "/gamemode") return false;
+  const base  = parts[0];
 
-  const mode = parts[1] as GameMode;
-  if (mode === "creative" || mode === "survival") {
-    player.setGameMode(mode);
-    ui.setGameMode(mode);
-    ui.addChatMessage("", `Gamemode set to ${mode}`, true);
-    mp?.sendGameMode(mode);
+  if (base === "/gamemode") {
+    const mode = parts[1] as GameMode;
+    if (mode === "creative" || mode === "survival") {
+      player.setGameMode(mode);
+      ui.setGameMode(mode);
+      ui.addChatMessage("", `§7Gamemode set to §e${mode}`, true);
+      mp?.sendGameMode(mode);
+      return true;
+    }
+    ui.addChatMessage("", "Usage: /gamemode creative | survival", true);
     return true;
   }
-  ui.addChatMessage("", "Usage: /gamemode creative | survival", true);
+
+  if (base === "/kill") {
+    player.takeDamage(player.maxHealth);
+    ui.addChatMessage("", "You were slain.", true);
+    return true;
+  }
+
+  if (base === "/heal") {
+    (player as any).health = player.maxHealth;
+    (player as any).invincible = 0;
+    ui.updateHearts(player.maxHealth, player.maxHealth);
+    ui.addChatMessage("", "Healed to full health!", true);
+    return true;
+  }
+
+  if (base === "/tp") {
+    const x = parseFloat(parts[1] ?? "0");
+    const z = parseFloat(parts[2] ?? "0");
+    if (!isNaN(x) && !isNaN(z)) {
+      player.spawnAt(x, z);
+      ui.addChatMessage("", `Teleported to ${x.toFixed(1)}, ${z.toFixed(1)}`, true);
+    } else {
+      ui.addChatMessage("", "Usage: /tp <x> <z>", true);
+    }
+    return true;
+  }
+
+  if (base === "/help") {
+    const cmds = [
+      "/gamemode creative | survival",
+      "/kill  — instant death",
+      "/heal  — full health",
+      "/tp <x> <z>  — teleport",
+      "F5  — toggle 3rd person view",
+      "Ctrl+W  — sprint",
+    ];
+    cmds.forEach(c => ui.addChatMessage("", c, true));
+    return true;
+  }
+
+  ui.addChatMessage("", `Unknown command: ${base}. Type /help for list.`, true);
   return true;
 }
 
@@ -87,42 +130,40 @@ const playBtn     = document.getElementById("playBtn")!;
 const hud         = document.getElementById("hud")!;
 
 async function startGame(name: string) {
-  const playerName = name || "Player";
+  const playerName = name.trim() || `Player${Math.floor(Math.random() * 999)}`;
   const mode       = (window as any).__getSelectedMode?.() ?? "sp";
   isSingleplayer   = mode === "sp";
 
   loginScreen.style.display = "none";
   hud.style.display         = "block";
-  document.body.requestPointerLock();
+
+  // Spawn player at a safe surface position
+  player.spawnAt(0, 0);
+
+  setTimeout(() => document.body.requestPointerLock(), 200);
 
   // Wire player callbacks
   player.onHealthChanged = hp => ui.updateHearts(hp, player.maxHealth);
   player.onDied          = () => {
     ui.showDeath();
-    ui.addChatMessage("", "You died!", true);
+    ui.addChatMessage("", "You died! Click Respawn to continue.", true);
   };
   player.onOpenChat      = () => { ui.openChatInput(); player.setChatOpen(true); };
-  player.onBreakBlock    = (x, y, z) => {
-    mp?.sendRemoveBlock(x, y, z);
-  };
-  player.onPlaceBlock    = (x, y, z, t) => {
-    mp?.sendAddBlock(x, y, z, t);
-  };
+  player.onBreakBlock    = (x, y, z) => mp?.sendRemoveBlock(x, y, z);
+  player.onPlaceBlock    = (x, y, z, t) => mp?.sendAddBlock(x, y, z, t);
 
-  // Attack mobs on left-click (only when raycaster doesn't hit a block)
+  // Mob attacks on left-click
   document.addEventListener("mousedown", e => {
     if (e.button !== 0 || !document.pointerLockElement) return;
     attackRaycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
     const result = mobManager?.tryAttack(attackRaycaster);
-    if (result && !isSingleplayer) {
-      mp?.sendAttackMob(result.mobId, result.damage);
-    }
+    if (result && !isSingleplayer) mp?.sendAttackMob(result.mobId, result.damage);
   });
 
-  // UI chat handler
+  // Chat / commands
   ui.onChat = (text) => {
     if (text.startsWith("/")) {
-      handleCommand(text);
+      handleCommand(text, playerName);
     } else {
       if (isSingleplayer) {
         ui.addChatMessage(playerName, text);
@@ -138,10 +179,9 @@ async function startGame(name: string) {
     player.respawn();
     ui.updateHearts(player.maxHealth, player.maxHealth);
     mp?.sendRespawn();
-    setTimeout(() => document.body.requestPointerLock(), 100);
+    setTimeout(() => document.body.requestPointerLock(), 150);
   };
 
-  // Set initial health
   ui.updateHearts(player.health, player.maxHealth);
   ui.setGameMode(player.gameMode);
 
@@ -155,7 +195,7 @@ async function startGame(name: string) {
   });
 
   if (isSingleplayer) {
-    // ── SINGLEPLAYER ────────────────────────────────────────────────────────
+    // ── SINGLEPLAYER ──────────────────────────────────────────────────────
     ui.setConnectionStatus("connected");
     ui.updatePlayerCount(1);
 
@@ -167,13 +207,13 @@ async function startGame(name: string) {
       getPlayerPos: () => player.position,
     }, true);
 
-    // Spawn initial mobs
-    for (let i = 0; i < 12; i++) {
-      mobManager.spawnRandom(0, 0);
-    }
+    for (let i = 0; i < 14; i++) mobManager.spawnRandom(0, 0);
+
+    ui.addChatMessage("", `Welcome, ${playerName}! SP mode — mobs active.`, true);
+    ui.addChatMessage("", "T=chat · F5=3rd person · Ctrl=sprint · /help for commands", true);
 
   } else {
-    // ── MULTIPLAYER ─────────────────────────────────────────────────────────
+    // ── MULTIPLAYER ───────────────────────────────────────────────────────
     const serverAddr = (window as any).__getServerAddr?.() ?? "localhost:2567";
     mp = new MultiplayerManager(scene, world, {
       onStatusChange: s => ui.setConnectionStatus(s),
@@ -183,14 +223,14 @@ async function startGame(name: string) {
         player.takeDamage(amount);
         ui.updateHearts(player.health, player.maxHealth);
       },
-      onPlayerDied:   (name) => {
-        ui.addChatMessage("", `${name} was slain!`, true);
+      onPlayerDied: (name) => {
+        ui.addChatMessage("", `☠ ${name} was slain!`, true);
         if (name === playerName) ui.showDeath();
       },
     }, serverAddr);
 
     mobManager = new MobManager(scene, world, {
-      onPlayerDamage: () => {},       // server handles damage in MP
+      onPlayerDamage: () => {},
       getPlayerPos:   () => player.position,
     }, false);
 
@@ -198,44 +238,33 @@ async function startGame(name: string) {
     mp.setLocalStateGetter(() => player.getState());
 
     await mp.join(playerName);
+
+    ui.addChatMessage("", `Welcome, ${playerName}! MP mode.`, true);
+    ui.addChatMessage("", "T=chat · F5=3rd person · /help for commands", true);
   }
-
-  // Welcome message
-  ui.addChatMessage("", `Welcome, ${playerName}! T = chat, /gamemode creative to fly`, true);
 }
 
-playBtn.addEventListener("click", () => startGame(nameInput.value.trim()));
-nameInput.addEventListener("keydown", e => {
-  if (e.key === "Enter") startGame(nameInput.value.trim());
-});
+playBtn.addEventListener("click", () => startGame(nameInput.value));
+nameInput.addEventListener("keydown", e => { if (e.key === "Enter") startGame(nameInput.value); });
 
-// Auto-join via ?name= query parameter
 const autoName = new URLSearchParams(window.location.search).get("name");
-if (autoName) {
-  nameInput.value = autoName;
-  setTimeout(() => startGame(autoName), 800);
-}
+if (autoName) { nameInput.value = autoName; setTimeout(() => startGame(autoName), 800); }
 
-// ── Game Loop ─────────────────────────────────────────────────────────────────
+// ── Game loop ─────────────────────────────────────────────────────────────────
 
 let lastTime = performance.now();
 
 function animate() {
   requestAnimationFrame(animate);
   const now = performance.now();
-  const dt  = Math.min((now - lastTime) / 1000, 0.1);
+  const dt  = Math.min((now - lastTime) / 1000, 0.05); // cap at 50ms to avoid big jumps
   lastTime  = now;
 
   if (hud.style.display !== "none") {
     player.update(dt);
     mp?.updatePlayers(dt);
     mobManager?.update(dt);
-
-    ui.updatePosition(
-      player.position.x,
-      player.position.y,
-      player.position.z,
-    );
+    ui.updatePosition(player.position.x, player.position.y, player.position.z);
   }
 
   renderer.render(scene, camera);

@@ -172,11 +172,27 @@ export class World {
     return Array.from(this.blocks.values()).map(b => b.mesh);
   }
 
-  /** Top Y coordinate (in world units) of the highest solid block at (x, z). */
+  /**
+   * Returns the Y position of the TOP face of the highest solid (non-water) block at (x, z).
+   * Returns 5 as fallback (safe above sea level).
+   */
   getSurfaceHeight(x: number, z: number): number {
-    for (let y = WORLD_HEIGHT; y >= 0; y--) {
-      if (this.blocks.has(key(x, y, z))) return y + 0.5;
+    for (let y = WORLD_HEIGHT + 5; y >= 0; y--) {
+      const entry = this.blocks.get(key(x, y, z));
+      if (entry && entry.type !== 7 && entry.type !== 9) return y; // top face = y
     }
-    return 0;
+    return 8; // fallback above sea level
+  }
+
+  /** Check a range of x/z around a point for the maximum surface Y — good for spawn finding */
+  getSpawnHeight(x: number, z: number, radius = 2): number {
+    let best = 0;
+    for (let dx = -radius; dx <= radius; dx++) {
+      for (let dz = -radius; dz <= radius; dz++) {
+        const h = this.getSurfaceHeight(x + dx, z + dz);
+        if (h > best) best = h;
+      }
+    }
+    return best;
   }
 }

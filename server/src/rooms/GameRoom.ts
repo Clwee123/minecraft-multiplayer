@@ -124,8 +124,9 @@ export class GameRoom extends Room<GameState> {
       const p = this.state.players.get(client.sessionId);
       if (!p) return;
       p.health = 20;
+      // Spawn high enough so client physics lands player on surface safely
       p.x = (Math.random() - 0.5) * 6;
-      p.y = 30;
+      p.y = 42;  // client will fall to ground naturally
       p.z = (Math.random() - 0.5) * 6;
     });
 
@@ -141,7 +142,7 @@ export class GameRoom extends Room<GameState> {
     p.id     = client.sessionId;
     p.name   = (options.name || "Player").slice(0, 24);
     p.x      = (Math.random() - 0.5) * 6;
-    p.y      = 30;
+    p.y      = 42;   // spawn high — client lands on surface via physics
     p.z      = (Math.random() - 0.5) * 6;
     this.state.players.set(client.sessionId, p);
     console.log(`[GameRoom] ${p.name} joined (${client.sessionId})`);
@@ -188,9 +189,9 @@ export class GameRoom extends Room<GameState> {
     const mob = new MobState();
     mob.id        = id;
     mob.type      = mobType;
-    mob.x         = rnd(-40, 40);
-    mob.y         = 30;
-    mob.z         = rnd(-40, 40);
+    mob.x         = rnd(-45, 45);
+    mob.y         = 25;  // falls down to terrain via gravity
+    mob.z         = rnd(-45, 45);
     mob.rotY      = rnd(0, Math.PI * 2);
     mob.maxHealth = mobType === "zombie" ? 20 : mobType === "chicken" ? 4 : 10;
     mob.health    = mob.maxHealth;
@@ -212,11 +213,13 @@ export class GameRoom extends Room<GameState> {
       let timer = this.mobTimers.get(id) ?? 0;
       timer -= dt;
 
-      // Simple gravity / floor snap
+      // Gravity + floor snap (floor is roughly y=9 for sea-level terrain)
       let velY = this.mobVelY.get(id) ?? 0;
-      velY += -20 * dt;
+      velY  = Math.max(velY - 28 * dt, -50);
       mob.y += velY * dt;
-      if (mob.y < 8) { mob.y = 8; velY = 0; }
+      // Terrain surface is between y=6 (water) and y=18 (hills); clamp to 9
+      const floorY = 9;
+      if (mob.y < floorY) { mob.y = floorY; velY = 0; }
       this.mobVelY.set(id, velY);
 
       // Find nearest player

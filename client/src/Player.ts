@@ -1,10 +1,11 @@
 import * as THREE from "three";
 import { World } from "./World";
 
-const MOVE_SPEED  = 5.0;
-const FLY_SPEED   = 8.0;
-const JUMP_FORCE  = 8.0;
-const GRAVITY     = -22.0;
+const MOVE_SPEED  = 4.5;
+const SPRINT_MULT = 1.6;
+const FLY_SPEED   = 9.0;
+const JUMP_FORCE  = 8.5;
+const GRAVITY     = -28.0;
 const PLAYER_H    = 1.8;
 const PLAYER_W    = 0.55;
 const EYE_HEIGHT  = 1.62;
@@ -16,35 +17,43 @@ export class Player {
   camera: THREE.PerspectiveCamera;
   private world: World;
 
-  position = new THREE.Vector3(0, 30, 0);
-  velocity = new THREE.Vector3();
-  onGround  = false;
+  position    = new THREE.Vector3(0, 30, 0);
+  velocity    = new THREE.Vector3();
+  onGround    = false;
   gameMode: GameMode = "survival";
 
-  // Health
-  health    = 20;
-  maxHealth = 20;
-  invincible = 0;        // seconds of i-frames
-  private fallStartY = 0;
-  private wasOnGround = false;
+  health      = 20;
+  maxHealth   = 20;
+  invincible  = 0;
 
-  // Input state
+  private fallStartY   = 0;
+  private wasOnGround  = false;
+  private fallTracking = false;
+
   private keys: Record<string, boolean> = {};
   private yaw   = 0;
   private pitch = 0;
   private locked = false;
   chatOpen = false;
 
-  // Creative fly
   private flying    = false;
   private lastSpace = 0;
 
-  // Block interaction
   selectedBlockType = 1;
   private raycaster = new THREE.Raycaster();
   highlightMesh: THREE.Mesh;
 
-  // Callbacks
+  // 3rd-person self model
+  private selfModel: THREE.Group | null = null;
+  private selfHead:  THREE.Group | null = null;
+  private selfLA: THREE.Group | null = null;
+  private selfRA: THREE.Group | null = null;
+  private selfLL: THREE.Group | null = null;
+  private selfRL: THREE.Group | null = null;
+  private walkCycle   = 0;
+  private prevXZ      = new THREE.Vector2();
+  thirdPerson         = false;
+
   onPlaceBlock?: (x: number, y: number, z: number, type: number) => void;
   onBreakBlock?: (x: number, y: number, z: number) => void;
   onOpenChat?:  () => void;
@@ -55,56 +64,105 @@ export class Player {
     this.camera = camera;
     this.world  = world;
 
-    const geo = new THREE.BoxGeometry(1.01, 1.01, 1.01);
+    const geo = new THREE.BoxGeometry(1.02, 1.02, 1.02);
     const mat = new THREE.MeshBasicMaterial({
-      color: 0x000000, wireframe: true, transparent: true, opacity: 0.4,
+      color: 0x000000, wireframe: true, transparent: true, opacity: 0.45,
     });
     this.highlightMesh = new THREE.Mesh(geo, mat);
     this.highlightMesh.visible = false;
     scene.add(this.highlightMesh);
 
+    this.selfModel = this.buildModel(scene);
+    this.selfModel.visible = false;
     this.setupInput();
   }
+
+  // ── Self model ─────────────────────────────────────────────────────────────
+
+  private buildModel(scene: THREE.Scene): THREE.Group {
+    const group = new THREE.Group();
+    const SKIN  = 0xffcc99;
+    const SHIRT = 0x3355cc;
+    const PANTS = 0x224499;
+    const SHOE  = 0x332211;
+    const HAIR  = 0x331100;
+    const m = (c: number) => new THREE.MeshLambertMaterial({ color: c });
+    const b = (w: number, h: number, d: number, c: number) =>
+      new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m(c));
+    const limb = (w: number, h: number, d: number, c: number) => {
+      const g = new THREE.Group();
+      const mesh = b(w, h, d, c);
+      mesh.position.y = -h / 2;
+      g.add(mesh);
+      return g;
+    };
+
+    const headGroup = new THREE.Group();
+    headGroup.add(b(0.5, 0.5, 0.5, SKIN));
+    const hair = b(0.52, 0.14, 0.52, HAIR);
+    hair.position.y = 0.19;
+    headGroup.add(hair);
+    headGroup.position.set(0, 0.75, 0);
+
+    const body = b(0.6, 0.75, 0.35, SHIRT);
+    body.position.y = 0;
+
+    const LA = limb(0.25, 0.65, 0.25, SHIRT);
+    const RA = limb(0.25, 0.65, 0.25, SHIRT);
+    const hL = b(0.24, 0.25, 0.24, SKIN); hL.position.y = -0.575; LA.children[0].add(hL);
+    const hR = hL.clone(); RA.children[0].add(hR);
+    LA.position.set(-0.43, 0.37, 0);
+    RA.position.set( 0.43, 0.37, 0);
+
+    const LL = limb(0.27, 0.75, 0.27, PANTS);
+    const RL = limb(0.27, 0.75, 0.27, PANTS);
+    const bL = b(0.28, 0.2, 0.3, SHOE); bL.position.y = -0.77; LL.children[0].add(bL);
+    const bR = bL.clone(); RL.children[0].add(bR);
+    LL.position.set(-0.175, -0.375, 0);
+    RL.position.set( 0.175, -0.375, 0);
+
+    group.add(headGroup, body, LA, RA, LL, RL);
+    scene.add(group);
+
+    this.selfHead = headGroup;
+    this.selfLA = LA; this.selfRA = RA;
+    this.selfLL = LL; this.selfRL = RL;
+    return group;
+  }
+
+  // ── Input ──────────────────────────────────────────────────────────────────
 
   private setupInput() {
     document.addEventListener("keydown", e => {
       if (this.chatOpen) return;
       this.keys[e.code] = true;
-
-      if (e.code === "KeyT") { this.onOpenChat?.(); }
-
-      // Double-tap Space to toggle fly in creative
+      if (e.code === "KeyT") this.onOpenChat?.();
+      if (e.code === "F5") {
+        this.thirdPerson = !this.thirdPerson;
+        if (this.selfModel) this.selfModel.visible = this.thirdPerson;
+      }
       if (e.code === "Space" && this.gameMode === "creative") {
         const now = performance.now();
-        if (now - this.lastSpace < 300) {
-          this.flying = !this.flying;
-          this.velocity.y = 0;
-        }
+        if (now - this.lastSpace < 300) { this.flying = !this.flying; this.velocity.y = 0; }
         this.lastSpace = now;
       }
     });
-
-    document.addEventListener("keyup", e => { this.keys[e.code] = false; });
-
+    document.addEventListener("keyup",    e => { this.keys[e.code] = false; });
     document.addEventListener("mousemove", e => {
       if (!this.locked) return;
       this.yaw   -= e.movementX * 0.002;
       this.pitch -= e.movementY * 0.002;
-      this.pitch = Math.max(-Math.PI/2 + 0.01, Math.min(Math.PI/2 - 0.01, this.pitch));
+      this.pitch  = Math.max(-Math.PI/2+0.01, Math.min(Math.PI/2-0.01, this.pitch));
     });
-
     document.addEventListener("mousedown", e => {
       if (!this.locked) return;
       if (e.button === 0) this.breakBlock();
       if (e.button === 2) this.placeBlock();
     });
-
     document.addEventListener("contextmenu", e => e.preventDefault());
-
     document.addEventListener("pointerlockchange", () => {
       this.locked = document.pointerLockElement === document.body;
     });
-
     document.body.addEventListener("click", () => {
       if (!this.locked && !this.chatOpen) document.body.requestPointerLock();
     });
@@ -117,10 +175,7 @@ export class Player {
 
   setGameMode(mode: GameMode) {
     this.gameMode = mode;
-    if (mode === "survival") {
-      this.flying = false;
-      this.velocity.y = 0;
-    }
+    if (mode === "survival") { this.flying = false; this.velocity.y = 0; }
   }
 
   takeDamage(amount: number) {
@@ -134,10 +189,11 @@ export class Player {
 
   respawn() {
     this.health = this.maxHealth;
-    this.position.set((Math.random() - 0.5) * 4, 30, (Math.random() - 0.5) * 4);
-    this.velocity.set(0, 0, 0);
+    this.spawnAt((Math.random()-0.5)*4, (Math.random()-0.5)*4);
     this.onHealthChanged?.(this.health);
   }
+
+  // ── Block interaction ──────────────────────────────────────────────────────
 
   private breakBlock() {
     const hit = this.raycast();
@@ -153,123 +209,136 @@ export class Player {
     if (!hit) return;
     const pos = hit.point.clone().add(hit.face!.normal.clone().multiplyScalar(0.5));
     const bx = Math.round(pos.x), by = Math.round(pos.y), bz = Math.round(pos.z);
-    const footPos = this.position.clone();
-    footPos.y -= EYE_HEIGHT;
+    const footY = this.position.y - EYE_HEIGHT;
     if (
-      Math.abs(bx - footPos.x) < 0.7 &&
-      Math.abs(by - footPos.y - PLAYER_H / 2) < PLAYER_H / 2 + 0.5 &&
-      Math.abs(bz - footPos.z) < 0.7
+      Math.abs(bx - this.position.x) < PLAYER_W + 0.3 &&
+      by >= footY - 0.2 && by <= footY + PLAYER_H + 0.2 &&
+      Math.abs(bz - this.position.z) < PLAYER_W + 0.3
     ) return;
     this.world.placeBlock(bx, by, bz, this.selectedBlockType);
     this.onPlaceBlock?.(bx, by, bz, this.selectedBlockType);
   }
 
   private raycast(): THREE.Intersection | null {
-    this.raycaster.setFromCamera(new THREE.Vector2(0, 0), this.camera);
+    this.raycaster.setFromCamera(new THREE.Vector2(0,0), this.camera);
     this.raycaster.far = REACH;
     const hits = this.raycaster.intersectObjects(this.world.getMeshes());
     return hits.length ? hits[0] : null;
   }
 
+  // ── Main update ────────────────────────────────────────────────────────────
+
   update(dt: number) {
     if (this.invincible > 0) this.invincible -= dt;
-
-    if (this.gameMode === "creative") {
-      this.updateCreative(dt);
-    } else {
-      this.applyPhysics(dt);
-    }
+    if (this.gameMode === "creative") this.updateCreative(dt);
+    else                              this.applyPhysics(dt);
     this.applyMovement(dt);
     this.updateCamera();
     this.updateHighlight();
+    this.updateSelfModel(dt);
   }
 
-  // ── Physics (survival) ────────────────────────────────────────────────────
+  // ── Physics ────────────────────────────────────────────────────────────────
 
   private applyPhysics(dt: number) {
-    // Gravity
     this.velocity.y += GRAVITY * dt;
-    if (this.velocity.y < -50) this.velocity.y = -50;
+    if (this.velocity.y < -60) this.velocity.y = -60;
 
-    const footCurrent = this.position.y - EYE_HEIGHT;
-
-    // ── Vertical movement ────────────────────────────────────────────────────
-    let newY = this.position.y + this.velocity.y * dt;
-    let footNew = newY - EYE_HEIGHT;
+    const proposedY = this.position.y + this.velocity.y * dt;
     let grounded = false;
 
     if (this.velocity.y <= 0) {
-      // Falling / standing: check floor
-      const floorY = Math.floor(footNew);
-      if (this.feetHitBlock(this.position.x, this.position.z, floorY)) {
-        this.velocity.y = 0;
-        newY = floorY + 1.0 + EYE_HEIGHT; // stand exactly on top of block
-        grounded = true;
+      // Falling: check for floor at proposed foot position and also one block lower (fast fall safety)
+      const feetY  = proposedY - EYE_HEIGHT;
+      const checkY = Math.floor(feetY);
+      for (let yOff = 0; yOff <= 2; yOff++) {
+        const testY = checkY - yOff;
+        if (this.footprintOverBlock(this.position.x, this.position.z, testY)) {
+          const standY = testY + 1 + EYE_HEIGHT;
+          if (proposedY <= standY + 0.02) {
+            // Fall damage
+            if (this.fallTracking) {
+              const dist = this.fallStartY - (testY + 1);
+              if (dist > 3.5) this.takeDamage(Math.floor(dist - 3));
+              this.fallTracking = false;
+            }
+            this.position.y = standY;
+            this.velocity.y = 0;
+            grounded = true;
+          }
+          break;
+        }
       }
+      if (!grounded) this.position.y = proposedY;
     } else {
-      // Rising: check ceiling
-      const headY = Math.floor(footCurrent + PLAYER_H);
-      if (this.feetHitBlock(this.position.x, this.position.z, headY)) {
+      // Rising: ceiling check
+      const headY = Math.floor(this.position.y - EYE_HEIGHT + PLAYER_H + 0.05);
+      if (this.footprintOverBlock(this.position.x, this.position.z, headY)) {
         this.velocity.y = 0;
-        newY = headY - (PLAYER_H - EYE_HEIGHT);
+      } else {
+        this.position.y = proposedY;
       }
     }
 
-    this.position.y = newY;
-
-    // ── Fall damage ──────────────────────────────────────────────────────────
-    if (!this.wasOnGround && grounded) {
-      const fallDist = this.fallStartY - (this.position.y - EYE_HEIGHT);
-      if (fallDist > 3) {
-        const dmg = Math.floor(fallDist - 3);
-        this.takeDamage(dmg);
-      }
+    // Start tracking fall when leaving ground
+    if (!grounded && this.wasOnGround) {
+      this.fallStartY   = this.position.y - EYE_HEIGHT;
+      this.fallTracking = this.velocity.y < 0;
     }
-    if (!grounded && !this.wasOnGround) {
-      // Track peak of fall
-    } else if (!grounded && this.wasOnGround) {
-      this.fallStartY = this.position.y - EYE_HEIGHT;
-    }
+    if (grounded) this.fallTracking = false;
 
-    // Safety floor
-    if (this.position.y < -10) {
+    // Void
+    if (this.position.y < -20) {
       this.takeDamage(4);
-      this.position.y = 35;
+      const sy = this.world.getSurfaceHeight(Math.round(this.position.x), Math.round(this.position.z));
+      this.position.y = sy + EYE_HEIGHT + 1;
       this.velocity.y = 0;
+      this.fallTracking = false;
     }
 
-    this.onGround  = grounded;
+    this.onGround    = grounded;
     this.wasOnGround = grounded;
   }
 
-  // Check if any corner of the player's foot quad hits a block at blockY
-  private feetHitBlock(x: number, z: number, blockY: number): boolean {
-    const R = PLAYER_W / 2;
-    return (
-      this.world.hasBlock(Math.floor(x - R), blockY, Math.floor(z - R)) ||
-      this.world.hasBlock(Math.floor(x + R), blockY, Math.floor(z - R)) ||
-      this.world.hasBlock(Math.floor(x - R), blockY, Math.floor(z + R)) ||
-      this.world.hasBlock(Math.floor(x + R), blockY, Math.floor(z + R))
-    );
-  }
-
-  // Check if moving to (x, y, z) would be inside a wall (XZ collision)
-  private wallCollision(x: number, y: number, z: number): boolean {
-    const R   = PLAYER_W / 2;
-    const bot = Math.floor(y - EYE_HEIGHT + 0.1);
-    const top = Math.floor(y - EYE_HEIGHT + PLAYER_H - 0.1);
-    for (let by = bot; by <= top; by++) {
-      if (
-        this.world.hasBlock(Math.floor(x - R), by, Math.floor(z - R)) ||
-        this.world.hasBlock(Math.floor(x + R), by, Math.floor(z - R)) ||
-        this.world.hasBlock(Math.floor(x - R), by, Math.floor(z + R)) ||
-        this.world.hasBlock(Math.floor(x + R), by, Math.floor(z + R))
-      ) return true;
+  /**
+   * Returns true if the player's foot rectangle (PLAYER_W wide) overlaps a solid block at blockY.
+   * Uses a swept rectangle check over all corner and mid points.
+   */
+  private footprintOverBlock(x: number, z: number, blockY: number): boolean {
+    const R = PLAYER_W / 2 - 0.01; // slight inset to avoid edge false-positives
+    const xs = [x - R, x, x + R];
+    const zs = [z - R, z, z + R];
+    for (const bx of xs) {
+      for (const bz of zs) {
+        if (!this.world.hasBlock(Math.floor(bx), blockY, Math.floor(bz))) continue;
+        const entry = this.world.getBlock(Math.floor(bx), blockY, Math.floor(bz));
+        if (entry && entry.type === 7) continue; // water is not solid
+        return true;
+      }
     }
     return false;
   }
 
-  // ── Creative flight ───────────────────────────────────────────────────────
+  private wallCollision(x: number, y: number, z: number): boolean {
+    const R   = PLAYER_W / 2 - 0.01;
+    const bot = Math.floor(y - EYE_HEIGHT + 0.05);
+    const top = Math.floor(y - EYE_HEIGHT + PLAYER_H - 0.05);
+    const xs  = [x - R, x + R];
+    const zs  = [z - R, z + R];
+    for (let by = bot; by <= top; by++) {
+      for (const bx of xs) {
+        for (const bz of zs) {
+          if (!this.world.hasBlock(Math.floor(bx), by, Math.floor(bz))) continue;
+          const entry = this.world.getBlock(Math.floor(bx), by, Math.floor(bz));
+          if (entry && entry.type === 7) continue;
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  // ── Creative ───────────────────────────────────────────────────────────────
 
   private updateCreative(dt: number) {
     if (this.flying) {
@@ -278,26 +347,24 @@ export class Player {
       if (this.keys["ShiftLeft"] || this.keys["ShiftRight"])
                                   this.position.y -= FLY_SPEED * dt;
     } else {
-      // Mini gravity when not flying
       this.velocity.y += GRAVITY * dt;
-      if (this.velocity.y < -50) this.velocity.y = -50;
-      this.position.y += this.velocity.y * dt;
-      const footY = Math.floor(this.position.y - EYE_HEIGHT);
-      if (this.feetHitBlock(this.position.x, this.position.z, footY)) {
+      if (this.velocity.y < -60) this.velocity.y = -60;
+      const newY  = this.position.y + this.velocity.y * dt;
+      const feetY = Math.floor(newY - EYE_HEIGHT);
+      if (this.velocity.y < 0 && this.footprintOverBlock(this.position.x, this.position.z, feetY)) {
+        this.position.y = feetY + 1 + EYE_HEIGHT;
         this.velocity.y = 0;
-        this.position.y = footY + 1.0 + EYE_HEIGHT;
-        this.onGround = true;
+        this.onGround   = true;
       } else {
-        this.onGround = false;
+        this.position.y = newY;
+        this.onGround   = false;
       }
-      if (this.keys["Space"] && this.onGround) {
-        this.velocity.y = JUMP_FORCE;
-      }
-      if (this.position.y < -10) { this.position.y = 35; this.velocity.y = 0; }
+      if (this.keys["Space"] && this.onGround) { this.velocity.y = JUMP_FORCE; this.onGround = false; }
+      if (this.position.y < -20) { this.position.y = 36; this.velocity.y = 0; }
     }
   }
 
-  // ── Horizontal movement ───────────────────────────────────────────────────
+  // ── Horizontal movement ────────────────────────────────────────────────────
 
   private applyMovement(dt: number) {
     const forward = new THREE.Vector3(-Math.sin(this.yaw), 0, -Math.cos(this.yaw));
@@ -309,13 +376,12 @@ export class Player {
     if (this.keys["KeyA"]) move.sub(right);
     if (this.keys["KeyD"]) move.add(right);
 
-    const sprint = (this.keys["ShiftLeft"] || this.keys["ShiftRight"]) && this.gameMode !== "creative";
-    let speed = sprint ? MOVE_SPEED * 1.6 : MOVE_SPEED;
-    if (this.gameMode === "creative") speed = FLY_SPEED;
+    const sprinting = this.keys["ControlLeft"] && this.gameMode === "survival";
+    let speed = sprinting ? MOVE_SPEED * SPRINT_MULT : MOVE_SPEED;
+    if (this.gameMode === "creative") speed = this.flying ? FLY_SPEED : MOVE_SPEED * 1.2;
 
     if (move.lengthSq() > 0) {
       move.normalize().multiplyScalar(speed * dt);
-
       const nx = this.position.x + move.x;
       if (!this.wallCollision(nx, this.position.y, this.position.z)) {
         this.position.x = nx;
@@ -326,19 +392,54 @@ export class Player {
       }
     }
 
-    // Jump (survival only)
-    if (this.gameMode === "survival" && this.keys["Space"] && this.onGround) {
+    if (this.keys["Space"] && this.onGround && this.gameMode === "survival") {
       this.velocity.y = JUMP_FORCE;
       this.onGround   = false;
     }
   }
 
+  // ── Camera ─────────────────────────────────────────────────────────────────
+
   private updateCamera() {
-    this.camera.position.copy(this.position);
-    this.camera.rotation.order = "YXZ";
-    this.camera.rotation.y = this.yaw;
-    this.camera.rotation.x = this.pitch;
+    if (this.thirdPerson) {
+      const dist = 5;
+      const cx = this.position.x + Math.sin(this.yaw) * dist;
+      const cz = this.position.z + Math.cos(this.yaw) * dist;
+      this.camera.position.set(cx, this.position.y + 0.6, cz);
+      this.camera.lookAt(this.position.x, this.position.y - 0.3, this.position.z);
+    } else {
+      this.camera.position.copy(this.position);
+      this.camera.rotation.order = "YXZ";
+      this.camera.rotation.y = this.yaw;
+      this.camera.rotation.x = this.pitch;
+    }
   }
+
+  // ── Self-model animation ───────────────────────────────────────────────────
+
+  private updateSelfModel(dt: number) {
+    if (!this.selfModel || !this.thirdPerson) return;
+    const footY = this.position.y - EYE_HEIGHT;
+    this.selfModel.position.set(this.position.x, footY + 0.85, this.position.z);
+    this.selfModel.rotation.y = this.yaw + Math.PI;
+    if (this.selfHead) this.selfHead.rotation.x = this.pitch * 0.7;
+
+    const cur  = new THREE.Vector2(this.position.x, this.position.z);
+    const spd  = cur.distanceTo(this.prevXZ) / dt;
+    this.prevXZ.copy(cur);
+
+    if (spd > 0.3) this.walkCycle += dt * Math.min(spd, 8) * 1.8;
+    else            this.walkCycle *= 0.85;
+
+    const sw = Math.sin(this.walkCycle);
+    const S  = 0.65;
+    if (this.selfLL) this.selfLL.rotation.x =  sw * S;
+    if (this.selfRL) this.selfRL.rotation.x = -sw * S;
+    if (this.selfLA) this.selfLA.rotation.x = -sw * S;
+    if (this.selfRA) this.selfRA.rotation.x =  sw * S;
+  }
+
+  // ── Highlight ──────────────────────────────────────────────────────────────
 
   private updateHighlight() {
     const hit = this.raycast();
@@ -351,14 +452,21 @@ export class Player {
     }
   }
 
+  // ── State for networking ───────────────────────────────────────────────────
+
   getState() {
     return {
-      x: this.position.x,
-      y: this.position.y,
-      z: this.position.z,
-      rotY: this.yaw,
-      rotX: this.pitch,
-      onGround: this.onGround,
+      x: this.position.x, y: this.position.y, z: this.position.z,
+      rotY: this.yaw, rotX: this.pitch, onGround: this.onGround,
     };
+  }
+
+  /** Teleport player to safe position above terrain at (x, z) */
+  spawnAt(x: number, z: number) {
+    const surfY = this.world.getSurfaceHeight(Math.round(x), Math.round(z));
+    this.position.set(x, surfY + EYE_HEIGHT + 0.5, z);
+    this.velocity.set(0, 0, 0);
+    this.onGround    = false;
+    this.fallTracking = false;
   }
 }

@@ -74,7 +74,10 @@ export class UI {
   // ── HUD panels ────────────────────────────────────────────────────────────
 
   updatePosition(x: number, y: number, z: number) {
-    this.topLeftEl.innerHTML = `X: ${x.toFixed(1)}<br>Y: ${y.toFixed(1)}<br>Z: ${z.toFixed(1)}`;
+    this.topLeftEl.innerHTML =
+      `X <b>${x.toFixed(1)}</b><br>` +
+      `Y <b>${y.toFixed(1)}</b><br>` +
+      `Z <b>${z.toFixed(1)}</b>`;
   }
 
   updatePlayerCount(n: number) {
@@ -82,11 +85,11 @@ export class UI {
   }
 
   setConnectionStatus(status: "connecting" | "connected" | "disconnected") {
-    this.connEl.className = `connStatus ${status}`;
-    const labels = { connecting: "Connecting…", connected: "Connected ✓", disconnected: "Disconnected ✗" };
+    this.connEl.className = status;  // matches CSS: #connStatus.connected etc
+    const labels = { connecting: "⏳ Connecting…", connected: "✓ Connected", disconnected: "✗ Disconnected" };
     this.connEl.textContent = labels[status];
-    if (status === "connected") setTimeout(() => { this.connEl.style.opacity = "0"; }, 2000);
-    else this.connEl.style.opacity = "1";
+    this.connEl.style.opacity = "1";
+    if (status === "connected") setTimeout(() => { this.connEl.style.opacity = "0"; }, 2500);
   }
 
   // ── Hearts / health ───────────────────────────────────────────────────────
@@ -160,7 +163,7 @@ export class UI {
 
   addChatMessage(name: string, text: string, system = false) {
     const msg = document.createElement("div");
-    msg.className = "chat-msg" + (system ? " system-msg" : "");
+    msg.className = "chat-msg" + (system ? " sys-msg" : "");
     if (system) {
       msg.innerHTML = `<span style="color:#ffcc00">${this.esc(text)}</span>`;
     } else {
