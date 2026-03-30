@@ -1,0 +1,15 @@
+{
+  "name": "minecraft-multiplayer",
+  "version": "1.0.0",
+  "description": "Multiplayer Minecraft clone — ThreeJS + Colyseus",
+  "scripts": {
+    "dev":          "concurrently -n SRV,CLI -c cyan.bold,green.bold \"npm run dev:server\" \"npm run dev:client\"",
+    "dev:server":   "cd server && npm run dev",
+    "dev:client":   "cd client && npm run dev",
+    "install:all":  "npm install && cd server && npm install && cd ../client && npm install",
+    "build:client": "cd client && npm run build"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}

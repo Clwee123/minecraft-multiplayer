@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Minecraft Multiplayer</title>
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box}
+    body{background:#000;overflow:hidden;font-family:'Segoe UI',sans-serif}
+    canvas{display:block}
+
+    /* ── Login / Menu Screen ───────────────────────────────────────────────── */
+    #loginScreen{
+      position:fixed;inset:0;
+      background:linear-gradient(160deg,#0d1f0d 0%,#1a3a1a 50%,#0a150a 100%);
+      display:flex;align-items:center;justify-content:center;
+      z-index:200;
+    }
+    .login-box{
+      background:rgba(0,0,0,0.75);
+      border:2px solid #4a7c4a;border-radius:10px;
+      padding:44px 52px;text-align:center;min-width:360px;
+    }
+    .login-box h1{
+      color:#7cfc00;font-size:2.2rem;letter-spacing:3px;
+      margin-bottom:4px;text-shadow:0 0 20px rgba(124,252,0,0.4);
+    }
+    .login-box .subtitle{color:#6a8a6a;font-size:0.82rem;margin-bottom:24px}
+    .login-box input{
+      width:100%;padding:11px 16px;margin-bottom:14px;
+      background:rgba(255,255,255,0.07);border:1px solid #4a7c4a;
+      border-radius:5px;color:#fff;font-size:1rem;outline:none;
+    }
+    .login-box input:focus{border-color:#7cfc00;box-shadow:0 0 8px rgba(124,252,0,0.2)}
+
+    /* Menu mode selector */
+    #menuModeRow{display:flex;gap:10px;margin-bottom:14px}
+    .mode-btn{
+      flex:1;padding:12px 8px;border:2px solid #4a7c4a;border-radius:6px;
+      background:rgba(0,0,0,0.4);color:#ccc;font-size:0.9rem;
+      cursor:pointer;transition:all 0.15s;
+    }
+    .mode-btn:hover{background:rgba(124,252,0,0.1);border-color:#7cfc00;color:#fff}
+    .mode-btn.selected{background:rgba(124,252,0,0.18);border-color:#7cfc00;color:#7cfc00;font-weight:bold}
+
+    /* Multiplayer server row */
+    #serverRow{display:none;gap:8px;margin-bottom:14px}
+    #serverRow.visible{display:flex}
+    #serverRow input{flex:1;margin-bottom:0}
+    #serverRow span{color:#7a9a7a;align-self:center;font-size:0.85rem;white-space:nowrap}
+
+    .play-btn{
+      width:100%;padding:13px;background:#2d6a2d;border:none;border-radius:5px;
+      color:#fff;font-size:1rem;font-weight:bold;cursor:pointer;
+      letter-spacing:1px;transition:background 0.2s;
+    }
+    .play-btn:hover{background:#3d8a3d}
+    .play-btn:active{background:#1d4a1d}
+
+    .help-hint{color:#556655;font-size:0.72rem;margin-top:14px;line-height:1.6}
+
+    /* ── HUD ────────────────────────────────────────────────────────────────── */
+    #hud{position:fixed;inset:0;pointer-events:none;z-index:10;display:none}
+
+    /* Crosshair */
+    #crosshair{
+      position:absolute;top:50%;left:50%;
+      transform:translate(-50%,-50%);width:20px;height:20px;
+    }
+    #crosshair::before,#crosshair::after{
+      content:'';position:absolute;background:rgba(255,255,255,0.85);border-radius:1px;
+    }
+    #crosshair::before{width:2px;height:100%;left:50%;transform:translateX(-50%)}
+    #crosshair::after{width:100%;height:2px;top:50%;transform:translateY(-50%)}
+
+    /* Hotbar */
+    #hotbar{
+      position:absolute;bottom:24px;left:50%;transform:translateX(-50%);
+      display:flex;gap:4px;
+    }
+    .hotbar-slot{
+      width:52px;height:52px;background:rgba(0,0,0,0.55);
+      border:2px solid rgba(255,255,255,0.25);border-radius:4px;
+      display:flex;flex-direction:column;align-items:center;justify-content:center;
+      font-size:0.58rem;color:#bbb;cursor:default;
+    }
+    .hotbar-slot.active{border-color:#fff;background:rgba(255,255,255,0.15)}
+    .slot-icon{width:28px;height:28px;border-radius:2px;margin-bottom:2px}
+
+    /* Hearts */
+    #hearts{
+      position:absolute;bottom:84px;left:50%;transform:translateX(-50%);
+      display:flex;gap:2px;
+    }
+    .heart{width:18px;height:18px;font-size:16px;line-height:18px;text-align:center}
+    .heart.full::before{content:'❤';color:#e83333}
+    .heart.half::before{content:'🖤';color:#e83333;filter:drop-shadow(1px 0 0 #e83333)}
+    .heart.empty::before{content:'🖤';color:#333}
+
+    /* Info panels */
+    #topLeft{
+      position:absolute;top:12px;left:12px;
+      color:#fff;font-size:0.75rem;line-height:1.9;
+      text-shadow:1px 1px 2px #000;
+    }
+    #topRight{
+      position:absolute;top:12px;right:12px;
+      color:#7cfc00;font-size:0.8rem;
+      text-shadow:1px 1px 2px #000;text-align:right;
+    }
+
+    /* Gamemode badge */
+    .gamemode-badge{
+      position:absolute;top:12px;left:50%;transform:translateX(-50%);
+      padding:3px 12px;border-radius:12px;font-size:0.72rem;font-weight:bold;
+      pointer-events:none;
+    }
+    .gamemode-badge.creative{background:rgba(0,150,255,0.6);color:#fff}
+    .gamemode-badge.survival{background:rgba(0,0,0,0);color:transparent}
+
+    /* Chat */
+    #chat{position:absolute;bottom:90px;left:12px;width:380px}
+    #chatMessages{max-height:160px;overflow-y:auto;padding:4px 6px;scrollbar-width:none}
+    .chat-msg{
+      color:#fff;font-size:0.77rem;text-shadow:1px 1px 2px #000;
+      background:rgba(0,0,0,0.38);padding:2px 5px;border-radius:2px;
+      margin-bottom:2px;transition:opacity 1s;
+    }
+    .chat-msg .chat-name{color:#7cfc00;font-weight:bold}
+    #chatInput{
+      display:none;width:100%;padding:6px 10px;
+      background:rgba(0,0,0,0.72);border:1px solid rgba(255,255,255,0.4);
+      border-radius:4px;color:#fff;font-size:0.85rem;outline:none;pointer-events:all;
+    }
+    #chatInput.visible{display:block}
+
+    /* Connection status */
+    #connStatus{
+      position:absolute;bottom:128px;left:50%;transform:translateX(-50%);
+      padding:4px 14px;border-radius:12px;font-size:0.72rem;font-weight:bold;
+      transition:opacity 0.5s;
+    }
+    #connStatus.connected{background:rgba(0,180,0,0.7);color:#fff}
+    #connStatus.connecting{background:rgba(200,150,0,0.7);color:#fff}
+    #connStatus.disconnected{background:rgba(180,0,0,0.7);color:#fff}
+
+    /* Block name */
+    #blockName{
+      position:absolute;bottom:84px;left:50%;transform:translateX(-50%);
+      color:#fff;font-size:0.77rem;text-shadow:1px 1px 2px #000;
+      background:rgba(0,0,0,0.45);padding:2px 10px;border-radius:10px;
+    }
+
+    /* ── Death Screen ────────────────────────────────────────────────────── */
+    #deathScreen{
+      display:none;position:fixed;inset:0;
+      background:rgba(100,0,0,0.55);
+      flex-direction:column;align-items:center;justify-content:center;
+      z-index:150;pointer-events:all;
+    }
+    #deathScreen h2{color:#ff4444;font-size:3rem;margin-bottom:12px;text-shadow:0 0 30px #ff0000}
+    #deathScreen p{color:#ffaaaa;font-size:1rem;margin-bottom:30px}
+    #respawnBtn{
+      padding:14px 40px;background:#8b0000;border:2px solid #ff4444;
+      border-radius:6px;color:#fff;font-size:1.1rem;font-weight:bold;
+      cursor:pointer;letter-spacing:1px;transition:background 0.2s;pointer-events:all;
+    }
+    #respawnBtn:hover{background:#aa0000}
+  </style>
+</head>
+<body>
+  <!-- ── Login / Menu ───────────────────────────────────────────────────── -->
+  <div id="loginScreen">
+    <div class="login-box">
+      <h1>⛏ MINECRAFT</h1>
+      <p class="subtitle">ThreeJS + Colyseus</p>
+
+      <input id="nameInput" type="text" placeholder="Enter your name…" maxlength="24"/>
+
+      <div id="menuModeRow">
+        <button class="mode-btn selected" id="btnSP" onclick="selectMode('sp')">🌍 Singleplayer</button>
+        <button class="mode-btn"          id="btnMP" onclick="selectMode('mp')">🌐 Multiplayer</button>
+      </div>
+
+      <div id="serverRow">
+        <span>Server:</span>
+        <input id="serverInput" type="text" value="localhost:2567" placeholder="host:port"/>
+      </div>
+
+      <button class="play-btn" id="playBtn">▶  Play</button>
+
+      <p class="help-hint">
+        WASD move · Space jump · Left-click break · Right-click place<br>
+        T chat · /gamemode creative · /gamemode survival<br>
+        Creative: double-tap Space to fly
+      </p>
+    </div>
+  </div>
+
+  <!-- ── HUD ───────────────────────────────────────────────────────────── -->
+  <div id="hud">
+    <div id="crosshair"></div>
+    <div id="hotbar"></div>
+    <div id="hearts"></div>
+    <div id="topLeft"></div>
+    <div id="topRight"></div>
+    <div id="gameModeEl" class="gamemode-badge survival"></div>
+    <div id="chat">
+      <div id="chatMessages"></div>
+      <input id="chatInput" type="text" placeholder="Press T to chat…" maxlength="200"/>
+    </div>
+    <div id="connStatus" class="connecting" style="opacity:0"></div>
+    <div id="blockName"></div>
+  </div>
+
+  <!-- ── Death Screen ──────────────────────────────────────────────────── -->
+  <div id="deathScreen">
+    <h2>💀 You Died</h2>
+    <p>Better luck next time…</p>
+    <button id="respawnBtn">Respawn</button>
+  </div>
+
+  <script>
+    let selectedMode = 'sp';
+    function selectMode(mode) {
+      selectedMode = mode;
+      document.getElementById('btnSP').classList.toggle('selected', mode === 'sp');
+      document.getElementById('btnMP').classList.toggle('selected', mode === 'mp');
+      const row = document.getElementById('serverRow');
+      row.classList.toggle('visible', mode === 'mp');
+    }
+    window.__getSelectedMode = () => selectedMode;
+    window.__getServerAddr  = () => document.getElementById('serverInput').value.trim() || 'localhost:2567';
+  </script>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>
