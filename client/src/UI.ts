@@ -19,6 +19,8 @@ export class UI {
   private selectedIndex = 0;
   private gameMode: GameMode = "survival";
   private craftingPanel: HTMLElement | null = null;
+  private inventoryPanel: HTMLElement | null = null;
+  private xpBarEl: HTMLElement | null = null;
 
   onChat?:   (text: string) => void;
   onRespawn?: () => void;
@@ -28,6 +30,7 @@ export class UI {
     this.buildHotbar();
     this.setupChat();
     this.updateHearts(20, 20);
+    this.buildXPBar();
 
     this.respawnBtn.addEventListener("click", () => {
       this.deathScreen.style.display = "none";
@@ -171,6 +174,187 @@ export class UI {
     // Hearts + hunger hidden in creative
     this.heartsEl.style.display = mode === "creative" ? "none" : "flex";
     this.hungerEl.style.display = mode === "creative" ? "none" : "flex";
+  }
+
+  // ── XP Bar ────────────────────────────────────────────────────────────────
+
+  private buildXPBar() {
+    this.xpBarEl = document.createElement("div");
+    this.xpBarEl.id = "xp-bar";
+    this.xpBarEl.style.cssText = `
+      position: absolute;
+      bottom: 60px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 300px;
+      height: 8px;
+      background: #000;
+      border: 1px solid #555;
+      z-index: 100;
+    `;
+    const barFill = document.createElement("div");
+    barFill.id = "xp-bar-fill";
+    barFill.style.cssText = `
+      width: 0%;
+      height: 100%;
+      background: #88ff44;
+      transition: width 0.1s;
+    `;
+    this.xpBarEl.appendChild(barFill);
+
+    const levelLabel = document.createElement("div");
+    levelLabel.id = "xp-level";
+    levelLabel.textContent = "Level 0";
+    levelLabel.style.cssText = `
+      position: absolute;
+      bottom: 10px;
+      left: 50%;
+      transform: translateX(-50%);
+      color: #88ff44;
+      font-family: Arial, sans-serif;
+      font-size: 14px;
+      font-weight: bold;
+      z-index: 100;
+    `;
+
+    document.body.appendChild(this.xpBarEl);
+    document.body.appendChild(levelLabel);
+  }
+
+  updateXP(xp: number, level: number) {
+    if (!this.xpBarEl) return;
+    const xpForLevel = (level + 1) * 10;
+    const xpInLevel = xp - level * 10;
+    const percent = Math.min(100, (xpInLevel / xpForLevel) * 100);
+    const barFill = this.xpBarEl.querySelector("#xp-bar-fill") as HTMLElement;
+    if (barFill) barFill.style.width = percent + "%";
+    const levelLabel = document.querySelector("#xp-level") as HTMLElement;
+    if (levelLabel) levelLabel.textContent = `Level ${level}`;
+  }
+
+  // ── Inventory ─────────────────────────────────────────────────────────────
+
+  showInventory(items: number[]) {
+    if (this.inventoryPanel) return;
+
+    this.inventoryPanel = document.createElement("div");
+    this.inventoryPanel.id = "inventory-panel";
+    this.inventoryPanel.style.cssText = `
+      position: fixed;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      background: #2a2a2a;
+      border: 4px solid #5a5a5a;
+      padding: 20px;
+      width: 280px;
+      z-index: 1000;
+      border-radius: 4px;
+      box-shadow: 0 0 40px rgba(0,0,0,0.8);
+    `;
+
+    const title = document.createElement("h2");
+    title.textContent = "Inventory";
+    title.style.cssText = "color: white; margin: 0 0 15px 0; text-align: center; font-family: Arial, sans-serif;";
+    this.inventoryPanel.appendChild(title);
+
+    // 9x4 grid (36 slots)
+    const grid = document.createElement("div");
+    grid.style.cssText = `
+      display: grid;
+      grid-template-columns: repeat(9, 1fr);
+      gap: 2px;
+      margin-bottom: 10px;
+      background: #1a1a1a;
+      padding: 5px;
+    `;
+
+    for (let i = 0; i < 36; i++) {
+      const slot = document.createElement("div");
+      const itemId = items[i] ?? 0;
+      const color = itemId === 0 ? "#333333" : "#" + getBlockColor(itemId).toString(16).padStart(6, "0");
+      slot.style.cssText = `
+        width: 24px;
+        height: 24px;
+        background: ${color};
+        border: 1px solid #1a1a1a;
+        border-radius: 1px;
+        cursor: pointer;
+        transition: background 0.1s;
+      `;
+      slot.title = itemId === 0 ? "Empty" : getBlockName(itemId);
+      slot.addEventListener("mouseenter", () => {
+        slot.style.background = "#" + Math.min(0xffffff, (parseInt(color.slice(1), 16) ?? 0) + 0x222222).toString(16).padStart(6, "0");
+      });
+      slot.addEventListener("mouseleave", () => {
+        slot.style.background = color;
+      });
+      grid.appendChild(slot);
+    }
+    this.inventoryPanel.appendChild(grid);
+
+    // Crafting grid (2x2)
+    const craftLabel = document.createElement("div");
+    craftLabel.textContent = "Crafting";
+    craftLabel.style.cssText = "color: white; font-size: 12px; margin: 10px 0 5px 0; font-family: Arial, sans-serif;";
+    this.inventoryPanel.appendChild(craftLabel);
+
+    const craftGrid = document.createElement("div");
+    craftGrid.style.cssText = `
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 2px;
+      background: #1a1a1a;
+      padding: 5px;
+      margin-bottom: 10px;
+    `;
+
+    for (let i = 0; i < 4; i++) {
+      const slot = document.createElement("div");
+      slot.style.cssText = `
+        width: 30px;
+        height: 30px;
+        background: #333333;
+        border: 1px solid #1a1a1a;
+        border-radius: 1px;
+        cursor: pointer;
+      `;
+      slot.title = "Crafting slot";
+      craftGrid.appendChild(slot);
+    }
+    this.inventoryPanel.appendChild(craftGrid);
+
+    // Close button
+    const closeBtn = document.createElement("button");
+    closeBtn.style.cssText = `
+      display: block;
+      width: 100%;
+      padding: 8px;
+      background: #5B3333;
+      color: white;
+      border: 2px solid #3d0000;
+      border-radius: 2px;
+      cursor: pointer;
+      font-family: Arial, sans-serif;
+      font-weight: bold;
+      font-size: 12px;
+    `;
+    closeBtn.textContent = "Close (E)";
+    closeBtn.addEventListener("click", () => this.hideInventory());
+    this.inventoryPanel.appendChild(closeBtn);
+
+    document.body.appendChild(this.inventoryPanel);
+  }
+
+  hideInventory() {
+    if (this.inventoryPanel) {
+      this.inventoryPanel.remove();
+      this.inventoryPanel = null;
+    }
+  }
+
+  isInventoryOpen(): boolean {
+    return this.inventoryPanel !== null;
   }
 
   // ── Chat ──────────────────────────────────────────────────────────────────

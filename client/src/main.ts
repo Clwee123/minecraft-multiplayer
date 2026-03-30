@@ -10,6 +10,7 @@ import { SoundManager }       from "./SoundManager";
 import { ItemDropManager }    from "./ItemDrop";
 import { Minimap }            from "./Minimap";
 import { Weather }            from "./Weather";
+import { XPOrbManager }       from "./XPOrb";
 
 // ── Renderer ─────────────────────────────────────────────────────────────────
 
@@ -210,6 +211,7 @@ const ui        = new UI();
 const particles = new Particles(scene);
 const sounds    = new SoundManager();
 const itemDrops = new ItemDropManager(scene);
+const xpOrbs    = new XPOrbManager(scene);
 let minimap: Minimap | null = null;
 const weather = new Weather(scene, sounds);
 
@@ -218,8 +220,34 @@ let mobManager: MobManager | null = null;
 let isSingleplayer = true;
 let currentPlayerName = "";
 
+// ── XP System ─────────────────────────────────────────────────────────────────
+
+let xp = 0;
+let xpLevel = 0;
+
+// ── Inventory System ──────────────────────────────────────────────────────────
+
+let inventoryOpen = false;
+const inventory: number[] = [1, 1, 1, 3, 3, 10, 10, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+
+// ── Arrow System ──────────────────────────────────────────────────────────────
+
+interface Arrow {
+  mesh: THREE.Mesh;
+  vel: THREE.Vector3;
+  life: number;
+}
+const playerArrows: Arrow[] = [];
+
+// ── TNT System ────────────────────────────────────────────────────────────────
+
+let netherMode = false;
+
 const attackRaycaster = new THREE.Raycaster();
 attackRaycaster.far   = 5;
+
+const arrowRaycaster = new THREE.Raycaster();
+arrowRaycaster.far   = 1;
 
 // ── Hunger & regen ────────────────────────────────────────────────────────────
 
@@ -291,6 +319,29 @@ function handleCommand(cmd: string, playerName: string): boolean {
     return true;
   }
 
+  if (base === "/nether") {
+    const sub = parts[1]?.toLowerCase();
+    if (sub === "enter") {
+      netherMode = true;
+      player.spawnAt(player.position.x, player.position.z);
+      player.position.y = 30;
+      (scene.fog as THREE.Fog).color.copy(new THREE.Color(0xff4400));
+      scene.background = new THREE.Color(0x220000);
+      ui.addChatMessage("", "Entered the Nether!", true);
+      return true;
+    }
+    if (sub === "exit") {
+      netherMode = false;
+      player.spawnAt(player.position.x, player.position.z);
+      (scene.fog as THREE.Fog).color.copy(new THREE.Color(0x87ceeb));
+      scene.background = new THREE.Color(0x87ceeb);
+      ui.addChatMessage("", "Exited the Nether!", true);
+      return true;
+    }
+    ui.addChatMessage("", "Usage: /nether enter | exit", true);
+    return true;
+  }
+
   if (base === "/help") {
     [
       "/gamemode creative | survival",
@@ -299,7 +350,8 @@ function handleCommand(cmd: string, playerName: string): boolean {
       "/tp <x> <z>",
       "/craft",
       "/weather clear | rain | thunder",
-      "F5 = 3rd person · Ctrl = sprint",
+      "/nether enter | exit",
+      "F5 = 3rd person · Ctrl = sprint · E = inventory",
     ].forEach(c => ui.addChatMessage("", c, true));
     return true;
   }
@@ -336,7 +388,54 @@ async function startGame(name: string) {
   player.onOpenChat  = () => { ui.openChatInput(); player.setChatOpen(true); };
   player.onBreakBlock = (x, y, z) => {
     const b = world.getBlock(x, y, z);
-    if (b) particles.burst(x, y, z, b.type);
+    if (!b) return;
+
+    // TNT activation (type 24)
+    if (b.type === 24) {
+      let flashCount = 0;
+      const flashInterval = setInterval(() => {
+        if (flashCount % 2 === 0) {
+          particles.burst(x, y, z, 24);
+        }
+        flashCount++;
+        if (flashCount > 8) {
+          clearInterval(flashInterval);
+          // Explode - destroy blocks in radius
+          const radius = 5;
+          for (let dx = -radius; dx <= radius; dx++) {
+            for (let dy = -radius; dy <= radius; dy++) {
+              for (let dz = -radius; dz <= radius; dz++) {
+                const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+                if (dist <= radius) {
+                  const bx = Math.round(x) + dx;
+                  const by = Math.round(y) + dy;
+                  const bz = Math.round(z) + dz;
+                  const b = world.getBlock(bx, by, bz);
+                  if (b) {
+                    world.removeBlock(bx, by, bz);
+                    particles.burst(bx, by, bz, b.type);
+                  }
+                }
+              }
+            }
+          }
+          // Damage player if in range
+          const distToPlayer = Math.sqrt(
+            Math.pow(player.position.x - x, 2) +
+            Math.pow(player.position.y - y, 2) +
+            Math.pow(player.position.z - z, 2)
+          );
+          if (distToPlayer < 7 && player.gameMode === "survival") {
+            player.takeDamage(6);
+            ui.updateHearts(player.health, player.maxHealth);
+          }
+          sounds.play("break");
+        }
+      }, 500);
+      return;
+    }
+
+    particles.burst(x, y, z, b.type);
     sounds.play("break");
     mp?.sendRemoveBlock(x, y, z);
   };
@@ -345,21 +444,80 @@ async function startGame(name: string) {
     mp?.sendAddBlock(x, y, z, t);
   };
 
+  // XP Orb collection
+  xpOrbs.onCollect = (amount) => {
+    xp += amount;
+    const prevLevel = xpLevel;
+    while (xp >= (xpLevel + 1) * 10) {
+      xpLevel++;
+    }
+    ui.updateXP(xp, xpLevel);
+    if (xpLevel > prevLevel) {
+      sounds.play("eat");
+      ui.addChatMessage("", `Level Up! Level ${xpLevel}`, true);
+    }
+  };
+
   // Attack
   document.addEventListener("mousedown", e => {
     if (e.button !== 0 || !document.pointerLockElement) return;
+
+    // Check for arrow fire
+    if (player.selectedBlockType === 32) { // Bow
+      // Fire arrow
+      const arrowDir = new THREE.Vector3(0, 0, -1).applyAxisAngle(new THREE.Vector3(1, 0, 0), player.camera.rotation.x).applyAxisAngle(new THREE.Vector3(0, 1, 0), player.camera.rotation.y);
+      const arrowGeo = new THREE.BoxGeometry(0.05, 0.05, 0.4);
+      const arrowMat = new THREE.MeshBasicMaterial({ color: 0xffdd44 });
+      const arrowMesh = new THREE.Mesh(arrowGeo, arrowMat);
+      arrowMesh.position.copy(player.position);
+      arrowMesh.position.y += 0.6;
+      scene.add(arrowMesh);
+      playerArrows.push({
+        mesh: arrowMesh,
+        vel: arrowDir.multiplyScalar(30),
+        life: 10,
+      });
+      sounds.play("hit");
+      return;
+    }
+
     attackRaycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
     const result = mobManager?.tryAttack(attackRaycaster);
     if (result) {
       sounds.play("hit");
-      // Check if mob died and spawn drops
+      // Check if mob died and spawn drops/XP
       const mobData = mobManager?.getMob(result.mobId);
       if (mobData && !mobData.alive) {
         itemDrops.spawnFromMob(mobData.type, mobData.targetPos.x, mobData.targetPos.y, mobData.targetPos.z);
+        // Spawn XP orbs
+        const xpTable: Record<string, number> = {
+          "pig": 3, "chicken": 2, "cow": 5, "sheep": 3,
+          "zombie": 8, "skeleton": 10, "creeper": 5,
+        };
+        const mobTypeStr = mobData.type.toLowerCase();
+        const xpAmount = xpTable[mobTypeStr] || 1;
+        xpOrbs.spawn(mobData.targetPos.x, mobData.targetPos.y, mobData.targetPos.z, xpAmount);
         // Add kill feed entry
         ui.addKillFeedDeath(mobData.type);
       }
       if (!isSingleplayer) mp?.sendAttackMob(result.mobId, result.damage);
+    }
+  });
+
+  // E key for inventory
+  document.addEventListener("keydown", e => {
+    if (e.key === "e" || e.key === "E") {
+      if (!document.pointerLockElement || ui.isChatOpen()) return;
+      e.preventDefault();
+      if (inventoryOpen) {
+        ui.hideInventory();
+        inventoryOpen = false;
+        document.body.requestPointerLock();
+      } else {
+        ui.showInventory(inventory);
+        inventoryOpen = true;
+        document.exitPointerLock();
+      }
     }
   });
 
@@ -566,6 +724,54 @@ function animate() {
     updateDayNight(dt);
     weather.update(dt, player.position, (scene.fog as THREE.Fog).color);
     itemDrops.update(dt, player.position);
+    xpOrbs.update(dt, player.position);
+
+    // Update arrows
+    for (let i = playerArrows.length - 1; i >= 0; i--) {
+      const arrow = playerArrows[i];
+      arrow.life -= dt;
+      arrow.vel.y -= 20 * dt; // gravity
+      arrow.mesh.position.add(arrow.vel.clone().multiplyScalar(dt));
+
+      // Check block collisions
+      const bx = Math.round(arrow.mesh.position.x);
+      const by = Math.round(arrow.mesh.position.y);
+      const bz = Math.round(arrow.mesh.position.z);
+      if (world.hasBlock(bx, by, bz)) {
+        scene.remove(arrow.mesh);
+        arrow.mesh.geometry.dispose();
+        (arrow.mesh.material as THREE.MeshBasicMaterial).dispose();
+        playerArrows.splice(i, 1);
+        continue;
+      }
+
+      // Check mob collisions
+      let hit = false;
+      const mobs = mobManager?.getAllMobsForDisplay() ?? [];
+      for (const { mob } of mobs) {
+        const dist = arrow.mesh.position.distanceTo(new THREE.Vector3(mob.targetPos.x, mob.targetPos.y, mob.targetPos.z));
+        if (dist < 0.8 && mob.alive) {
+          mob.health -= 5;
+          mob.showDamage(mob.health);
+          if (mob.health <= 0) mob.die();
+          scene.remove(arrow.mesh);
+          arrow.mesh.geometry.dispose();
+          (arrow.mesh.material as THREE.MeshBasicMaterial).dispose();
+          playerArrows.splice(i, 1);
+          hit = true;
+          sounds.play("hit");
+          break;
+        }
+      }
+
+      // Remove if expired
+      if (arrow.life <= 0 && !hit) {
+        scene.remove(arrow.mesh);
+        arrow.mesh.geometry.dispose();
+        (arrow.mesh.material as THREE.MeshBasicMaterial).dispose();
+        playerArrows.splice(i, 1);
+      }
+    }
     if (minimap) {
       const otherPlayers: Array<{ x: number; z: number }> = [];
       // Add other players from multiplayer
