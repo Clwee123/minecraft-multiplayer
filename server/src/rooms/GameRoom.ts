@@ -49,7 +49,7 @@ function uid(): string { return Math.random().toString(36).slice(2, 10); }
 function rnd(a: number, b: number) { return a + Math.random() * (b - a); }
 
 const MAX_MOBS  = 25;
-const MOB_TYPES = ["pig", "pig", "pig", "chicken", "chicken", "zombie", "cow", "cow", "sheep", "sheep"] as const;
+const MOB_TYPES = ["pig", "pig", "pig", "chicken", "chicken", "zombie", "cow", "cow", "sheep", "sheep", "creeper", "skeleton"] as const;
 
 // ── GameRoom ──────────────────────────────────────────────────────────────────
 
@@ -193,7 +193,7 @@ export class GameRoom extends Room<GameState> {
     mob.y         = 25;  // falls down to terrain via gravity
     mob.z         = rnd(-45, 45);
     mob.rotY      = rnd(0, Math.PI * 2);
-    mob.maxHealth = mobType === "zombie" ? 20 : mobType === "chicken" ? 4 : mobType === "cow" ? 16 : mobType === "sheep" ? 12 : 10;
+    mob.maxHealth = mobType === "zombie" ? 20 : mobType === "creeper" ? 20 : mobType === "skeleton" ? 20 : mobType === "chicken" ? 4 : mobType === "cow" ? 16 : mobType === "sheep" ? 12 : 10;
     mob.health    = mob.maxHealth;
     mob.alive     = true;
     mob.state     = "idle";

@@ -39,6 +39,9 @@ export class Player {
   private flying    = false;
   private lastSpace = 0;
 
+  private inWater = false;
+  private waterTimer = 0;
+
   selectedBlockType = 1;
   private raycaster = new THREE.Raycaster();
   highlightMesh: THREE.Mesh;
@@ -59,6 +62,8 @@ export class Player {
   onOpenChat?:  () => void;
   onDied?:      () => void;
   onHealthChanged?: (hp: number) => void;
+
+  getYaw(): number { return this.yaw; }
 
   constructor(camera: THREE.PerspectiveCamera, world: World, scene: THREE.Scene) {
     this.camera = camera;
@@ -241,7 +246,32 @@ export class Player {
   // ── Physics ────────────────────────────────────────────────────────────────
 
   private applyPhysics(dt: number) {
-    this.velocity.y += GRAVITY * dt;
+    // Check if in water
+    const blockX = Math.floor(this.position.x);
+    const blockY = Math.floor(this.position.y - EYE_HEIGHT + PLAYER_H / 2);
+    const blockZ = Math.floor(this.position.z);
+    const currentBlock = this.world.getBlock(blockX, blockY, blockZ);
+    this.inWater = currentBlock && currentBlock.type === 7;
+
+    // Swimming physics
+    if (this.inWater) {
+      this.velocity.y += -4 * dt; // reduced gravity
+      if (this.velocity.y < -3) this.velocity.y = -3; // cap fall speed
+      if (this.keys["Space"]) this.velocity.y = 4; // swim upward
+      // Drowning timer in survival mode
+      if (this.gameMode === "survival") {
+        this.waterTimer += dt;
+        if (this.waterTimer > 15) {
+          this.waterTimer = 0;
+          this.takeDamage(1);
+        }
+      }
+    } else {
+      this.waterTimer = 0;
+    }
+
+    const gravity = this.inWater ? -4 : GRAVITY;
+    this.velocity.y += gravity * dt;
     if (this.velocity.y < -60) this.velocity.y = -60;
 
     const proposedY = this.position.y + this.velocity.y * dt;
@@ -379,6 +409,8 @@ export class Player {
     const sprinting = this.keys["ControlLeft"] && this.gameMode === "survival";
     let speed = sprinting ? MOVE_SPEED * SPRINT_MULT : MOVE_SPEED;
     if (this.gameMode === "creative") speed = this.flying ? FLY_SPEED : MOVE_SPEED * 1.2;
+    // Swimming reduces speed to 60% of normal
+    if (this.inWater) speed *= 0.6;
 
     if (move.lengthSq() > 0) {
       move.normalize().multiplyScalar(speed * dt);
@@ -392,7 +424,7 @@ export class Player {
       }
     }
 
-    if (this.keys["Space"] && this.onGround && this.gameMode === "survival") {
+    if (this.keys["Space"] && this.onGround && this.gameMode === "survival" && !this.inWater) {
       this.velocity.y = JUMP_FORCE;
       this.onGround   = false;
     }

@@ -41,6 +41,7 @@ export const BLOCK_TYPES: Record<number, {
   28: { name: "Wool (Blue)",    color: 0x2244cc },
   29: { name: "Wool (Yellow)",  color: 0xddcc22 },
   30: { name: "Wool (Green)",   color: 0x2a7a2a },
+  31: { name: "Chest",          color: 0x8b6914 },
 };
 
 // Hotbar presets — what shows in the 8 hotbar slots by default

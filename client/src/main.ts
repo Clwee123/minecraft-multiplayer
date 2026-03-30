@@ -7,6 +7,9 @@ import { UI }                 from "./UI";
 import { HOTBAR_BLOCKS }      from "./blocks";
 import { Particles }          from "./Particles";
 import { SoundManager }       from "./SoundManager";
+import { ItemDropManager }    from "./ItemDrop";
+import { Minimap }            from "./Minimap";
+import { Weather }            from "./Weather";
 
 // ── Renderer ─────────────────────────────────────────────────────────────────
 
@@ -206,10 +209,14 @@ const player    = new Player(camera, world, scene);
 const ui        = new UI();
 const particles = new Particles(scene);
 const sounds    = new SoundManager();
+const itemDrops = new ItemDropManager(scene);
+let minimap: Minimap | null = null;
+const weather = new Weather(scene, sounds);
 
 let mp:         MultiplayerManager | null = null;
 let mobManager: MobManager | null = null;
 let isSingleplayer = true;
+let currentPlayerName = "";
 
 const attackRaycaster = new THREE.Raycaster();
 attackRaycaster.far   = 5;
@@ -268,12 +275,30 @@ function handleCommand(cmd: string, playerName: string): boolean {
     return true;
   }
 
+  if (base === "/craft") {
+    ui.showCraftingUI();
+    return true;
+  }
+
+  if (base === "/weather") {
+    const sub = parts[1]?.toLowerCase();
+    if (sub === "clear" || sub === "rain" || sub === "thunder") {
+      weather.setWeather(sub);
+      ui.addChatMessage("", `Weather set to ${sub}`, true);
+      return true;
+    }
+    ui.addChatMessage("", "Usage: /weather clear | rain | thunder", true);
+    return true;
+  }
+
   if (base === "/help") {
     [
       "/gamemode creative | survival",
       "/kill  /heal  /feed",
       "/time day | night | sunrise | sunset",
       "/tp <x> <z>",
+      "/craft",
+      "/weather clear | rain | thunder",
       "F5 = 3rd person · Ctrl = sprint",
     ].forEach(c => ui.addChatMessage("", c, true));
     return true;
@@ -291,7 +316,7 @@ const playBtn     = document.getElementById("playBtn")!;
 const hud         = document.getElementById("hud")!;
 
 async function startGame(name: string) {
-  const playerName = name.trim() || `Player${Math.floor(Math.random() * 999)}`;
+  currentPlayerName = name.trim() || `Player${Math.floor(Math.random() * 999)}`;
   const mode       = (window as any).__getSelectedMode?.() ?? "sp";
   isSingleplayer   = mode === "sp";
 
@@ -327,18 +352,57 @@ async function startGame(name: string) {
     const result = mobManager?.tryAttack(attackRaycaster);
     if (result) {
       sounds.play("hit");
+      // Check if mob died and spawn drops
+      const mobData = mobManager?.getMob(result.mobId);
+      if (mobData && !mobData.alive) {
+        itemDrops.spawnFromMob(mobData.type, mobData.targetPos.x, mobData.targetPos.y, mobData.targetPos.z);
+        // Add kill feed entry
+        ui.addKillFeedDeath(mobData.type);
+      }
       if (!isSingleplayer) mp?.sendAttackMob(result.mobId, result.damage);
+    }
+  });
+
+  // Tab key for player list
+  document.addEventListener("keydown", e => {
+    if (e.key === "Tab" && document.pointerLockElement) {
+      e.preventDefault();
+      if (mp && (mp as any).room) {
+        const players: { name: string; ping: number }[] = [];
+        (mp as any).room.state.players.forEach((p: any) => {
+          players.push({ name: p.name, ping: 0 });
+        });
+        ui.showPlayerList(players);
+      }
+    }
+  });
+
+  document.addEventListener("keyup", e => {
+    if (e.key === "Tab") {
+      ui.hidePlayerList();
     }
   });
 
   // Chat
   ui.onChat = (text) => {
     if (text.startsWith("/")) {
-      handleCommand(text, playerName);
+      handleCommand(text, currentPlayerName);
     } else {
-      isSingleplayer ? ui.addChatMessage(playerName, text) : mp?.sendChat(text);
+      isSingleplayer ? ui.addChatMessage(currentPlayerName, text) : mp?.sendChat(text);
     }
     player.setChatOpen(false);
+  };
+
+  // Crafting
+  ui.onCraft = (recipeId) => {
+    const hotbarBlocks = HOTBAR_BLOCKS;
+    // Dummy crafting - just add block to hotbar if not full
+    let block = 22; // default to crafting table
+    if (recipeId === "planks_to_sticks") block = 0; // placeholder
+    if (recipeId === "cobble_to_furnace") block = 23;
+    if (recipeId === "planks_to_table") block = 22;
+    // In a real game, this would consume materials and add to inventory
+    ui.addChatMessage("", `Crafted: ${recipeId}`, true);
   };
 
   // Respawn
@@ -364,6 +428,12 @@ async function startGame(name: string) {
     ui.selectSlot(next);
   });
 
+  // Setup item pickup callback
+  itemDrops.onPickup = (item) => {
+    sounds.play("eat");
+    ui.addChatMessage("", "Picked up: " + item, true);
+  };
+
   if (isSingleplayer) {
     ui.setConnectionStatus("connected");
     ui.updatePlayerCount(1);
@@ -374,14 +444,44 @@ async function startGame(name: string) {
           player.takeDamage(amount);
           sounds.play("hurt");
           ui.updateHearts(player.health, player.maxHealth);
+          if (player.health <= 0) ui.showDeath();
         }
       },
       getPlayerPos: () => player.position,
+      onExplosion: (x, y, z, radius) => {
+        // Destroy blocks in radius
+        for (let dx = -radius; dx <= radius; dx++) {
+          for (let dy = -radius; dy <= radius; dy++) {
+            for (let dz = -radius; dz <= radius; dz++) {
+              const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+              if (dist <= radius) {
+                const bx = Math.round(x) + dx;
+                const by = Math.round(y) + dy;
+                const bz = Math.round(z) + dz;
+                const b = world.getBlock(bx, by, bz);
+                if (b) {
+                  world.removeBlock(bx, by, bz);
+                  particles.burst(bx, by, bz, b.type);
+                }
+              }
+            }
+          }
+        }
+        sounds.play("break");
+        // Camera shake via brief CSS animation
+        const origFilter = renderer.domElement.style.filter;
+        renderer.domElement.style.filter = "brightness(1.2)";
+        setTimeout(() => {
+          renderer.domElement.style.filter = origFilter;
+        }, 80);
+      },
     }, true);
 
     for (let i = 0; i < 16; i++) mobManager.spawnRandom(0, 0);
 
-    ui.addChatMessage("", `Welcome, ${playerName}! 🌍 Singleplayer`, true);
+    minimap = new Minimap(world);
+
+    ui.addChatMessage("", `Welcome, ${currentPlayerName}! 🌍 Singleplayer`, true);
     ui.addChatMessage("", "T=chat · F5=3rd person · Ctrl=sprint · /help", true);
 
   } else {
@@ -397,20 +497,47 @@ async function startGame(name: string) {
       },
       onPlayerDied: (name) => {
         ui.addChatMessage("", `☠ ${name} was slain!`, true);
-        if (name === playerName) ui.showDeath();
+        if (name === currentPlayerName) ui.showDeath();
       },
     }, serverAddr);
 
     mobManager = new MobManager(scene, world, {
       onPlayerDamage: () => {},
       getPlayerPos:   () => player.position,
+      onExplosion: (x, y, z, radius) => {
+        // Destroy blocks in radius
+        for (let dx = -radius; dx <= radius; dx++) {
+          for (let dy = -radius; dy <= radius; dy++) {
+            for (let dz = -radius; dz <= radius; dz++) {
+              const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+              if (dist <= radius) {
+                const bx = Math.round(x) + dx;
+                const by = Math.round(y) + dy;
+                const bz = Math.round(z) + dz;
+                const b = world.getBlock(bx, by, bz);
+                if (b) {
+                  world.removeBlock(bx, by, bz);
+                  particles.burst(bx, by, bz, b.type);
+                }
+              }
+            }
+          }
+        }
+        sounds.play("break");
+        // Camera shake via brief CSS animation
+        const origFilter = renderer.domElement.style.filter;
+        renderer.domElement.style.filter = "brightness(1.2)";
+        setTimeout(() => {
+          renderer.domElement.style.filter = origFilter;
+        }, 80);
+      },
     }, false);
 
     mp.setMobManager(mobManager);
     mp.setLocalStateGetter(() => player.getState());
-    await mp.join(playerName);
+    await mp.join(currentPlayerName);
 
-    ui.addChatMessage("", `Welcome, ${playerName}! 🌐 Multiplayer`, true);
+    ui.addChatMessage("", `Welcome, ${currentPlayerName}! 🌐 Multiplayer`, true);
     ui.addChatMessage("", "T=chat · F5=3rd person · /help", true);
   }
 }
@@ -437,6 +564,22 @@ function animate() {
     mobManager?.update(dt);
     particles.update(dt);
     updateDayNight(dt);
+    weather.update(dt, player.position, (scene.fog as THREE.Fog).color);
+    itemDrops.update(dt, player.position);
+    if (minimap) {
+      const otherPlayers: Array<{ x: number; z: number }> = [];
+      // Add other players from multiplayer
+      if (mp && (mp as any).getPlayerData) {
+        const playersData = (mp as any).getPlayerData?.() ?? [];
+        playersData.forEach((p: any) => {
+          if (p.name !== currentPlayerName) {
+            otherPlayers.push({ x: p.x, z: p.z });
+          }
+        });
+      }
+      const mobs = mobManager?.getAllMobsForDisplay().map(m => ({ x: m.mob.targetPos.x, z: m.mob.targetPos.z, alive: m.mob.alive })) ?? [];
+      minimap.update(dt, player.position, player.getYaw(), otherPlayers, mobs);
+    }
 
     // ── Hunger & regen ──────────────────────────────────────────────────────
     if (player.gameMode === "survival") {
@@ -480,9 +623,19 @@ function animate() {
     sunMesh.position.x  += (player.position.x - sunMesh.position.x) * 0.02;
     moonMesh.position.x += (player.position.x - moonMesh.position.x) * 0.02;
     stars.position.set(player.position.x, 0, player.position.z);
+
+    // Thunder flash effect
+    if (weather.isThunderFlashing()) {
+      renderer.setClearColor(new THREE.Color(0xffffff));
+    }
   }
 
   renderer.render(scene, camera);
+
+  // Reset clear color if it was flashed
+  if (weather.isThunderFlashing()) {
+    renderer.setClearColor(scene.background as THREE.Color);
+  }
 }
 
 animate();

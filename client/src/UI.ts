@@ -18,9 +18,11 @@ export class UI {
 
   private selectedIndex = 0;
   private gameMode: GameMode = "survival";
+  private craftingPanel: HTMLElement | null = null;
 
   onChat?:   (text: string) => void;
   onRespawn?: () => void;
+  onCraft?: (recipe: string) => void;
 
   constructor() {
     this.buildHotbar();
@@ -219,5 +221,294 @@ export class UI {
 
   private esc(s: string) {
     return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  }
+
+  // ── Crafting ──────────────────────────────────────────────────────────────
+
+  showCraftingUI() {
+    if (this.craftingPanel) return;
+
+    this.craftingPanel = document.createElement("div");
+    this.craftingPanel.id = "crafting-panel";
+    this.craftingPanel.style.cssText = `
+      position: fixed;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      background: #8B8B8B;
+      border: 2px solid #2B2B2B;
+      padding: 20px;
+      width: 300px;
+      z-index: 1000;
+      border-radius: 4px;
+      box-shadow: 0 0 20px rgba(0,0,0,0.5);
+    `;
+
+    const title = document.createElement("h2");
+    title.textContent = "Crafting Table";
+    title.style.cssText = "color: white; margin: 0 0 15px 0; text-align: center; font-family: Arial, sans-serif;";
+    this.craftingPanel.appendChild(title);
+
+    // Recipe buttons
+    const recipes = [
+      { name: "Wood Planks (4→2 Sticks)", id: "planks_to_sticks", desc: "4 wood planks → 4 sticks" },
+      { name: "Cobblestone (4→Furnace)", id: "cobble_to_furnace", desc: "4 cobblestone → furnace" },
+      { name: "Planks (4→Table)", id: "planks_to_table", desc: "4 wood planks → crafting table" },
+    ];
+
+    for (const recipe of recipes) {
+      const btn = document.createElement("button");
+      btn.style.cssText = `
+        display: block;
+        width: 100%;
+        padding: 10px;
+        margin: 8px 0;
+        background: #5B8C5A;
+        color: white;
+        border: 2px solid #3D5A3D;
+        border-radius: 2px;
+        cursor: pointer;
+        font-family: Arial, sans-serif;
+        font-weight: bold;
+      `;
+      btn.textContent = recipe.name;
+      btn.title = recipe.desc;
+      btn.addEventListener("click", () => {
+        this.onCraft?.(recipe.id);
+        this.hideCraftingUI();
+      });
+      this.craftingPanel.appendChild(btn);
+    }
+
+    // Close button
+    const closeBtn = document.createElement("button");
+    closeBtn.style.cssText = `
+      display: block;
+      width: 100%;
+      padding: 10px;
+      margin: 8px 0;
+      background: #8B3333;
+      color: white;
+      border: 2px solid #5B0000;
+      border-radius: 2px;
+      cursor: pointer;
+      font-family: Arial, sans-serif;
+      font-weight: bold;
+    `;
+    closeBtn.textContent = "Close";
+    closeBtn.addEventListener("click", () => this.hideCraftingUI());
+    this.craftingPanel.appendChild(closeBtn);
+
+    document.body.appendChild(this.craftingPanel);
+  }
+
+  hideCraftingUI() {
+    if (this.craftingPanel) {
+      this.craftingPanel.remove();
+      this.craftingPanel = null;
+    }
+  }
+
+  isCraftingOpen(): boolean {
+    return this.craftingPanel !== null;
+  }
+
+  // ── Chest UI ──────────────────────────────────────────────────────────────
+
+  private chestPanel: HTMLElement | null = null;
+  onChestClose?: () => void;
+
+  showChestUI(slots: number[]) {
+    if (this.chestPanel) return;
+
+    this.chestPanel = document.createElement("div");
+    this.chestPanel.id = "chest-panel";
+    this.chestPanel.style.cssText = `
+      position: fixed;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      background: #8B6914;
+      border: 4px solid #3d2814;
+      padding: 20px;
+      width: 310px;
+      z-index: 1000;
+      border-radius: 4px;
+      box-shadow: 0 0 30px rgba(0,0,0,0.7);
+    `;
+
+    const title = document.createElement("h2");
+    title.textContent = "Chest";
+    title.style.cssText = "color: white; margin: 0 0 15px 0; text-align: center; font-family: Arial, sans-serif;";
+    this.chestPanel.appendChild(title);
+
+    // 3x9 grid of slots
+    const grid = document.createElement("div");
+    grid.style.cssText = `
+      display: grid;
+      grid-template-columns: repeat(9, 1fr);
+      gap: 2px;
+      margin-bottom: 15px;
+      background: #2B2B2B;
+      padding: 5px;
+    `;
+
+    for (let i = 0; i < 27; i++) {
+      const slot = document.createElement("div");
+      const itemId = slots[i] ?? 0;
+      const color = itemId === 0 ? "#444444" : "#" + getBlockColor(itemId).toString(16).padStart(6, "0");
+      slot.style.cssText = `
+        width: 30px;
+        height: 30px;
+        background: ${color};
+        border: 1px solid #1a1a1a;
+        border-radius: 2px;
+        cursor: pointer;
+        transition: background 0.1s;
+      `;
+      slot.title = itemId === 0 ? "Empty" : getBlockName(itemId);
+      slot.addEventListener("mouseenter", () => {
+        slot.style.background = "#" + Math.min(0xffffff, (parseInt(color.slice(1), 16) ?? 0) + 0x222222).toString(16).padStart(6, "0");
+      });
+      slot.addEventListener("mouseleave", () => {
+        slot.style.background = color;
+      });
+      grid.appendChild(slot);
+    }
+    this.chestPanel.appendChild(grid);
+
+    // Close button
+    const closeBtn = document.createElement("button");
+    closeBtn.style.cssText = `
+      display: block;
+      width: 100%;
+      padding: 10px;
+      background: #5B3333;
+      color: white;
+      border: 2px solid #3d0000;
+      border-radius: 2px;
+      cursor: pointer;
+      font-family: Arial, sans-serif;
+      font-weight: bold;
+    `;
+    closeBtn.textContent = "Close Chest";
+    closeBtn.addEventListener("click", () => this.hideChestUI());
+    this.chestPanel.appendChild(closeBtn);
+
+    document.body.appendChild(this.chestPanel);
+  }
+
+  hideChestUI() {
+    if (this.chestPanel) {
+      this.chestPanel.remove();
+      this.chestPanel = null;
+      this.onChestClose?.();
+    }
+  }
+
+  isChestOpen(): boolean {
+    return this.chestPanel !== null;
+  }
+
+  // ── Kill Feed ──────────────────────────────────────────────────────────────
+
+  private killFeedEl: HTMLElement | null = null;
+
+  addKillFeedEntry(killerName: string, victimName: string) {
+    if (!this.killFeedEl) {
+      this.killFeedEl = document.createElement("div");
+      this.killFeedEl.id = "killfeed";
+      this.killFeedEl.style.cssText = `
+        position: absolute;
+        top: 170px;
+        right: 12px;
+        width: 220px;
+        z-index: 500;
+      `;
+      document.body.appendChild(this.killFeedEl);
+    }
+
+    const entry = document.createElement("div");
+    entry.style.cssText = `
+      background: rgba(0, 0, 0, 0.6);
+      color: white;
+      padding: 6px 12px;
+      margin-bottom: 4px;
+      border-left: 3px solid #ff4444;
+      font-family: Arial, sans-serif;
+      font-size: 12px;
+      animation: fadeOut 5s forwards;
+    `;
+    entry.innerHTML = `<span style="color: #ffaa00">${this.esc(killerName)}</span> <span style="color: #999">⚔</span> <span style="color: #ffaa00">${this.esc(victimName)}</span>`;
+
+    this.killFeedEl.appendChild(entry);
+
+    // Remove oldest entry if more than 5
+    const entries = this.killFeedEl.querySelectorAll("div");
+    if (entries.length > 5) {
+      entries[0].remove();
+    }
+
+    setTimeout(() => entry.remove(), 5000);
+  }
+
+  addKillFeedDeath(victimName: string) {
+    this.addKillFeedEntry("You", victimName);
+  }
+
+  // ── Tab Player List ───────────────────────────────────────────────────────
+
+  private playerListPanel: HTMLElement | null = null;
+
+  showPlayerList(players: { name: string; ping: number }[]) {
+    if (this.playerListPanel) return;
+
+    this.playerListPanel = document.createElement("div");
+    this.playerListPanel.id = "player-list";
+    this.playerListPanel.style.cssText = `
+      position: fixed;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      background: rgba(0, 0, 0, 0.8);
+      border: 2px solid #555;
+      padding: 20px;
+      max-width: 400px;
+      max-height: 80vh;
+      overflow-y: auto;
+      z-index: 999;
+      border-radius: 4px;
+    `;
+
+    const title = document.createElement("h2");
+    title.textContent = `Players Online (${players.length})`;
+    title.style.cssText = "color: #fff; margin: 0 0 15px 0; text-align: center; font-family: Arial, sans-serif;";
+    this.playerListPanel.appendChild(title);
+
+    for (const p of players) {
+      const entry = document.createElement("div");
+      entry.style.cssText = `
+        display: flex;
+        justify-content: space-between;
+        padding: 8px 0;
+        border-bottom: 1px solid #333;
+        color: white;
+        font-family: Arial, sans-serif;
+      `;
+      entry.innerHTML = `
+        <span>${this.esc(p.name)}</span>
+        <span style="color: #888; font-size: 12px;">${p.ping}ms</span>
+      `;
+      this.playerListPanel.appendChild(entry);
+    }
+
+    document.body.appendChild(this.playerListPanel);
+  }
+
+  hidePlayerList() {
+    if (this.playerListPanel) {
+      this.playerListPanel.remove();
+      this.playerListPanel = null;
+    }
   }
 }

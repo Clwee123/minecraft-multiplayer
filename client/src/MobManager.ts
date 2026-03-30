@@ -16,12 +16,20 @@ interface LocalMob {
   velY:  number;
   timer: number;      // AI state timer
   aggro: boolean;     // zombie chasing player
+  shootTimer?: number; // skeleton shoot cooldown
+}
+
+interface Arrow {
+  mesh: THREE.Mesh;
+  vel: THREE.Vector3;
+  life: number;
 }
 
 // Callback signatures
 export interface MobCallbacks {
   onPlayerDamage: (amount: number) => void;
   getPlayerPos:   () => THREE.Vector3;
+  onExplosion:    (x: number, y: number, z: number, radius: number) => void;
 }
 
 export class MobManager {
@@ -30,6 +38,7 @@ export class MobManager {
   private world:  World;
   private cb:     MobCallbacks;
   private singleplayer: boolean;
+  private arrows: Arrow[] = [];
 
   // Raycaster for mob-player attack detection
   private attackCooldown = 0;
@@ -45,7 +54,7 @@ export class MobManager {
 
   spawnMob(type: MobType, x: number, y: number, z: number, id?: string): Mob {
     const mobId    = id ?? uid();
-    const maxHp    = type === "zombie" ? 20 : type === "chicken" ? 4 : type === "cow" ? 16 : type === "sheep" ? 12 : 10;
+    const maxHp    = type === "zombie" ? 20 : type === "creeper" ? 20 : type === "skeleton" ? 20 : type === "chicken" ? 4 : type === "cow" ? 16 : type === "sheep" ? 12 : 10;
     const data: MobData = {
       id: mobId, type, x, y, z,
       rotY:      rnd(0, Math.PI * 2),
@@ -55,7 +64,7 @@ export class MobManager {
       state:     "idle",
     };
     const mob = new Mob(this.scene, data);
-    this.mobs.set(mobId, { data, mob, velY: 0, timer: 0, aggro: false });
+    this.mobs.set(mobId, { data, mob, velY: 0, timer: 0, aggro: false, shootTimer: 0 });
     return mob;
   }
 
@@ -69,7 +78,7 @@ export class MobManager {
                    ? (this.world as any).getSurfaceHeight(Math.floor(x), Math.floor(z)) + 1.5
                    : 20;
     const roll   = Math.random();
-    const type: MobType = roll < 0.35 ? "pig" : roll < 0.55 ? "chicken" : roll < 0.70 ? "cow" : roll < 0.85 ? "sheep" : "zombie";
+    const type: MobType = roll < 0.25 ? "pig" : roll < 0.38 ? "chicken" : roll < 0.52 ? "cow" : roll < 0.65 ? "sheep" : roll < 0.82 ? "zombie" : roll < 0.92 ? "creeper" : "skeleton";
     this.spawnMob(type, x, y, z);
   }
 
@@ -161,6 +170,30 @@ export class MobManager {
       }
     }
 
+    // Update arrows
+    for (let i = this.arrows.length - 1; i >= 0; i--) {
+      const arrow = this.arrows[i];
+      arrow.life -= dt;
+      arrow.mesh.position.addScaledVector(arrow.vel, dt);
+
+      // Check if arrow hits player
+      const dx = arrow.mesh.position.x - playerPos.x;
+      const dy = arrow.mesh.position.y - playerPos.y;
+      const dz = arrow.mesh.position.z - playerPos.z;
+      const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+
+      if (dist < 0.8) {
+        // Arrow hit player
+        this.cb.onPlayerDamage(3);
+        this.scene.remove(arrow.mesh);
+        this.arrows.splice(i, 1);
+      } else if (arrow.life <= 0) {
+        // Arrow lifespan expired
+        this.scene.remove(arrow.mesh);
+        this.arrows.splice(i, 1);
+      }
+    }
+
     // Spawn mobs in singleplayer
     if (this.singleplayer) {
       if (Math.random() < dt * 0.3 && this.mobs.size < MAX_SP_MOBS) {
@@ -193,6 +226,10 @@ export class MobManager {
       this.animalAI(lm, dt, dist, dx2, dz2, spd);
     } else if (d.type === "zombie") {
       this.zombieAI(lm, dt, dist, dx2, dz2, playerPos);
+    } else if (d.type === "creeper") {
+      this.creeperAI(lm, dt, dist, playerPos);
+    } else if (d.type === "skeleton") {
+      this.skeletonAI(lm, dt, dist, dx2, dz2, playerPos);
     }
 
     // Sync back to visual
@@ -256,6 +293,136 @@ export class MobManager {
     } else {
       this.animalAI(lm, dt, playerDist, dx, dz, 1.5);
     }
+  }
+
+  private creeperAI(lm: LocalMob, dt: number, playerDist: number, playerPos: THREE.Vector3) {
+    const d = lm.data;
+    const SPEED = 2.5;
+
+    // If player is within 10 blocks, enter fusing state
+    if (playerDist < 10) {
+      if (d.state !== "fusing") {
+        d.state = "fusing";
+        lm.timer = 1.5; // fuse for 1.5 seconds
+      }
+    } else if (d.state === "fusing") {
+      // Player got away, abort
+      d.state = "idle";
+      lm.timer = rnd(1.5, 4);
+    }
+
+    if (d.state === "fusing") {
+      // Chase player while fusing
+      const dx = playerPos.x - d.x;
+      const dz = playerPos.z - d.z;
+      d.rotY = Math.atan2(dx, dz);
+      d.x += Math.sin(d.rotY) * SPEED * dt;
+      d.z += Math.cos(d.rotY) * SPEED * dt;
+
+      // Explode when timer expires
+      if (lm.timer <= 0) {
+        this.explode(lm, playerPos);
+      }
+    } else {
+      // Idle/wander
+      if (lm.timer <= 0) {
+        d.state = Math.random() < 0.5 ? "walking" : "idle";
+        d.rotY = Math.random() * Math.PI * 2;
+        lm.timer = rnd(1.5, 4);
+      }
+      if (d.state === "walking") {
+        d.x += Math.sin(d.rotY) * SPEED * dt;
+        d.z += Math.cos(d.rotY) * SPEED * dt;
+      }
+    }
+  }
+
+  private explode(lm: LocalMob, playerPos: THREE.Vector3) {
+    const d = lm.data;
+    const EXPLOSION_RADIUS = 5;
+    const DAMAGE_RADIUS = 5;
+
+    // Damage player if within range
+    const dx = playerPos.x - d.x;
+    const dy = playerPos.y - d.y;
+    const dz = playerPos.z - d.z;
+    const distToPlayer = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    if (distToPlayer < DAMAGE_RADIUS) {
+      this.cb.onPlayerDamage(8);
+    }
+
+    // Trigger explosion callback
+    this.cb.onExplosion(d.x, d.y, d.z, EXPLOSION_RADIUS);
+
+    // Remove mob
+    lm.mob.die();
+  }
+
+  private skeletonAI(lm: LocalMob, dt: number, playerDist: number, dx: number, dz: number, playerPos: THREE.Vector3) {
+    const d = lm.data;
+    const SPEED = 1.8;
+    const SHOOT_RANGE = 20;
+    const BACK_AWAY_RANGE = 4;
+    const SHOOT_COOLDOWN = 2;
+
+    lm.shootTimer = (lm.shootTimer ?? 0) - dt;
+
+    if (playerDist < SHOOT_RANGE) {
+      d.state = "attacking";
+      lm.aggro = true;
+
+      // Shoot arrow if ready
+      if (lm.shootTimer <= 0) {
+        this.shootArrow(d.x, d.y + 0.5, d.z, playerPos);
+        lm.shootTimer = SHOOT_COOLDOWN;
+      }
+
+      // Back away if player too close
+      if (playerDist < BACK_AWAY_RANGE) {
+        const backAngle = d.rotY + Math.PI;
+        d.x += Math.sin(backAngle) * SPEED * dt;
+        d.z += Math.cos(backAngle) * SPEED * dt;
+      } else {
+        // Keep distance, rotate to face player
+        d.rotY = Math.atan2(dx, dz);
+      }
+    } else if (playerDist > 25 && lm.timer <= 0) {
+      d.state = "idle";
+      lm.aggro = false;
+    }
+
+    if (d.state !== "attacking") {
+      // Idle/wander when not attacking
+      if (lm.timer <= 0) {
+        d.state = Math.random() < 0.5 ? "walking" : "idle";
+        d.rotY = Math.random() * Math.PI * 2;
+        lm.timer = rnd(1.5, 4);
+      }
+      if (d.state === "walking") {
+        d.x += Math.sin(d.rotY) * SPEED * dt;
+        d.z += Math.cos(d.rotY) * SPEED * dt;
+      }
+    }
+  }
+
+  private shootArrow(x: number, y: number, z: number, targetPos: THREE.Vector3) {
+    const arrowGeo = new THREE.BoxGeometry(0.1, 0.1, 0.4);
+    const arrowMat = new THREE.MeshLambertMaterial({ color: 0xffdd00 });
+    const arrowMesh = new THREE.Mesh(arrowGeo, arrowMat);
+    arrowMesh.position.set(x, y, z);
+
+    // Direction toward target
+    const dir = new THREE.Vector3(
+      targetPos.x - x,
+      targetPos.y - y,
+      targetPos.z - z,
+    ).normalize();
+
+    const ARROW_SPEED = 15;
+    const vel = dir.multiplyScalar(ARROW_SPEED);
+
+    this.scene.add(arrowMesh);
+    this.arrows.push({ mesh: arrowMesh, vel, life: 3 });
   }
 
   getAllMobsForDisplay(): Array<{ id: string; mob: Mob }> {

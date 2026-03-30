@@ -13,6 +13,7 @@ function key(x: number, y: number, z: number) { return `${x},${y},${z}`; }
 export class World {
   scene:  THREE.Scene;
   blocks: BlockMap = new Map();
+  private chestInventory: Map<string, number[]> = new Map();
 
   private noise2D  = createNoise2D();
   private noise2D2 = createNoise2D();
@@ -126,6 +127,11 @@ export class World {
           this.placeTree(wx, h + 1, wz);
         }
 
+        // Rock formations
+        if (h > SEA_LEVEL + 2 && Math.random() < 0.02) {
+          this.placeRocks(wx, h + 1, wz);
+        }
+
         // Tall grass / flowers (decorative, non-solid ignored in physics)
         // (skipped for now — would need billboard geometry)
       }
@@ -146,6 +152,16 @@ export class World {
       }
     }
     this.placeBlock(x, top + 2, z, 6, false);
+  }
+
+  private placeRocks(x: number, y: number, z: number) {
+    const count = 2 + Math.floor(Math.random() * 4);
+    for (let i = 0; i < count; i++) {
+      const dx = Math.floor((Math.random() - 0.5) * 4);
+      const dz = Math.floor((Math.random() - 0.5) * 4);
+      const dy = i === 0 ? 0 : Math.floor(Math.random() * 2);
+      this.placeBlock(x + dx, y + dy, z + dz, 3, false);
+    }
   }
 
   // ── Block CRUD ─────────────────────────────────────────────────────────────
@@ -220,5 +236,20 @@ export class World {
   /** For the server-side floor estimate — returns safe mob Y above sea level */
   getApproxSurfaceY(x: number, z: number): number {
     return this.getSurfaceHeight(Math.round(x), Math.round(z)) + 1;
+  }
+
+  // ── Chest storage ──────────────────────────────────────────────────────────
+
+  getChestInventory(x: number, y: number, z: number): number[] {
+    const k = `${x},${y},${z}`;
+    if (!this.chestInventory.has(k)) {
+      this.chestInventory.set(k, new Array(27).fill(0));
+    }
+    return this.chestInventory.get(k)!;
+  }
+
+  setChestInventory(x: number, y: number, z: number, items: number[]) {
+    const k = `${x},${y},${z}`;
+    this.chestInventory.set(k, items);
   }
 }
