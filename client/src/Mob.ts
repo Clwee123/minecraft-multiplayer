@@ -1,6 +1,6 @@
 import * as THREE from "three";
 
-export type MobType = "pig" | "zombie" | "chicken";
+export type MobType = "pig" | "zombie" | "chicken" | "cow" | "sheep";
 
 export interface MobData {
   id:      string;
@@ -47,6 +47,8 @@ export class Mob {
       case "pig":     this.buildPig();     break;
       case "zombie":  this.buildZombie();  break;
       case "chicken": this.buildChicken(); break;
+      case "cow":     this.buildCow();     break;
+      case "sheep":   this.buildSheep();   break;
     }
 
     this.hpSprite = this.buildHpBar();
@@ -233,6 +235,126 @@ export class Mob {
     }
   }
 
+  private buildCow() {
+    const BROWN  = 0x7a4a2a;
+    const WHITE  = 0xdddddd;
+    const HOOF   = 0x222222;
+    const NOSE   = 0xc87050;
+
+    // Body (bigger than pig, has white patches via extra meshes)
+    const body = this.box(1.1, 0.85, 1.5, BROWN);
+    body.position.set(0, 0.5, 0);
+    this.group.add(body);
+
+    // White belly patch
+    const patch = this.box(0.7, 0.5, 1.2, WHITE);
+    patch.position.set(0, 0.3, 0.01);
+    this.group.add(patch);
+
+    // Head group
+    const head = this.box(0.76, 0.7, 0.72, BROWN);
+    this.headGroup.add(head);
+
+    // Snout
+    const snout = this.box(0.5, 0.32, 0.22, NOSE);
+    snout.position.set(0, -0.14, 0.4);
+    this.headGroup.add(snout);
+
+    // Nostrils
+    const nL = this.box(0.12, 0.1, 0.06, 0xaa5040);
+    nL.position.set(-0.12, -0.14, 0.52); this.headGroup.add(nL);
+    const nR = nL.clone(); nR.position.x = 0.12; this.headGroup.add(nR);
+
+    // Eyes
+    const eyeL = this.box(0.14, 0.14, 0.05, 0x111111);
+    eyeL.position.set(-0.28, 0.14, 0.37); this.headGroup.add(eyeL);
+    const eyeR = eyeL.clone(); eyeR.position.x = 0.28; this.headGroup.add(eyeR);
+
+    // Horns
+    const hornL = this.box(0.1, 0.28, 0.1, WHITE);
+    hornL.position.set(-0.3, 0.44, 0.04); this.headGroup.add(hornL);
+    const hornR = hornL.clone(); hornR.position.x = 0.3; this.headGroup.add(hornR);
+
+    // Ears
+    const earL = this.box(0.22, 0.16, 0.1, BROWN);
+    earL.position.set(-0.44, 0.26, 0.06); this.headGroup.add(earL);
+    const earR = earL.clone(); earR.position.x = 0.44; this.headGroup.add(earR);
+
+    this.headGroup.position.set(0, 0.92, 0.78);
+    this.group.add(this.headGroup);
+
+    // Legs
+    const legPositions: [number, number][] = [[-0.36, -0.52], [0.36, -0.52], [-0.36, 0.52], [0.36, 0.52]];
+    for (const [lx, lz] of legPositions) {
+      const g   = new THREE.Group();
+      const leg = this.box(0.34, 0.55, 0.34, BROWN);
+      leg.position.y = -0.275;
+      const hoof = this.box(0.34, 0.15, 0.36, HOOF);
+      hoof.position.y = -0.55 - 0.075;
+      g.add(leg, hoof);
+      g.position.set(lx, 0, lz);
+      this.group.add(g);
+      this.legs.push(g);
+    }
+
+    // Udder
+    const udder = this.box(0.44, 0.2, 0.44, 0xffd0c0);
+    udder.position.set(0, -0.08, 0.1);
+    this.group.add(udder);
+  }
+
+  private buildSheep() {
+    const WOOL  = 0xdddddd;
+    const SKIN  = 0x887766;
+    const HOOF  = 0x333333;
+    const FACE  = 0x998877;
+
+    // Wool body (fluffy, bigger)
+    const body = this.box(1.0, 0.95, 1.35, WOOL);
+    body.position.set(0, 0.55, 0);
+    this.group.add(body);
+    // Extra wool bumps for fluffiness
+    const bumpF = this.box(0.8, 0.55, 0.55, WOOL);
+    bumpF.position.set(0, 0.72, -0.5); this.group.add(bumpF);
+    const bumpB = this.box(0.8, 0.55, 0.55, WOOL);
+    bumpB.position.set(0, 0.72, 0.5); this.group.add(bumpB);
+
+    // Head (no wool on face)
+    const head = this.box(0.56, 0.56, 0.56, FACE);
+    this.headGroup.add(head);
+    // Snout bump
+    const snout = this.box(0.32, 0.26, 0.2, SKIN);
+    snout.position.set(0, -0.1, 0.32); this.headGroup.add(snout);
+    // Eyes
+    const eyeL = this.box(0.1, 0.1, 0.05, 0x222222);
+    eyeL.position.set(-0.2, 0.1, 0.3); this.headGroup.add(eyeL);
+    const eyeR = eyeL.clone(); eyeR.position.x = 0.2; this.headGroup.add(eyeR);
+    // Wool on top of head
+    const topWool = this.box(0.52, 0.3, 0.5, WOOL);
+    topWool.position.set(0, 0.38, -0.04); this.headGroup.add(topWool);
+    // Ears
+    const earL = this.box(0.1, 0.24, 0.18, SKIN);
+    earL.position.set(-0.34, 0.1, 0); this.headGroup.add(earL);
+    const earR = earL.clone(); earR.position.x = 0.34; this.headGroup.add(earR);
+
+    this.headGroup.position.set(0, 0.88, 0.72);
+    this.group.add(this.headGroup);
+
+    // Thin legs under wool
+    const legPositions: [number, number][] = [[-0.32, -0.44], [0.32, -0.44], [-0.32, 0.44], [0.32, 0.44]];
+    for (const [lx, lz] of legPositions) {
+      const g   = new THREE.Group();
+      const leg = this.box(0.28, 0.52, 0.28, SKIN);
+      leg.position.y = -0.26;
+      const hoof = this.box(0.28, 0.14, 0.3, HOOF);
+      hoof.position.y = -0.52 - 0.07;
+      g.add(leg, hoof);
+      g.position.set(lx, 0, lz);
+      this.group.add(g);
+      this.legs.push(g);
+    }
+  }
+
   // ── HP bar ────────────────────────────────────────────────────────────────
 
   private buildHpBar(): THREE.Sprite {
@@ -243,7 +365,8 @@ export class Mob {
     const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false });
     const sp  = new THREE.Sprite(mat);
     sp.scale.set(1.2, 0.18, 1);
-    sp.position.y = this.type === "pig" ? 1.4 : this.type === "chicken" ? 1.0 : 1.6;
+    const hpY: Record<MobType, number> = { pig: 1.4, chicken: 1.0, zombie: 1.6, cow: 1.8, sheep: 1.7 };
+    sp.position.y = hpY[this.type] ?? 1.6;
     return sp;
   }
 
@@ -296,6 +419,12 @@ export class Mob {
       for (const arm of this.arms) {
         arm.rotation.z += Math.sin(this.walkCycle * 0.5) * 0.005;
       }
+    } else if (this.type === "cow" || this.type === "sheep") {
+      for (let i = 0; i < this.legs.length; i++) {
+        const phase = (i === 0 || i === 3) ? 0 : Math.PI;
+        this.legs[i].rotation.x = Math.sin(this.walkCycle + phase) * SWING * 0.5;
+      }
+      this.headGroup.rotation.x = Math.abs(sw) * 0.06;
     } else if (this.type === "chicken") {
       if (this.legs.length >= 2) {
         this.legs[0].rotation.x =  sw * 0.7;
@@ -321,7 +450,10 @@ export class Mob {
     (this.hpSprite.material as THREE.SpriteMaterial).map!.needsUpdate = true;
 
     // Flash red
-    const origColor = this.type === "pig" ? 0xf9a8a8 : this.type === "zombie" ? 0x77bb77 : 0xffffff;
+    const origColors: Record<MobType, number> = {
+      pig: 0xf9a8a8, zombie: 0x77bb77, chicken: 0xffffff, cow: 0x7a4a2a, sheep: 0xdddddd,
+    };
+    const origColor = origColors[this.type] ?? 0xffffff;
     for (const m of this.bodyMeshes) {
       (m.material as THREE.MeshLambertMaterial).color.set(0xff4444);
     }

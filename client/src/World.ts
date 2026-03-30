@@ -1,72 +1,77 @@
 import * as THREE from "three";
 import { createNoise2D } from "simplex-noise";
-import { getBlockColor, BLOCK_TYPES } from "./blocks";
+import { BLOCK_TYPES } from "./blocks";
 
-const BLOCK_SIZE  = 1;
-const CHUNK_SIZE  = 16;
-const WORLD_HEIGHT = 32;
+const CHUNK_SIZE   = 16;
+const WORLD_HEIGHT = 40;
 const SEA_LEVEL    = 8;
 
 type BlockMap = Map<string, { mesh: THREE.Mesh; type: number }>;
 
-function key(x: number, y: number, z: number) {
-  return `${x},${y},${z}`;
-}
+function key(x: number, y: number, z: number) { return `${x},${y},${z}`; }
 
 export class World {
-  scene: THREE.Scene;
+  scene:  THREE.Scene;
   blocks: BlockMap = new Map();
-  private noise2D = createNoise2D();
-  private blockGeo = new THREE.BoxGeometry(BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE);
+
+  private noise2D  = createNoise2D();
+  private noise2D2 = createNoise2D();
+  private blockGeo = new THREE.BoxGeometry(1, 1, 1);
 
   constructor(scene: THREE.Scene) {
     this.scene = scene;
     this.generateTerrain();
   }
 
+  // ── Terrain height ─────────────────────────────────────────────────────────
+
   private getHeight(wx: number, wz: number): number {
-    const n1 = this.noise2D(wx * 0.04, wz * 0.04);
-    const n2 = this.noise2D(wx * 0.1,  wz * 0.1) * 0.4;
-    const n3 = this.noise2D(wx * 0.02, wz * 0.02) * 0.6;
+    const n1 = this.noise2D(wx * 0.035, wz * 0.035);
+    const n2 = this.noise2D(wx * 0.09,  wz * 0.09)  * 0.35;
+    const n3 = this.noise2D(wx * 0.018, wz * 0.018) * 0.65;
     const n  = (n1 + n2 + n3) / 2;
-    return Math.floor(SEA_LEVEL + n * 10);
+    return Math.floor(SEA_LEVEL + n * 11);
   }
 
-  private makeMaterial(type: number, face?: "top" | "bottom" | "side") {
-    const info = BLOCK_TYPES[type];
-    let color = info?.color ?? 0xffffff;
-    if (face === "top"    && info?.topColor)    color = info.topColor;
-    if (face === "bottom" && info?.bottomColor) color = info.bottomColor;
-
-    const mat = new THREE.MeshLambertMaterial({ color });
-    if (type === 9) { mat.transparent = true; mat.opacity = 0.6; }
-    if (type === 7) { mat.transparent = true; mat.opacity = 0.7; }
-    return mat;
+  private getCaveNoise(x: number, y: number, z: number): number {
+    // 3D cave noise
+    const n1 = this.noise2D2(x * 0.08 + y * 0.04, z * 0.08);
+    const n2 = this.noise2D(x * 0.12, z * 0.12 + y * 0.06);
+    return (n1 + n2) / 2;
   }
+
+  // ── Mesh factory ───────────────────────────────────────────────────────────
 
   private makeFacedMesh(type: number): THREE.Mesh {
     const info = BLOCK_TYPES[type];
-    // If block has top/bottom color variants, use per-face materials
-    if (info?.topColor || info?.bottomColor) {
+    if (!info) return new THREE.Mesh(this.blockGeo, new THREE.MeshLambertMaterial({ color: 0xffffff }));
+
+    const makeMat = (color: number) => {
+      const mat = new THREE.MeshLambertMaterial({ color });
+      if (info.transparent) { mat.transparent = true; mat.opacity = type === 7 ? 0.68 : 0.55; }
+      if (info.emissive)    { mat.emissive = new THREE.Color(info.emissive); mat.emissiveIntensity = 0.6; }
+      return mat;
+    };
+
+    if (info.topColor || info.bottomColor) {
       const mats = [
-        new THREE.MeshLambertMaterial({ color: info.color }),   // +x
-        new THREE.MeshLambertMaterial({ color: info.color }),   // -x
-        new THREE.MeshLambertMaterial({ color: info.topColor ?? info.color }), // +y (top)
-        new THREE.MeshLambertMaterial({ color: info.bottomColor ?? info.color }), // -y (bottom)
-        new THREE.MeshLambertMaterial({ color: info.color }),   // +z
-        new THREE.MeshLambertMaterial({ color: info.color }),   // -z
+        makeMat(info.color),
+        makeMat(info.color),
+        makeMat(info.topColor    ?? info.color),
+        makeMat(info.bottomColor ?? info.color),
+        makeMat(info.color),
+        makeMat(info.color),
       ];
       return new THREE.Mesh(this.blockGeo, mats);
     }
-    const color = info?.color ?? 0xffffff;
-    const mat = new THREE.MeshLambertMaterial({ color });
-    if (type === 9) { mat.transparent = true; mat.opacity = 0.6; }
-    if (type === 7) { mat.transparent = true; mat.opacity = 0.7; }
-    return new THREE.Mesh(this.blockGeo, mat);
+
+    return new THREE.Mesh(this.blockGeo, makeMat(info.color));
   }
 
+  // ── World generation ───────────────────────────────────────────────────────
+
   private generateTerrain() {
-    const R = 3; // render distance in chunks
+    const R = 4; // render distance in chunks
     for (let cx = -R; cx <= R; cx++) {
       for (let cz = -R; cz <= R; cz++) {
         this.generateChunk(cx, cz);
@@ -82,13 +87,29 @@ export class World {
         const h  = this.getHeight(wx, wz);
 
         for (let y = 0; y <= h; y++) {
-          let type: number;
-          if (y === h)         type = 1;  // grass
-          else if (y >= h - 3) type = 2;  // dirt
-          else                 type = 3;  // stone
+          // Cave carving
+          if (y > 0 && y < h - 1 && this.getCaveNoise(wx, y, wz) > 0.55) continue;
 
-          // sand near sea level
-          if (y >= h - 1 && h <= SEA_LEVEL + 1) type = 4;
+          let type: number;
+          if      (y === h)         type = 1;  // grass
+          else if (y >= h - 3)      type = 2;  // dirt
+          else if (y <= 3)          type = 18; // obsidian near bedrock
+          else                      type = 3;  // stone
+
+          // Biome-like variation
+          if (y === h && h <= SEA_LEVEL + 1) type = 4; // sand beach
+          if (y === h && h >= SEA_LEVEL + 9) type = 20; // snow peaks
+
+          // Ore pockets in stone
+          if (type === 3) {
+            const r = Math.random();
+            if (r < 0.005 && y < 20)  type = 13; // gold ore
+            else if (r < 0.015)        type = 14; // iron ore
+            else if (r < 0.025)        type = 15; // coal ore
+          }
+
+          // Occasional gravel patches in stone
+          if (type === 3 && y >= 3 && Math.random() < 0.008) type = 12;
 
           this.placeBlock(wx, y, wz, type, false);
         }
@@ -100,20 +121,21 @@ export class World {
           }
         }
 
-        // Occasional trees
-        if (h > SEA_LEVEL && Math.random() < 0.015) {
+        // Trees (only on regular grass, not snow)
+        if (h > SEA_LEVEL && h < SEA_LEVEL + 9 && Math.random() < 0.018) {
           this.placeTree(wx, h + 1, wz);
         }
+
+        // Tall grass / flowers (decorative, non-solid ignored in physics)
+        // (skipped for now — would need billboard geometry)
       }
     }
   }
 
   private placeTree(x: number, y: number, z: number) {
-    const trunkH = 4 + Math.floor(Math.random() * 2);
-    for (let i = 0; i < trunkH; i++) {
-      this.placeBlock(x, y + i, z, 5, false);
-    }
-    // Leaf canopy
+    const trunkH = 4 + Math.floor(Math.random() * 3);
+    for (let i = 0; i < trunkH; i++) this.placeBlock(x, y + i, z, 5, false);
+
     const top = y + trunkH;
     for (let dx = -2; dx <= 2; dx++) {
       for (let dz = -2; dz <= 2; dz++) {
@@ -126,15 +148,16 @@ export class World {
     this.placeBlock(x, top + 2, z, 6, false);
   }
 
+  // ── Block CRUD ─────────────────────────────────────────────────────────────
+
   placeBlock(x: number, y: number, z: number, type: number, overwrite = true) {
     const k = key(x, y, z);
     if (!overwrite && this.blocks.has(k)) return;
 
-    // Remove existing
     const existing = this.blocks.get(k);
     if (existing) {
       this.scene.remove(existing.mesh);
-      existing.mesh.geometry.dispose();
+      this.disposeMesh(existing.mesh);
     }
 
     const mesh = this.makeFacedMesh(type);
@@ -145,18 +168,19 @@ export class World {
     this.blocks.set(k, { mesh, type });
   }
 
-  removeBlock(x: number, y: number, z: number) {
+  removeBlock(x: number, y: number, z: number): boolean {
     const k = key(x, y, z);
     const entry = this.blocks.get(k);
     if (!entry) return false;
     this.scene.remove(entry.mesh);
-    if (Array.isArray(entry.mesh.material)) {
-      entry.mesh.material.forEach(m => m.dispose());
-    } else {
-      entry.mesh.material.dispose();
-    }
+    this.disposeMesh(entry.mesh);
     this.blocks.delete(k);
     return true;
+  }
+
+  private disposeMesh(mesh: THREE.Mesh) {
+    if (Array.isArray(mesh.material)) mesh.material.forEach(m => m.dispose());
+    else mesh.material.dispose();
   }
 
   hasBlock(x: number, y: number, z: number): boolean {
@@ -167,24 +191,21 @@ export class World {
     return this.blocks.get(key(x, y, z));
   }
 
-  // Returns all meshes for raycasting
   getMeshes(): THREE.Mesh[] {
     return Array.from(this.blocks.values()).map(b => b.mesh);
   }
 
-  /**
-   * Returns the Y position of the TOP face of the highest solid (non-water) block at (x, z).
-   * Returns 5 as fallback (safe above sea level).
-   */
+  // ── Height queries ─────────────────────────────────────────────────────────
+
+  /** Y of the top face of the highest non-liquid solid block at (x, z). */
   getSurfaceHeight(x: number, z: number): number {
     for (let y = WORLD_HEIGHT + 5; y >= 0; y--) {
       const entry = this.blocks.get(key(x, y, z));
-      if (entry && entry.type !== 7 && entry.type !== 9) return y; // top face = y
+      if (entry && entry.type !== 7 && entry.type !== 9 && entry.type !== 21) return y;
     }
-    return 8; // fallback above sea level
+    return SEA_LEVEL;
   }
 
-  /** Check a range of x/z around a point for the maximum surface Y — good for spawn finding */
   getSpawnHeight(x: number, z: number, radius = 2): number {
     let best = 0;
     for (let dx = -radius; dx <= radius; dx++) {
@@ -194,5 +215,10 @@ export class World {
       }
     }
     return best;
+  }
+
+  /** For the server-side floor estimate — returns safe mob Y above sea level */
+  getApproxSurfaceY(x: number, z: number): number {
+    return this.getSurfaceHeight(Math.round(x), Math.round(z)) + 1;
   }
 }

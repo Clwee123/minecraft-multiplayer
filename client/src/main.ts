@@ -5,6 +5,8 @@ import { MultiplayerManager } from "./MultiplayerManager";
 import { MobManager }         from "./MobManager";
 import { UI }                 from "./UI";
 import { HOTBAR_BLOCKS }      from "./blocks";
+import { Particles }          from "./Particles";
+import { SoundManager }       from "./SoundManager";
 
 // ── Renderer ─────────────────────────────────────────────────────────────────
 
@@ -14,6 +16,7 @@ renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type    = THREE.PCFSoftShadowMap;
 renderer.toneMapping       = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.1;
 document.body.appendChild(renderer.domElement);
 
 window.addEventListener("resize", () => {
@@ -26,52 +29,212 @@ window.addEventListener("resize", () => {
 
 const scene  = new THREE.Scene();
 scene.background = new THREE.Color(0x87ceeb);
-scene.fog        = new THREE.Fog(0x87ceeb, 50, 150);
+scene.fog        = new THREE.Fog(0x87ceeb, 55, 160);
 
-const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.05, 250);
+const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.05, 300);
 
-// Lighting
-const ambient = new THREE.AmbientLight(0xffffff, 0.6);
+// ── Day/Night cycle ───────────────────────────────────────────────────────────
+
+const DAY_DURATION   = 240; // seconds for a full day/night cycle
+let dayTime          = 0.25; // start at dawn (0=midnight, 0.25=dawn, 0.5=noon, 0.75=dusk)
+
+const SKY_COLORS = {
+  night:  new THREE.Color(0x050510),
+  dawn:   new THREE.Color(0xff6633),
+  day:    new THREE.Color(0x87ceeb),
+  dusk:   new THREE.Color(0xff4422),
+};
+const FOG_COLORS = {
+  night:  new THREE.Color(0x050510),
+  dawn:   new THREE.Color(0xff8844),
+  day:    new THREE.Color(0x87ceeb),
+  dusk:   new THREE.Color(0xff6633),
+};
+
+// Sun mesh
+const sunGeo  = new THREE.SphereGeometry(4, 12, 12);
+const sunMat  = new THREE.MeshBasicMaterial({ color: 0xffffff });
+const sunMesh = new THREE.Mesh(sunGeo, sunMat);
+scene.add(sunMesh);
+
+// Moon mesh
+const moonGeo  = new THREE.SphereGeometry(2.5, 12, 12);
+const moonMat  = new THREE.MeshBasicMaterial({ color: 0xddddff });
+const moonMesh = new THREE.Mesh(moonGeo, moonMat);
+scene.add(moonMesh);
+
+// Stars (only visible at night)
+const starGeo   = new THREE.BufferGeometry();
+const starCount = 1200;
+const starPos   = new Float32Array(starCount * 3);
+for (let i = 0; i < starCount; i++) {
+  const theta  = Math.random() * Math.PI * 2;
+  const phi    = Math.acos(2 * Math.random() - 1);
+  const r      = 180;
+  starPos[i * 3]     = r * Math.sin(phi) * Math.cos(theta);
+  starPos[i * 3 + 1] = r * Math.abs(Math.cos(phi)); // only upper hemisphere
+  starPos[i * 3 + 2] = r * Math.sin(phi) * Math.sin(theta);
+}
+starGeo.setAttribute("position", new THREE.BufferAttribute(starPos, 3));
+const starMat   = new THREE.PointsMaterial({ color: 0xffffff, size: 0.6, sizeAttenuation: false });
+const stars     = new THREE.Points(starGeo, starMat);
+scene.add(stars);
+
+// Clouds (simple flat boxes drifting)
+const clouds: THREE.Mesh[] = [];
+const cloudMat = new THREE.MeshLambertMaterial({ color: 0xffffff, transparent: true, opacity: 0.82 });
+for (let i = 0; i < 18; i++) {
+  const w   = 8  + Math.random() * 14;
+  const d   = 5  + Math.random() * 8;
+  const geo = new THREE.BoxGeometry(w, 1.2, d);
+  const c   = new THREE.Mesh(geo, cloudMat);
+  c.position.set(
+    (Math.random() - 0.5) * 200,
+    28 + Math.random() * 8,
+    (Math.random() - 0.5) * 200,
+  );
+  c.castShadow = false;
+  scene.add(c);
+  clouds.push(c);
+}
+
+// ── Lighting ──────────────────────────────────────────────────────────────────
+
+const ambient = new THREE.AmbientLight(0xffffff, 0.5);
 scene.add(ambient);
 
 const sun = new THREE.DirectionalLight(0xfff4e0, 1.4);
-sun.position.set(50, 100, 50);
 sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048);
 sun.shadow.camera.near = 0.5;
 sun.shadow.camera.far  = 300;
-sun.shadow.camera.left = sun.shadow.camera.bottom = -100;
-sun.shadow.camera.right = sun.shadow.camera.top   =  100;
+sun.shadow.camera.left = sun.shadow.camera.bottom = -110;
+sun.shadow.camera.right = sun.shadow.camera.top   =  110;
 scene.add(sun);
 
-const hemi = new THREE.HemisphereLight(0x87ceeb, 0x4a7c4a, 0.35);
+const moonLight = new THREE.DirectionalLight(0x334466, 0.3);
+scene.add(moonLight);
+
+const hemi = new THREE.HemisphereLight(0x87ceeb, 0x4a7c4a, 0.3);
 scene.add(hemi);
+
+// ── Update day/night ──────────────────────────────────────────────────────────
+
+function updateDayNight(dt: number) {
+  dayTime = (dayTime + dt / DAY_DURATION) % 1;
+
+  // Sun/moon orbit
+  const sunAngle  = (dayTime - 0.25) * Math.PI * 2;  // noon = top
+  const moonAngle = sunAngle + Math.PI;
+  const R = 150;
+
+  sunMesh.position.set(0, Math.sin(sunAngle) * R, Math.cos(sunAngle) * R);
+  moonMesh.position.set(0, Math.sin(moonAngle) * R, Math.cos(moonAngle) * R);
+
+  sun.position.copy(sunMesh.position).normalize().multiplyScalar(100);
+  moonLight.position.copy(moonMesh.position).normalize().multiplyScalar(100);
+
+  // Sky color lerp
+  let skyColor: THREE.Color, fogColor: THREE.Color, sunIntensity: number, ambientIntensity: number;
+
+  const t = dayTime;
+  if (t < 0.2) {
+    // Night → dawn (0 → 0.2)
+    const p = t / 0.2;
+    skyColor = SKY_COLORS.night.clone().lerp(SKY_COLORS.dawn, p);
+    fogColor = FOG_COLORS.night.clone().lerp(FOG_COLORS.dawn, p);
+    sunIntensity     = 0.05 + p * 0.8;
+    ambientIntensity = 0.05 + p * 0.45;
+  } else if (t < 0.3) {
+    // Dawn → day (0.2 → 0.3)
+    const p = (t - 0.2) / 0.1;
+    skyColor = SKY_COLORS.dawn.clone().lerp(SKY_COLORS.day, p);
+    fogColor = FOG_COLORS.dawn.clone().lerp(FOG_COLORS.day, p);
+    sunIntensity     = 0.85 + p * 0.55;
+    ambientIntensity = 0.5 + p * 0.1;
+  } else if (t < 0.7) {
+    // Full day (0.3 → 0.7)
+    skyColor = SKY_COLORS.day.clone();
+    fogColor = FOG_COLORS.day.clone();
+    sunIntensity     = 1.4;
+    ambientIntensity = 0.6;
+  } else if (t < 0.8) {
+    // Day → dusk (0.7 → 0.8)
+    const p = (t - 0.7) / 0.1;
+    skyColor = SKY_COLORS.day.clone().lerp(SKY_COLORS.dusk, p);
+    fogColor = FOG_COLORS.day.clone().lerp(FOG_COLORS.dusk, p);
+    sunIntensity     = 1.4 - p * 1.35;
+    ambientIntensity = 0.6 - p * 0.55;
+  } else {
+    // Dusk → night (0.8 → 1)
+    const p = (t - 0.8) / 0.2;
+    skyColor = SKY_COLORS.dusk.clone().lerp(SKY_COLORS.night, p);
+    fogColor = FOG_COLORS.dusk.clone().lerp(FOG_COLORS.night, p);
+    sunIntensity     = 0.05;
+    ambientIntensity = 0.05;
+  }
+
+  renderer.setClearColor(skyColor);
+  scene.background = skyColor;
+  (scene.fog as THREE.Fog).color.copy(fogColor);
+
+  sun.intensity       = sunIntensity;
+  ambient.intensity   = Math.max(ambientIntensity, 0.04);
+  moonLight.intensity = Math.max(0.35 - sunIntensity * 0.2, 0);
+  hemi.intensity      = ambientIntensity * 0.5;
+
+  // Stars appear at night
+  starMat.opacity = Math.max(0, 1 - sunIntensity * 1.5);
+  starMat.transparent = true;
+
+  // Sun/moon color
+  const isSunUp = Math.sin(sunAngle) > 0;
+  sunMesh.visible  =  isSunUp;
+  moonMesh.visible = !isSunUp;
+
+  // Cloud drift
+  for (const c of clouds) {
+    c.position.x = ((c.position.x + 0.015 * dt * 20) % 200) - 100;
+    (c.material as THREE.MeshLambertMaterial).opacity = ambientIntensity > 0.2 ? 0.82 : 0;
+  }
+}
 
 // ── Core objects ──────────────────────────────────────────────────────────────
 
-const world  = new World(scene);
-const player = new Player(camera, world, scene);
-const ui     = new UI();
+const world     = new World(scene);
+const player    = new Player(camera, world, scene);
+const ui        = new UI();
+const particles = new Particles(scene);
+const sounds    = new SoundManager();
 
-let mp:          MultiplayerManager | null = null;
-let mobManager:  MobManager | null = null;
+let mp:         MultiplayerManager | null = null;
+let mobManager: MobManager | null = null;
 let isSingleplayer = true;
 
 const attackRaycaster = new THREE.Raycaster();
 attackRaycaster.far   = 5;
 
+// ── Hunger & regen ────────────────────────────────────────────────────────────
+
+let hunger      = 20;
+let maxHunger   = 20;
+let regenTimer  = 0;
+let hungerTimer = 0;
+let lastMoved   = new THREE.Vector3();
+
 // ── Command handler ───────────────────────────────────────────────────────────
 
 function handleCommand(cmd: string, playerName: string): boolean {
-  const parts = cmd.trim().toLowerCase().split(/\s+/);
-  const base  = parts[0];
+  const parts = cmd.trim().split(/\s+/);
+  const base  = parts[0].toLowerCase();
 
   if (base === "/gamemode") {
-    const mode = parts[1] as GameMode;
+    const mode = parts[1]?.toLowerCase() as GameMode;
     if (mode === "creative" || mode === "survival") {
       player.setGameMode(mode);
       ui.setGameMode(mode);
-      ui.addChatMessage("", `§7Gamemode set to §e${mode}`, true);
+      if (mode === "survival") { hunger = 20; ui.updateHunger(hunger, maxHunger); }
+      ui.addChatMessage("", `Gamemode set to ${mode}`, true);
       mp?.sendGameMode(mode);
       return true;
     }
@@ -79,17 +242,17 @@ function handleCommand(cmd: string, playerName: string): boolean {
     return true;
   }
 
-  if (base === "/kill") {
-    player.takeDamage(player.maxHealth);
-    ui.addChatMessage("", "You were slain.", true);
-    return true;
-  }
+  if (base === "/kill")  { player.takeDamage(player.maxHealth); return true; }
+  if (base === "/heal")  { (player as any).health = player.maxHealth; ui.updateHearts(player.maxHealth, player.maxHealth); ui.addChatMessage("", "Healed to full!", true); return true; }
+  if (base === "/feed")  { hunger = maxHunger; ui.updateHunger(hunger, maxHunger); ui.addChatMessage("", "Fed to full!", true); return true; }
 
-  if (base === "/heal") {
-    (player as any).health = player.maxHealth;
-    (player as any).invincible = 0;
-    ui.updateHearts(player.maxHealth, player.maxHealth);
-    ui.addChatMessage("", "Healed to full health!", true);
+  if (base === "/time") {
+    const sub = parts[1]?.toLowerCase();
+    if (sub === "day")     { dayTime = 0.3;  ui.addChatMessage("", "Set time to day", true); return true; }
+    if (sub === "night")   { dayTime = 0.0;  ui.addChatMessage("", "Set time to night", true); return true; }
+    if (sub === "sunrise") { dayTime = 0.22; ui.addChatMessage("", "Set time to sunrise", true); return true; }
+    if (sub === "sunset")  { dayTime = 0.75; ui.addChatMessage("", "Set time to sunset", true); return true; }
+    ui.addChatMessage("", "Usage: /time day | night | sunrise | sunset", true);
     return true;
   }
 
@@ -106,23 +269,21 @@ function handleCommand(cmd: string, playerName: string): boolean {
   }
 
   if (base === "/help") {
-    const cmds = [
+    [
       "/gamemode creative | survival",
-      "/kill  — instant death",
-      "/heal  — full health",
-      "/tp <x> <z>  — teleport",
-      "F5  — toggle 3rd person view",
-      "Ctrl+W  — sprint",
-    ];
-    cmds.forEach(c => ui.addChatMessage("", c, true));
+      "/kill  /heal  /feed",
+      "/time day | night | sunrise | sunset",
+      "/tp <x> <z>",
+      "F5 = 3rd person · Ctrl = sprint",
+    ].forEach(c => ui.addChatMessage("", c, true));
     return true;
   }
 
-  ui.addChatMessage("", `Unknown command: ${base}. Type /help for list.`, true);
+  ui.addChatMessage("", `Unknown: ${base}. Type /help`, true);
   return true;
 }
 
-// ── Login screen ──────────────────────────────────────────────────────────────
+// ── Login ─────────────────────────────────────────────────────────────────────
 
 const loginScreen = document.getElementById("loginScreen")!;
 const nameInput   = document.getElementById("nameInput") as HTMLInputElement;
@@ -137,39 +298,45 @@ async function startGame(name: string) {
   loginScreen.style.display = "none";
   hud.style.display         = "block";
 
-  // Spawn player at a safe surface position
   player.spawnAt(0, 0);
-
   setTimeout(() => document.body.requestPointerLock(), 200);
 
-  // Wire player callbacks
+  // Player callbacks
   player.onHealthChanged = hp => ui.updateHearts(hp, player.maxHealth);
-  player.onDied          = () => {
+  player.onDied = () => {
     ui.showDeath();
-    ui.addChatMessage("", "You died! Click Respawn to continue.", true);
+    ui.addChatMessage("", "☠ You died!", true);
+    sounds.play("hurt");
   };
-  player.onOpenChat      = () => { ui.openChatInput(); player.setChatOpen(true); };
-  player.onBreakBlock    = (x, y, z) => mp?.sendRemoveBlock(x, y, z);
-  player.onPlaceBlock    = (x, y, z, t) => mp?.sendAddBlock(x, y, z, t);
+  player.onOpenChat  = () => { ui.openChatInput(); player.setChatOpen(true); };
+  player.onBreakBlock = (x, y, z) => {
+    const b = world.getBlock(x, y, z);
+    if (b) particles.burst(x, y, z, b.type);
+    sounds.play("break");
+    mp?.sendRemoveBlock(x, y, z);
+  };
+  player.onPlaceBlock = (x, y, z, t) => {
+    sounds.play("place");
+    mp?.sendAddBlock(x, y, z, t);
+  };
 
-  // Mob attacks on left-click
+  // Attack
   document.addEventListener("mousedown", e => {
     if (e.button !== 0 || !document.pointerLockElement) return;
     attackRaycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
     const result = mobManager?.tryAttack(attackRaycaster);
-    if (result && !isSingleplayer) mp?.sendAttackMob(result.mobId, result.damage);
+    if (result) {
+      sounds.play("hit");
+      if (!isSingleplayer) mp?.sendAttackMob(result.mobId, result.damage);
+    }
   });
 
-  // Chat / commands
+  // Chat
   ui.onChat = (text) => {
     if (text.startsWith("/")) {
       handleCommand(text, playerName);
     } else {
-      if (isSingleplayer) {
-        ui.addChatMessage(playerName, text);
-      } else {
-        mp?.sendChat(text);
-      }
+      isSingleplayer ? ui.addChatMessage(playerName, text) : mp?.sendChat(text);
     }
     player.setChatOpen(false);
   };
@@ -177,12 +344,15 @@ async function startGame(name: string) {
   // Respawn
   ui.onRespawn = () => {
     player.respawn();
+    hunger = maxHunger;
     ui.updateHearts(player.maxHealth, player.maxHealth);
+    ui.updateHunger(hunger, maxHunger);
     mp?.sendRespawn();
     setTimeout(() => document.body.requestPointerLock(), 150);
   };
 
   ui.updateHearts(player.health, player.maxHealth);
+  ui.updateHunger(hunger, maxHunger);
   ui.setGameMode(player.gameMode);
 
   // Hotbar scroll
@@ -195,32 +365,34 @@ async function startGame(name: string) {
   });
 
   if (isSingleplayer) {
-    // ── SINGLEPLAYER ──────────────────────────────────────────────────────
     ui.setConnectionStatus("connected");
     ui.updatePlayerCount(1);
 
     mobManager = new MobManager(scene, world, {
       onPlayerDamage: (amount) => {
-        player.takeDamage(amount);
-        ui.updateHearts(player.health, player.maxHealth);
+        if (player.gameMode === "survival") {
+          player.takeDamage(amount);
+          sounds.play("hurt");
+          ui.updateHearts(player.health, player.maxHealth);
+        }
       },
       getPlayerPos: () => player.position,
     }, true);
 
-    for (let i = 0; i < 14; i++) mobManager.spawnRandom(0, 0);
+    for (let i = 0; i < 16; i++) mobManager.spawnRandom(0, 0);
 
-    ui.addChatMessage("", `Welcome, ${playerName}! SP mode — mobs active.`, true);
-    ui.addChatMessage("", "T=chat · F5=3rd person · Ctrl=sprint · /help for commands", true);
+    ui.addChatMessage("", `Welcome, ${playerName}! 🌍 Singleplayer`, true);
+    ui.addChatMessage("", "T=chat · F5=3rd person · Ctrl=sprint · /help", true);
 
   } else {
-    // ── MULTIPLAYER ───────────────────────────────────────────────────────
     const serverAddr = (window as any).__getServerAddr?.() ?? "localhost:2567";
     mp = new MultiplayerManager(scene, world, {
       onStatusChange: s => ui.setConnectionStatus(s),
-      onChat:         (name, text, sys) => ui.addChatMessage(name, text, sys),
+      onChat:         (n, t, sys) => ui.addChatMessage(n, t, sys),
       onPlayerCount:  n => ui.updatePlayerCount(n),
       onPlayerDamage: (amount) => {
         player.takeDamage(amount);
+        sounds.play("hurt");
         ui.updateHearts(player.health, player.maxHealth);
       },
       onPlayerDied: (name) => {
@@ -236,11 +408,10 @@ async function startGame(name: string) {
 
     mp.setMobManager(mobManager);
     mp.setLocalStateGetter(() => player.getState());
-
     await mp.join(playerName);
 
-    ui.addChatMessage("", `Welcome, ${playerName}! MP mode.`, true);
-    ui.addChatMessage("", "T=chat · F5=3rd person · /help for commands", true);
+    ui.addChatMessage("", `Welcome, ${playerName}! 🌐 Multiplayer`, true);
+    ui.addChatMessage("", "T=chat · F5=3rd person · /help", true);
   }
 }
 
@@ -257,14 +428,58 @@ let lastTime = performance.now();
 function animate() {
   requestAnimationFrame(animate);
   const now = performance.now();
-  const dt  = Math.min((now - lastTime) / 1000, 0.05); // cap at 50ms to avoid big jumps
+  const dt  = Math.min((now - lastTime) / 1000, 0.05);
   lastTime  = now;
 
   if (hud.style.display !== "none") {
     player.update(dt);
     mp?.updatePlayers(dt);
     mobManager?.update(dt);
+    particles.update(dt);
+    updateDayNight(dt);
+
+    // ── Hunger & regen ──────────────────────────────────────────────────────
+    if (player.gameMode === "survival") {
+      // Hunger drains when moving
+      const moved = player.position.distanceTo(lastMoved);
+      lastMoved.copy(player.position);
+      if (moved > 0.1) {
+        hungerTimer += dt;
+        if (hungerTimer > 1.5) {
+          hungerTimer = 0;
+          hunger = Math.max(0, hunger - 0.5);
+          ui.updateHunger(Math.ceil(hunger * 2) / 2, maxHunger);
+        }
+      }
+
+      // Health regen when hunger ≥ 16 and health < max
+      if (hunger >= 16 && player.health < player.maxHealth) {
+        regenTimer += dt;
+        if (regenTimer > 4) {
+          regenTimer = 0;
+          (player as any).health = Math.min(player.maxHealth, player.health + 1);
+          ui.updateHearts(player.health, player.maxHealth);
+        }
+      }
+
+      // Starving damage when hunger = 0
+      if (hunger <= 0) {
+        regenTimer += dt;
+        if (regenTimer > 4) {
+          regenTimer = 0;
+          if (player.health > 1) player.takeDamage(1);
+          ui.updateHearts(player.health, player.maxHealth);
+        }
+      }
+    }
+
     ui.updatePosition(player.position.x, player.position.y, player.position.z);
+    ui.updateTime(dayTime);
+
+    // Center sun/moon/clouds around player
+    sunMesh.position.x  += (player.position.x - sunMesh.position.x) * 0.02;
+    moonMesh.position.x += (player.position.x - moonMesh.position.x) * 0.02;
+    stars.position.set(player.position.x, 0, player.position.z);
   }
 
   renderer.render(scene, camera);

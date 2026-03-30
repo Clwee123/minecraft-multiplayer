@@ -10,6 +10,8 @@ export class UI {
   private chatMsgsEl  = document.getElementById("chatMessages")!;
   private chatInput   = document.getElementById("chatInput") as HTMLInputElement;
   private heartsEl    = document.getElementById("hearts")!;
+  private hungerEl    = document.getElementById("hunger")!;
+  private timeEl      = document.getElementById("timeDisplay")!;
   private gameModeEl  = document.getElementById("gameModeEl")!;
   private deathScreen = document.getElementById("deathScreen")!;
   private respawnBtn  = document.getElementById("respawnBtn")!;
@@ -122,14 +124,51 @@ export class UI {
     document.exitPointerLock();
   }
 
+  // ── Hunger bar ───────────────────────────────────────────────────────────
+
+  updateHunger(hunger: number, maxHunger: number) {
+    this.hungerEl.innerHTML = "";
+    const total  = Math.ceil(maxHunger / 2);
+    const filled = Math.floor(hunger / 2);
+    const half   = hunger % 2 === 1;
+
+    for (let i = 0; i < total; i++) {
+      const h = document.createElement("div");
+      h.className = "hunger-icon";
+      if (i < filled)               h.classList.add("full");
+      else if (i === filled && half) h.classList.add("half");
+      else                           h.classList.add("empty");
+      this.hungerEl.appendChild(h);
+    }
+  }
+
+  // ── Time display ──────────────────────────────────────────────────────────
+
+  /** dayTime: 0-1 float (0=midnight, 0.25=dawn, 0.5=noon, 0.75=dusk) */
+  updateTime(dayTime: number) {
+    const hours   = (dayTime * 24 + 6) % 24; // offset so 0.25 = 6AM dawn
+    const h       = Math.floor(hours);
+    const m       = Math.floor((hours - h) * 60);
+    const suffix  = h >= 12 ? "PM" : "AM";
+    const h12     = h % 12 || 12;
+    const mm      = m.toString().padStart(2, "0");
+
+    let icon = "☀️";
+    if (dayTime < 0.2 || dayTime > 0.8) icon = "🌙";
+    else if (dayTime < 0.3 || dayTime > 0.7) icon = "🌅";
+
+    this.timeEl.textContent = `${icon} ${h12}:${mm} ${suffix}`;
+  }
+
   // ── Gamemode display ──────────────────────────────────────────────────────
 
   setGameMode(mode: GameMode) {
     this.gameMode = mode;
     this.gameModeEl.textContent = mode === "creative" ? "✈ Creative" : "⚔ Survival";
     this.gameModeEl.className   = `gamemode-badge ${mode}`;
-    // Hearts hidden in creative
+    // Hearts + hunger hidden in creative
     this.heartsEl.style.display = mode === "creative" ? "none" : "flex";
+    this.hungerEl.style.display = mode === "creative" ? "none" : "flex";
   }
 
   // ── Chat ──────────────────────────────────────────────────────────────────

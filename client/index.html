@@ -156,13 +156,36 @@
 
     /* Hearts */
     #hearts{
-      position:absolute;bottom:82px;left:50%;transform:translateX(-50%);
+      position:absolute;bottom:82px;left:50%;
+      transform:translateX(calc(-50% - 60px));
       display:flex;gap:2px;
     }
     .heart{width:18px;height:18px;font-size:15px;line-height:18px;text-align:center}
     .heart.full::before {content:'❤';color:#e83333;filter:drop-shadow(0 0 3px #ff0000)}
     .heart.half::before {content:'❤';color:#cc1111}
     .heart.empty::before{content:'🖤';color:#441111}
+
+    /* Hunger */
+    #hunger{
+      position:absolute;bottom:82px;left:50%;
+      transform:translateX(calc(-50% + 60px));
+      display:flex;gap:2px;flex-direction:row-reverse;
+    }
+    .hunger-icon{width:18px;height:18px;font-size:15px;line-height:18px;text-align:center}
+    .hunger-icon.full::before {content:'🍗';filter:drop-shadow(0 0 2px #cc8800)}
+    .hunger-icon.half::before {content:'🍗';opacity:0.55}
+    .hunger-icon.empty::before{content:'🍗';opacity:0.2;filter:grayscale(1)}
+
+    /* Time display */
+    #timeDisplay{
+      position:absolute;top:10px;left:50%;transform:translateX(-50%);
+      color:#fff;font-size:0.72rem;
+      text-shadow:1px 1px 2px #000;
+      background:rgba(0,0,0,0.42);
+      padding:2px 12px;border-radius:10px;
+      letter-spacing:1px;
+      margin-top:28px;
+    }
 
     /* Info panels */
     #topLeft{
@@ -179,7 +202,7 @@
 
     /* Gamemode badge */
     .gamemode-badge{
-      position:absolute;top:10px;left:50%;transform:translateX(-50%);
+      position:absolute;top:56px;left:50%;transform:translateX(-50%);
       padding:3px 14px;border-radius:12px;font-size:0.7rem;font-weight:bold;
       pointer-events:none;letter-spacing:1px;
     }
@@ -305,6 +328,8 @@
     <div id="crosshair"></div>
     <div id="hotbar"></div>
     <div id="hearts"></div>
+    <div id="hunger"></div>
+    <div id="timeDisplay"></div>
     <div id="topLeft"></div>
     <div id="topRight"></div>
     <div id="gameModeEl" class="gamemode-badge survival"></div>

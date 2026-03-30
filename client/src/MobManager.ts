@@ -45,7 +45,7 @@ export class MobManager {
 
   spawnMob(type: MobType, x: number, y: number, z: number, id?: string): Mob {
     const mobId    = id ?? uid();
-    const maxHp    = type === "zombie" ? 20 : type === "chicken" ? 4 : 10;
+    const maxHp    = type === "zombie" ? 20 : type === "chicken" ? 4 : type === "cow" ? 16 : type === "sheep" ? 12 : 10;
     const data: MobData = {
       id: mobId, type, x, y, z,
       rotY:      rnd(0, Math.PI * 2),
@@ -69,7 +69,7 @@ export class MobManager {
                    ? (this.world as any).getSurfaceHeight(Math.floor(x), Math.floor(z)) + 1.5
                    : 20;
     const roll   = Math.random();
-    const type: MobType = roll < 0.5 ? "pig" : roll < 0.75 ? "chicken" : "zombie";
+    const type: MobType = roll < 0.35 ? "pig" : roll < 0.55 ? "chicken" : roll < 0.70 ? "cow" : roll < 0.85 ? "sheep" : "zombie";
     this.spawnMob(type, x, y, z);
   }
 
@@ -188,8 +188,9 @@ export class MobManager {
     if (d.y <= surfY) { d.y = surfY; lm.velY = 0; }
 
     // Type-specific AI
-    if (d.type === "pig" || d.type === "chicken") {
-      this.animalAI(lm, dt, dist, dx2, dz2, d.type === "chicken" ? 3.5 : 2.5);
+    if (d.type === "pig" || d.type === "chicken" || d.type === "cow" || d.type === "sheep") {
+      const spd = d.type === "chicken" ? 3.5 : d.type === "cow" ? 2.0 : d.type === "sheep" ? 2.2 : 2.5;
+      this.animalAI(lm, dt, dist, dx2, dz2, spd);
     } else if (d.type === "zombie") {
       this.zombieAI(lm, dt, dist, dx2, dz2, playerPos);
     }
