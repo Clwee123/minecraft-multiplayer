@@ -255,9 +255,9 @@ export class MobManager {
     const d    = lm.data;
     lm.timer  -= dt;
 
-    const dx2  = playerPos.x - d.x;
-    const dz2  = playerPos.z - d.z;
-    const dist = Math.sqrt(dx2 * dx2 + dz2 * dz2);
+    const dx2    = playerPos.x - d.x;
+    const dz2    = playerPos.z - d.z;
+    const distSq = dx2 * dx2 + dz2 * dz2; // squared — avoids sqrt; all AI funcs use squared thresholds
 
     // Type-specific AI (enderdragon and phantom don't use gravity)
     if (d.type === "enderdragon") {
@@ -284,27 +284,27 @@ export class MobManager {
       // Type-specific AI
       if (d.type === "pig" || d.type === "chicken" || d.type === "cow" || d.type === "sheep") {
         const spd = d.type === "chicken" ? 3.5 : d.type === "cow" ? 2.0 : d.type === "sheep" ? 2.2 : 2.5;
-        this.animalAI(lm, dt, dist, dx2, dz2, spd);
+        this.animalAI(lm, dt, distSq, dx2, dz2, spd);
       } else if (d.type === "horse") {
-        this.horseAI(lm, dt, dist, dx2, dz2, playerPos);
+        this.horseAI(lm, dt, distSq, dx2, dz2, playerPos);
       } else if (d.type === "villager") {
         this.villagerAI(lm, dt, playerPos);
       } else if (d.type === "zombie") {
-        this.zombieAI(lm, dt, dist, dx2, dz2, playerPos);
+        this.zombieAI(lm, dt, distSq, dx2, dz2, playerPos);
       } else if (d.type === "creeper") {
-        this.creeperAI(lm, dt, dist, playerPos);
+        this.creeperAI(lm, dt, distSq, playerPos);
       } else if (d.type === "skeleton") {
-        this.skeletonAI(lm, dt, dist, dx2, dz2, playerPos);
+        this.skeletonAI(lm, dt, distSq, dx2, dz2, playerPos);
       } else if (d.type === "witherskeleton") {
-        this.witherskeletonAI(lm, dt, dist, dx2, dz2, playerPos);
+        this.witherskeletonAI(lm, dt, distSq, dx2, dz2, playerPos);
       } else if (d.type === "spider") {
-        this.spiderAI(lm, dt, dist, dx2, dz2, playerPos);
+        this.spiderAI(lm, dt, distSq, dx2, dz2, playerPos);
       } else if (d.type === "wolf") {
-        this.wolfAI(lm, dt, dist, dx2, dz2, playerPos);
+        this.wolfAI(lm, dt, distSq, dx2, dz2, playerPos);
       } else if (d.type === "cat") {
-        this.catAI(lm, dt, dist, dx2, dz2, playerPos);
+        this.catAI(lm, dt, distSq, dx2, dz2, playerPos);
       } else if (d.type === "slime") {
-        this.slimeAI(lm, dt, dist, dx2, dz2, playerPos);
+        this.slimeAI(lm, dt, distSq, dx2, dz2, playerPos);
       }
     }
 
@@ -313,11 +313,11 @@ export class MobManager {
     lm.mob.targetRotY = d.rotY;
   }
 
-  private animalAI(lm: LocalMob, dt: number, playerDist: number, _dx: number, _dz: number, speed: number) {
+  private animalAI(lm: LocalMob, dt: number, playerDistSq: number, _dx: number, _dz: number, speed: number) {
     const d = lm.data;
 
     // Flee if player very close
-    if (playerDist < 5) {
+    if (playerDistSq < 25) { // 5^2=25
       d.state = "fleeing";
       lm.timer = 3;
     }
@@ -344,7 +344,7 @@ export class MobManager {
     }
   }
 
-  private horseAI(lm: LocalMob, dt: number, playerDist: number, _dx: number, _dz: number, playerPos: THREE.Vector3) {
+  private horseAI(lm: LocalMob, dt: number, _playerDistSq: number, _dx: number, _dz: number, playerPos: THREE.Vector3) {
     const d = lm.data;
     const SPEED = 5.0; // Horses move faster
 
@@ -395,14 +395,14 @@ export class MobManager {
     }
   }
 
-  private zombieAI(lm: LocalMob, dt: number, playerDist: number, dx: number, dz: number, playerPos: THREE.Vector3) {
+  private zombieAI(lm: LocalMob, dt: number, playerDistSq: number, dx: number, dz: number, playerPos: THREE.Vector3) {
     const d     = lm.data;
     const SPEED = 2.8;
 
-    if (playerDist < 18) {
+    if (playerDistSq < 324) { // 18^2=324
       d.state    = "chasing";
       lm.aggro   = true;
-    } else if (playerDist > 24 && lm.timer <= 0) {
+    } else if (playerDistSq > 576 && lm.timer <= 0) { // 24^2=576
       d.state    = "idle";
       lm.aggro   = false;
     }
@@ -413,21 +413,21 @@ export class MobManager {
       d.z   += Math.cos(d.rotY) * SPEED * dt;
 
       // Attack player — use per-mob hitCooldown so multiple zombies don't stack instantly
-      if (playerDist < 1.8 && lm.hitCooldown <= 0) {
+      if (playerDistSq < 3.24 && lm.hitCooldown <= 0) { // 1.8^2=3.24
         this.cb.onPlayerDamage(2);
         lm.hitCooldown = 2.0; // 2s between hits per zombie
       }
     } else {
-      this.animalAI(lm, dt, playerDist, dx, dz, 1.5);
+      this.animalAI(lm, dt, playerDistSq, dx, dz, 1.5);
     }
   }
 
-  private creeperAI(lm: LocalMob, dt: number, playerDist: number, playerPos: THREE.Vector3) {
+  private creeperAI(lm: LocalMob, dt: number, playerDistSq: number, playerPos: THREE.Vector3) {
     const d = lm.data;
     const SPEED = 2.5;
 
     // If player is within 10 blocks, enter fusing state
-    if (playerDist < 10) {
+    if (playerDistSq < 100) { // 10^2=100
       if (d.state !== "fusing") {
         d.state = "fusing";
         lm.timer = 1.5; // fuse for 1.5 seconds
@@ -484,16 +484,16 @@ export class MobManager {
     lm.mob.die();
   }
 
-  private skeletonAI(lm: LocalMob, dt: number, playerDist: number, dx: number, dz: number, playerPos: THREE.Vector3) {
+  private skeletonAI(lm: LocalMob, dt: number, playerDistSq: number, dx: number, dz: number, playerPos: THREE.Vector3) {
     const d = lm.data;
     const SPEED = 1.8;
-    const SHOOT_RANGE = 20;
-    const BACK_AWAY_RANGE = 4;
+    const SHOOT_RANGE_SQ = 400;  // 20^2
+    const BACK_AWAY_SQ   = 16;   // 4^2
     const SHOOT_COOLDOWN = 2;
 
     lm.shootTimer = (lm.shootTimer ?? 0) - dt;
 
-    if (playerDist < SHOOT_RANGE) {
+    if (playerDistSq < SHOOT_RANGE_SQ) {
       d.state = "attacking";
       lm.aggro = true;
 
@@ -504,7 +504,7 @@ export class MobManager {
       }
 
       // Back away if player too close
-      if (playerDist < BACK_AWAY_RANGE) {
+      if (playerDistSq < BACK_AWAY_SQ) {
         const backAngle = d.rotY + Math.PI;
         d.x += Math.sin(backAngle) * SPEED * dt;
         d.z += Math.cos(backAngle) * SPEED * dt;
@@ -512,7 +512,7 @@ export class MobManager {
         // Keep distance, rotate to face player
         d.rotY = Math.atan2(dx, dz);
       }
-    } else if (playerDist > 25 && lm.timer <= 0) {
+    } else if (playerDistSq > 625 && lm.timer <= 0) { // 25^2=625
       d.state = "idle";
       lm.aggro = false;
     }
@@ -531,16 +531,16 @@ export class MobManager {
     }
   }
 
-  private witherskeletonAI(lm: LocalMob, dt: number, playerDist: number, dx: number, dz: number, playerPos: THREE.Vector3) {
+  private witherskeletonAI(lm: LocalMob, dt: number, playerDistSq: number, dx: number, dz: number, playerPos: THREE.Vector3) {
     const d = lm.data;
     const SPEED = 4; // Fast melee attack
-    const ATTACK_RANGE = 2;
-    const DETECTION_RANGE = 20;
+    const ATTACK_SQ    = 4;   // 2^2
+    const DETECTION_SQ = 400; // 20^2
     const ATTACK_COOLDOWN = 1;
 
     lm.shootTimer = (lm.shootTimer ?? 0) - dt;
 
-    if (playerDist < DETECTION_RANGE) {
+    if (playerDistSq < DETECTION_SQ) {
       d.state = "chasing";
       lm.aggro = true;
 
@@ -550,13 +550,13 @@ export class MobManager {
       d.z += Math.cos(d.rotY) * SPEED * dt;
 
       // Melee attack if close — per-mob cooldown
-      if (playerDist < ATTACK_RANGE && lm.hitCooldown <= 0) {
+      if (playerDistSq < ATTACK_SQ && lm.hitCooldown <= 0) {
         this.cb.onPlayerDamage(4); // Wither skeleton: reduced from 5 → 4
         lm.hitCooldown = 2.5;
         // Wave 9: Apply wither effect
         this.cb.onWitherEffect?.();
       }
-    } else if (playerDist > 25 && lm.timer <= 0) {
+    } else if (playerDistSq > 625 && lm.timer <= 0) { // 25^2=625
       d.state = "idle";
       lm.aggro = false;
     }
@@ -647,21 +647,21 @@ export class MobManager {
     d.y = Math.max(15, d.y);
   }
 
-  private spiderAI(lm: LocalMob, dt: number, playerDist: number, dx: number, dz: number, playerPos: THREE.Vector3) {
+  private spiderAI(lm: LocalMob, dt: number, playerDistSq: number, dx: number, dz: number, playerPos: THREE.Vector3) {
     const d = lm.data;
     const SPEED = 3.5;
-    const DETECT_RANGE = 15;
-    const ATTACK_RANGE = 3;
+    const DETECT_SQ = 225; // 15^2
+    const ATTACK_SQ = 9;   // 3^2
     const JUMP_COOLDOWN = 3;
 
     // Initialize jump timer if not present
     if (!(lm as any).jumpTimer) (lm as any).jumpTimer = 0;
 
     // Detect player
-    if (playerDist < DETECT_RANGE) {
+    if (playerDistSq < DETECT_SQ) {
       d.state = "chasing";
       lm.aggro = true;
-    } else if (playerDist > 20 && lm.timer <= 0) {
+    } else if (playerDistSq > 400 && lm.timer <= 0) { // 20^2=400
       d.state = "idle";
       lm.aggro = false;
     }
@@ -674,13 +674,13 @@ export class MobManager {
 
       // Jump at player if close enough
       (lm as any).jumpTimer -= dt;
-      if (playerDist < ATTACK_RANGE && (lm as any).jumpTimer <= 0) {
+      if (playerDistSq < ATTACK_SQ && (lm as any).jumpTimer <= 0) {
         lm.velY = 8;
         (lm as any).jumpTimer = JUMP_COOLDOWN;
       }
 
       // Attack player — per-mob cooldown
-      if (playerDist < 1.5 && lm.hitCooldown <= 0) {
+      if (playerDistSq < 2.25 && lm.hitCooldown <= 0) { // 1.5^2=2.25
         this.cb.onPlayerDamage(2);
         lm.hitCooldown = 2.0;
       }
@@ -698,7 +698,7 @@ export class MobManager {
     }
 
     // Spiders are faster in darkness
-    if ((this.cb.getPlayerPos().y < 10) || playerDist > 15) {
+    if ((this.cb.getPlayerPos().y < 10) || playerDistSq > 225) { // 15^2=225
       // In darkness: apply 20% speed boost
       // This is subtle but check day/night somehow
     }
@@ -715,13 +715,13 @@ export class MobManager {
     // Villagers don't move or attack - they just stand still
   }
 
-  private wolfAI(lm: LocalMob, dt: number, playerDist: number, dx: number, dz: number, playerPos: THREE.Vector3) {
+  private wolfAI(lm: LocalMob, dt: number, playerDistSq: number, dx: number, dz: number, playerPos: THREE.Vector3) {
     const d = lm.data;
     const speed = 4.0;
 
     // Untamed wolves: wander peacefully, flee if player very close
     if (d.state !== "tamed") {
-      if (playerDist < 2) {
+      if (playerDistSq < 4) { // 2^2=4
         // Flee from player
         d.state = "fleeing";
         lm.timer = 3;
@@ -743,7 +743,7 @@ export class MobManager {
       }
     } else {
       // Tamed: follow player if far
-      if (playerDist > 5) {
+      if (playerDistSq > 25) { // 5^2=25
         d.rotY = Math.atan2(dx, dz);
         d.x += Math.sin(d.rotY) * speed * dt;
         d.z += Math.cos(d.rotY) * speed * dt;
@@ -754,7 +754,7 @@ export class MobManager {
     }
   }
 
-  private catAI(lm: LocalMob, dt: number, playerDist: number, dx: number, dz: number, playerPos: THREE.Vector3) {
+  private catAI(lm: LocalMob, dt: number, playerDistSq: number, dx: number, dz: number, playerPos: THREE.Vector3) {
     const d = lm.data;
     const speed = 2.5;
 
@@ -773,7 +773,7 @@ export class MobManager {
       }
     } else {
       // Tamed cats: stay near player within 8 blocks
-      if (playerDist > 8) {
+      if (playerDistSq > 64) { // 8^2=64
         d.rotY = Math.atan2(dx, dz);
         d.x += Math.sin(d.rotY) * speed * dt;
         d.z += Math.cos(d.rotY) * speed * dt;
@@ -796,7 +796,7 @@ export class MobManager {
     // At night: patrol and dive
     const dx = playerPos.x - d.x;
     const dz = playerPos.z - d.z;
-    const dist = Math.sqrt(dx * dx + dz * dz);
+    const distSq = dx * dx + dz * dz; // squared — no sqrt needed
 
     // Keep altitude at 20-30
     if (d.y < 20) d.y += 3 * dt;
@@ -832,7 +832,7 @@ export class MobManager {
       d.y -= 8 * dt; // Swoop down
 
       // Check if we hit the player — per-mob hitCooldown
-      if (dist < 1 && d.y <= playerPos.y + 1 && lm.hitCooldown <= 0) {
+      if (distSq < 1 && d.y <= playerPos.y + 1 && lm.hitCooldown <= 0) { // 1^2=1
         this.cb.onPlayerDamage(2);
         lm.hitCooldown = 3.0; // phantom can only swoop-hit every 3s
         d.state = "ascending";
@@ -855,7 +855,7 @@ export class MobManager {
     } else {
       // Patrolling
       lm.timer -= dt;
-      if (dist < 20 && lm.timer <= 0) {
+      if (distSq < 400 && lm.timer <= 0) { // 20^2=400
         // Start dive
         d.state = "diving";
         lm.timer = 3; // Dive duration
@@ -866,11 +866,11 @@ export class MobManager {
     }
   }
 
-  private slimeAI(lm: LocalMob, dt: number, playerDist: number, dx: number, dz: number, playerPos: THREE.Vector3) {
+  private slimeAI(lm: LocalMob, dt: number, playerDistSq: number, dx: number, dz: number, playerPos: THREE.Vector3) {
     const d = lm.data;
     const speed = 4.5;
 
-    if (playerDist > 12) {
+    if (playerDistSq > 144) { // 12^2=144
       // Too far, idle
       d.state = "idle";
       return;
@@ -890,7 +890,7 @@ export class MobManager {
     }
 
     // Check if landing on player — per-mob hitCooldown prevents rapid-fire hits
-    if (lm.velY < 0 && playerDist < 2 && lm.hitCooldown <= 0) {
+    if (lm.velY < 0 && playerDistSq < 4 && lm.hitCooldown <= 0) { // 2^2=4
       this.cb.onPlayerDamage(2);
       lm.hitCooldown = 1.5;
     }
