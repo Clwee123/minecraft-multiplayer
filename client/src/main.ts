@@ -1267,9 +1267,14 @@ async function startGame(name: string) {
 
   } else {
     // Use VPS backend in production, localhost in dev
-    const defaultAddr = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
+    // When on HTTPS, connect through nginx proxy (same host, no port) so wss:// works
+    // When on HTTP/localhost, connect directly to Colyseus port
+    const isSecure = window.location.protocol === "https:";
+    const defaultAddr = (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")
       ? "localhost:8471"
-      : "159.223.140.36:8471";
+      : isSecure
+        ? window.location.hostname  // wss://159.223.140.36.nip.io (nginx proxies to :8471)
+        : "159.223.140.36:8471";    // ws:// direct
     const serverAddr = (window as any).__getServerAddr?.() ?? defaultAddr;
     mp = new MultiplayerManager(scene, world, {
       onStatusChange: s => ui.setConnectionStatus(s),
@@ -1379,9 +1384,11 @@ function animate() {
     // Dynamic chunk loading — every 3s in singleplayer
     if (isSingleplayer) {
       minimapTimer += dt;
-      if (minimapTimer > 3) {
-        world.generateAroundPlayer(player.position.x, player.position.z);
+      if (minimapTimer > 4) {
         minimapTimer = 0;
+        // Generate chunks async-ish: defer to next frame to avoid main thread stall
+        const px = player.position.x, pz = player.position.z;
+        setTimeout(() => world.generateAroundPlayer(px, pz), 0);
       }
     }
     updateDayNight(dt);

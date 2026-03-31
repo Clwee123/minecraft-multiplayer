@@ -200,11 +200,11 @@ export class MobManager {
       if (!lm.mob.alive) continue;
 
       if (this.singleplayer) {
-        // Skip AI for mobs > 60 blocks away
+        // Skip AI for mobs > 32 blocks away (perf)
         const dx = lm.mob.targetPos.x - playerPos.x;
         const dz = lm.mob.targetPos.z - playerPos.z;
         const distSq = dx*dx + dz*dz;
-        if (distSq <= 60*60) {
+        if (distSq <= 32*32) {
           this.runAI(lm, dt, playerPos);
         }
       }

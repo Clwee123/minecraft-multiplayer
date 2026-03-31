@@ -1,19 +1,22 @@
 import * as THREE from "three";
 import { createNoise2D } from "simplex-noise";
 import { BLOCK_TYPES } from "./blocks";
-import { getBlockMaterials } from "./BlockTextures";
+import { getBlockMaterial } from "./BlockTextures";
 
 const CHUNK_SIZE   = 16;
 const WORLD_HEIGHT = 40;
 const SEA_LEVEL    = 8;
 
-// Integer key packing — avoids string allocation on every block lookup
-// X and Z are offset by 512 to handle negative coords; Y is 0-63
-// Pack: (x+512) in bits 0-9, y in bits 10-15, (z+512) in bits 16-25
-const KEY_X_OFFSET = 512;
-const KEY_Z_OFFSET = 512;
+// Integer key packing using safe JS integers (no bitwise overflow)
+// Supports x,z in [-2048, 2047], y in [0, 127]
+// Uses multiplication not bitwise OR to avoid 32-bit overflow issues
+const KEY_X_OFFSET = 2048;
+const KEY_Z_OFFSET = 2048;
+const KEY_Y_MULT   = 4096;       // x+2048 fits in 0-4095 (12 bits)
+const KEY_Z_MULT   = 4096 * 128; // y fits in 0-127 (7 bits)
 function key(x: number, y: number, z: number): number {
-  return (x + KEY_X_OFFSET) | (y << 10) | ((z + KEY_Z_OFFSET) << 16);
+  // Use safe integer arithmetic: x range [0,4095], y range [0,127], z range [0,4095]
+  return (x + KEY_X_OFFSET) + y * KEY_Y_MULT + (z + KEY_Z_OFFSET) * KEY_Z_MULT;
 }
 // String key for maps that need string keys (instanceRevIndex)
 function strKey(x: number, y: number, z: number): string { return `${x},${y},${z}`; }
@@ -27,7 +30,7 @@ export class World {
   private instanceIndex: Map<number, number> = new Map(); // intKey -> instance index in its type's mesh
   private instanceRevIndex: Map<number, number> = new Map(); // (type<<17)|idx -> intKey
   private instanceCount: Map<number, number> = new Map(); // blockType -> current count
-  private static readonly MAX_INSTANCES = 60000;
+  private static readonly MAX_INSTANCES = 15000; // reduced for perf — enough for R=4 chunks
 
   private chestInventory: Map<string, number[]> = new Map();
   private visibilityTimer = 0;
@@ -137,10 +140,9 @@ export class World {
 
     const geo = World.getSharedBoxGeo();
 
-    // Use per-face textured materials
-    const mats = getBlockMaterials(blockType, info);
-
-    const mesh = new THREE.InstancedMesh(geo, mats, World.MAX_INSTANCES);
+    // Single material per block type for performance (1 draw call per type)
+    const mat = getBlockMaterial(blockType, info);
+    const mesh = new THREE.InstancedMesh(geo, mat, World.MAX_INSTANCES);
     mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     mesh.count = 0; // start with 0 visible instances
     mesh.castShadow = false; // disable per-block shadows for performance
