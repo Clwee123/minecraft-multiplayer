@@ -1378,7 +1378,7 @@ function animate() {
       if (fishingBobber.inWater) {
         fishingBobber.waitTimer -= dt;
         // Bob effect
-        fishingBobber.mesh.position.y = by + 0.5 + Math.sin(performance.now() * 0.003) * 0.1;
+        fishingBobber.mesh.position.y = by + 0.5 + Math.sin(now * 0.003) * 0.1; // reuse frame timestamp
 
         if (fishingBobber.waitTimer <= 0) {
           // Time to catch! Flash the bobber
