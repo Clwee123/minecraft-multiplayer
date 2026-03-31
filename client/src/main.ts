@@ -1238,6 +1238,10 @@ if (autoName) { nameInput.value = autoName; setTimeout(() => startGame(autoName)
 
 let lastTime = performance.now();
 
+// Pre-allocated reusable vectors to avoid per-frame allocations in the animate loop
+const _animVec3 = new THREE.Vector3();
+const _thunderColor = new THREE.Color(0xffffff);
+
 function animate() {
   requestAnimationFrame(animate);
   const now = performance.now();
@@ -1294,7 +1298,7 @@ function animate() {
     // Update fishing bobber
     if (fishingBobber) {
       fishingBobber.vel.y -= 20 * dt; // gravity
-      fishingBobber.mesh.position.add(fishingBobber.vel.clone().multiplyScalar(dt));
+      fishingBobber.mesh.position.addScaledVector(fishingBobber.vel, dt);
 
       // Check if near water
       const bx = Math.round(fishingBobber.mesh.position.x);
@@ -1331,7 +1335,7 @@ function animate() {
       const arrow = playerArrows[i];
       arrow.life -= dt;
       arrow.vel.y -= 20 * dt; // gravity
-      arrow.mesh.position.add(arrow.vel.clone().multiplyScalar(dt));
+      arrow.mesh.position.addScaledVector(arrow.vel, dt);
 
       // Check block collisions
       const bx = Math.round(arrow.mesh.position.x);
@@ -1349,7 +1353,7 @@ function animate() {
       let hit = false;
       const mobs = mobManager?.getAllMobsForDisplay() ?? [];
       for (const { mob } of mobs) {
-        const dist = arrow.mesh.position.distanceTo(new THREE.Vector3(mob.targetPos.x, mob.targetPos.y, mob.targetPos.z));
+        const dist = arrow.mesh.position.distanceTo(_animVec3.set(mob.targetPos.x, mob.targetPos.y, mob.targetPos.z));
         if (dist < 0.8 && mob.alive) {
           mob.health -= 5;
           mob.showDamage(mob.health);
@@ -1495,7 +1499,7 @@ function animate() {
 
     // Thunder flash effect
     if (weather.isThunderFlashing()) {
-      renderer.setClearColor(new THREE.Color(0xffffff));
+      renderer.setClearColor(_thunderColor);
     }
 
     // Water splash particles
