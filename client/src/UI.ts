@@ -24,6 +24,21 @@ export class UI {
   private debugScreenEl: HTMLElement | null = null;
   private debugVisible = false;
 
+  // Cache last values so we skip DOM work when nothing changed
+  private _lastHp = -1;
+  private _lastMaxHp = -1;
+  private _lastWither = false;
+  private _lastHunger = -1;
+  private _lastMaxHunger = -1;
+  private _lastTimeStr = "";
+  private _lastPosX = NaN;
+  private _lastPosY = NaN;
+  private _lastPosZ = NaN;
+  // Pre-built coordinate child spans (set up once in constructor)
+  private _posXEl: HTMLElement | null = null;
+  private _posYEl: HTMLElement | null = null;
+  private _posZEl: HTMLElement | null = null;
+
   onChat?:   (text: string) => void;
   onRespawn?: () => void;
   onCraft?: (recipe: string) => void;
@@ -33,6 +48,14 @@ export class UI {
     this.setupChat();
     this.updateHearts(20, 20);
     this.buildXPBar();
+    // Pre-build coordinate display spans so updatePosition never uses innerHTML
+    this._posXEl = document.createElement("span");
+    this._posYEl = document.createElement("span");
+    this._posZEl = document.createElement("span");
+    this.topLeftEl.innerHTML = "";
+    const xLine = document.createElement("span"); xLine.textContent = "X "; xLine.appendChild(this._posXEl); this.topLeftEl.appendChild(xLine); this.topLeftEl.appendChild(document.createElement("br"));
+    const yLine = document.createElement("span"); yLine.textContent = "Y "; yLine.appendChild(this._posYEl); this.topLeftEl.appendChild(yLine); this.topLeftEl.appendChild(document.createElement("br"));
+    const zLine = document.createElement("span"); zLine.textContent = "Z "; zLine.appendChild(this._posZEl); this.topLeftEl.appendChild(zLine);
 
     this.respawnBtn.addEventListener("click", () => {
       this.deathScreen.style.display = "none";
@@ -83,10 +106,15 @@ export class UI {
   // ── HUD panels ────────────────────────────────────────────────────────────
 
   updatePosition(x: number, y: number, z: number) {
-    this.topLeftEl.innerHTML =
-      `X <b>${x.toFixed(1)}</b><br>` +
-      `Y <b>${y.toFixed(1)}</b><br>` +
-      `Z <b>${z.toFixed(1)}</b>`;
+    // Round to 0.1 and skip DOM write if unchanged
+    const rx = Math.round(x * 10) / 10;
+    const ry = Math.round(y * 10) / 10;
+    const rz = Math.round(z * 10) / 10;
+    if (rx === this._lastPosX && ry === this._lastPosY && rz === this._lastPosZ) return;
+    this._lastPosX = rx; this._lastPosY = ry; this._lastPosZ = rz;
+    if (this._posXEl) { this._posXEl.textContent = rx.toFixed(1); }
+    if (this._posYEl) { this._posYEl.textContent = ry.toFixed(1); }
+    if (this._posZEl) { this._posZEl.textContent = rz.toFixed(1); }
   }
 
   updatePlayerCount(n: number) {
@@ -104,6 +132,8 @@ export class UI {
   // ── Hearts / health ───────────────────────────────────────────────────────
 
   updateHearts(hp: number, maxHp: number, wither = false) {
+    if (hp === this._lastHp && maxHp === this._lastMaxHp && wither === this._lastWither) return;
+    this._lastHp = hp; this._lastMaxHp = maxHp; this._lastWither = wither;
     this.heartsEl.innerHTML = "";
     const total   = Math.ceil(maxHp / 2);
     const filled  = Math.floor(hp / 2);
@@ -160,6 +190,8 @@ export class UI {
   // ── Hunger bar ───────────────────────────────────────────────────────────
 
   updateHunger(hunger: number, maxHunger: number) {
+    if (hunger === this._lastHunger && maxHunger === this._lastMaxHunger) return;
+    this._lastHunger = hunger; this._lastMaxHunger = maxHunger;
     this.hungerEl.innerHTML = "";
     const total  = Math.ceil(maxHunger / 2);
     const filled = Math.floor(hunger / 2);
@@ -184,13 +216,16 @@ export class UI {
     const m       = Math.floor((hours - h) * 60);
     const suffix  = h >= 12 ? "PM" : "AM";
     const h12     = h % 12 || 12;
-    const mm      = m.toString().padStart(2, "0");
+    const mm      = m < 10 ? (m === 0 ? "00" : "0" + m) : "" + m; // avoid padStart alloc
 
     let icon = "☀️";
     if (dayTime < 0.2 || dayTime > 0.8) icon = "🌙";
     else if (dayTime < 0.3 || dayTime > 0.7) icon = "🌅";
 
-    this.timeEl.textContent = `${icon} ${h12}:${mm} ${suffix}`;
+    const s = `${icon} ${h12}:${mm} ${suffix}`;
+    if (s === this._lastTimeStr) return;
+    this._lastTimeStr = s;
+    this.timeEl.textContent = s;
   }
 
   // ── Gamemode display ──────────────────────────────────────────────────────

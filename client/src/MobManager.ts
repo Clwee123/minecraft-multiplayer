@@ -10,6 +10,12 @@ const SPAWN_RADIUS  = 30;
 const DESPAWN_RADIUS = 60;
 const MOB_GRAVITY   = -20;
 
+// Shared geometry + material for all arrows — allocated once, never GC'd
+const _ARROW_GEO = new THREE.BoxGeometry(0.1, 0.1, 0.4);
+const _ARROW_MAT = new THREE.MeshLambertMaterial({ color: 0xffdd00 });
+// Reusable velocity vector to avoid new THREE.Vector3 per shot
+const _arrowDirTmp = new THREE.Vector3();
+
 interface LocalMob {
   data:  MobData;
   mob:   Mob;
@@ -558,20 +564,14 @@ export class MobManager {
   }
 
   private shootArrow(x: number, y: number, z: number, targetPos: THREE.Vector3) {
-    const arrowGeo = new THREE.BoxGeometry(0.1, 0.1, 0.4);
-    const arrowMat = new THREE.MeshLambertMaterial({ color: 0xffdd00 });
-    const arrowMesh = new THREE.Mesh(arrowGeo, arrowMat);
+    // Reuse shared geometry and material — no allocation per arrow
+    const arrowMesh = new THREE.Mesh(_ARROW_GEO, _ARROW_MAT);
     arrowMesh.position.set(x, y, z);
 
-    // Direction toward target
-    const dir = new THREE.Vector3(
-      targetPos.x - x,
-      targetPos.y - y,
-      targetPos.z - z,
-    ).normalize();
-
+    // Direction toward target — reuse tmp vector, then copy into a new owned vel
+    _arrowDirTmp.set(targetPos.x - x, targetPos.y - y, targetPos.z - z).normalize();
     const ARROW_SPEED = 15;
-    const vel = dir.multiplyScalar(ARROW_SPEED);
+    const vel = _arrowDirTmp.clone().multiplyScalar(ARROW_SPEED);
 
     this.scene.add(arrowMesh);
     this.arrows.push({ mesh: arrowMesh, vel, life: 3 });
