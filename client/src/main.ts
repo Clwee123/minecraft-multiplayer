@@ -1296,6 +1296,8 @@ const _X_AXIS = new THREE.Vector3(1, 0, 0);
 const _Y_AXIS = new THREE.Vector3(0, 1, 0);
 // Reusable array for minimap mob display — cleared and refilled each frame, no new array
 const _minimapMobsBuf: Array<{ x: number; z: number; alive: boolean }> = [];
+// Reusable array for minimap other-player display
+const _minimapPlayersBuf: Array<{ x: number; z: number }> = [];
 
 function animate() {
   requestAnimationFrame(animate);
@@ -1430,24 +1432,23 @@ function animate() {
       }
     }
     if (minimap) {
-      const otherPlayers: Array<{ x: number; z: number }> = [];
-      // Add other players from multiplayer
+      // Reuse pre-allocated buffers — no new array per frame
+      _minimapPlayersBuf.length = 0;
       if (mp && (mp as any).getPlayerData) {
         const playersData = (mp as any).getPlayerData?.() ?? [];
-        playersData.forEach((p: any) => {
+        for (const p of playersData) {
           if (p.name !== currentPlayerName) {
-            otherPlayers.push({ x: p.x, z: p.z });
+            _minimapPlayersBuf.push({ x: p.x, z: p.z });
           }
-        });
+        }
       }
-      // Build mob list for minimap — reuse pre-allocated buffer, avoid new array per frame
       _minimapMobsBuf.length = 0;
       if (mobManager) {
         for (const lm of mobManager.iterMobs()) {
           _minimapMobsBuf.push({ x: lm.mob.targetPos.x, z: lm.mob.targetPos.z, alive: lm.mob.alive });
         }
       }
-      minimap.update(dt, player.position, player.getYaw(), otherPlayers, _minimapMobsBuf);
+      minimap.update(dt, player.position, player.getYaw(), _minimapPlayersBuf, _minimapMobsBuf);
     }
 
     // Update boss bar if dragon is alive
