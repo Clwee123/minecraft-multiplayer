@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { preloadAtlas } from "./BlockTextures";
 import { World }              from "./World";
 import { Player, GameMode }   from "./Player";
 import { MobileControls, isMobile } from "./MobileControls";
@@ -560,6 +561,9 @@ async function startGame(name: string) {
   currentPlayerName = name.trim() || `Player${Math.floor(Math.random() * 999)}`;
   const mode       = (window as any).__getSelectedMode?.() ?? "sp";
   isSingleplayer   = mode === "sp";
+
+  // Preload real minecraft textures before world generates
+  await preloadAtlas();
 
   loginScreen.style.display = "none";
   hud.style.display         = "block";

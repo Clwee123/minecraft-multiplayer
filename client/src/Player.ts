@@ -372,8 +372,8 @@ export class Player {
         depthTest: true,
         depthWrite: false,
         polygonOffset: true,
-        polygonOffsetFactor: -1,
-        polygonOffsetUnits: -1,
+        polygonOffsetFactor: -2,
+        polygonOffsetUnits: -2,
       });
       this.breakIndicator = new THREE.Mesh(geo, mat);
       this.scene.add(this.breakIndicator);

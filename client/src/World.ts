@@ -145,9 +145,13 @@ export class World {
     const mesh = new THREE.InstancedMesh(geo, mat, World.MAX_INSTANCES);
     mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     mesh.count = 0; // start with 0 visible instances
-    mesh.castShadow = false; // disable per-block shadows for performance
+    mesh.castShadow = false;
     mesh.receiveShadow = false;
-    mesh.frustumCulled = false; // we do our own culling
+    mesh.frustumCulled = false;
+    // Transparent blocks render after opaque to avoid depth sorting issues
+    if (info.transparent) {
+      mesh.renderOrder = blockType === 7 ? 2 : 1; // water last, glass/leaves before water
+    }
     this.scene.add(mesh);
 
     this.instancedMeshes.set(blockType, mesh);
