@@ -887,6 +887,12 @@ export class MobManager {
     return Array.from(this.mobs.entries()).map(([id, lm]) => ({ id, mob: lm.mob }));
   }
 
+  /** Zero-allocation mob iteration — avoids new array per call.
+   *  Caller iterates the map directly via .values() or for-of. */
+  iterMobs(): IterableIterator<LocalMob> {
+    return this.mobs.values();
+  }
+
   getMob(id: string): Mob | undefined {
     return this.mobs.get(id)?.mob;
   }

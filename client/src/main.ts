@@ -1288,6 +1288,8 @@ const _inputRayDir = new THREE.Vector3();
 const _blockDistVec = new THREE.Vector3();
 const _X_AXIS = new THREE.Vector3(1, 0, 0);
 const _Y_AXIS = new THREE.Vector3(0, 1, 0);
+// Reusable array for minimap mob display — cleared and refilled each frame, no new array
+const _minimapMobsBuf: Array<{ x: number; z: number; alive: boolean }> = [];
 
 function animate() {
   requestAnimationFrame(animate);
@@ -1396,10 +1398,10 @@ function animate() {
         continue;
       }
 
-      // Check mob collisions
+      // Check mob collisions — iterMobs() avoids Array.from+map allocation per frame
       let hit = false;
-      const mobs = mobManager?.getAllMobsForDisplay() ?? [];
-      for (const { mob } of mobs) {
+      if (mobManager) for (const lm of mobManager.iterMobs()) {
+        const mob = lm.mob;
         const dist = arrow.mesh.position.distanceTo(_animVec3.set(mob.targetPos.x, mob.targetPos.y, mob.targetPos.z));
         if (dist < 0.8 && mob.alive) {
           mob.health -= 5;
@@ -1434,8 +1436,14 @@ function animate() {
           }
         });
       }
-      const mobs = mobManager?.getAllMobsForDisplay().map(m => ({ x: m.mob.targetPos.x, z: m.mob.targetPos.z, alive: m.mob.alive })) ?? [];
-      minimap.update(dt, player.position, player.getYaw(), otherPlayers, mobs);
+      // Build mob list for minimap — reuse pre-allocated buffer, avoid new array per frame
+      _minimapMobsBuf.length = 0;
+      if (mobManager) {
+        for (const lm of mobManager.iterMobs()) {
+          _minimapMobsBuf.push({ x: lm.mob.targetPos.x, z: lm.mob.targetPos.z, alive: lm.mob.alive });
+        }
+      }
+      minimap.update(dt, player.position, player.getYaw(), otherPlayers, _minimapMobsBuf);
     }
 
     // Update boss bar if dragon is alive
@@ -1455,8 +1463,11 @@ function animate() {
 
     // ── Hunger & regen ──────────────────────────────────────────────────────
     if (player.gameMode === "survival") {
-      // Hunger drains when moving
-      const moved = player.position.distanceTo(lastMoved);
+      // Hunger drains when moving — use squared distance to avoid sqrt + Vector3 alloc
+      const _hdx = player.position.x - lastMoved.x;
+      const _hdy = player.position.y - lastMoved.y;
+      const _hdz = player.position.z - lastMoved.z;
+      const moved = Math.sqrt(_hdx*_hdx + _hdy*_hdy + _hdz*_hdz);
       lastMoved.copy(player.position);
       if (moved > 0.1) {
         hungerTimer += dt;

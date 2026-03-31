@@ -32,15 +32,18 @@ export class XPOrbManager {
     for (let i = this.orbs.length - 1; i >= 0; i--) {
       const orb = this.orbs[i];
       orb.life -= dt;
-      // Float up and bob
-      orb.mesh.position.y += Math.sin(Date.now() * 0.003) * 0.01;
+      // Float up and bob — cache Date.now once per orb, avoid new Vector3 in distanceTo
+      const _ox = orb.mesh.position.x - playerPos.x;
+      const _oy = orb.mesh.position.y - playerPos.y;
+      const _oz = orb.mesh.position.z - playerPos.z;
+      const distSq = _ox*_ox + _oy*_oy + _oz*_oz;
+      orb.mesh.position.y += Math.sin(orb.life * 5) * 0.01; // use life as phase (no Date.now)
       // Move toward player if close
-      const dist = orb.mesh.position.distanceTo(playerPos);
-      if (dist < 6) {
+      if (distSq < 36) { // 6^2
         orb.mesh.position.lerp(playerPos, dt * 4);
       }
       // Collect
-      if (dist < 1.5 || orb.life <= 0) {
+      if (distSq < 2.25 || orb.life <= 0) { // 1.5^2 = 2.25
         if (dist < 1.5 && this.onCollect) this.onCollect(orb.xp);
         this.scene.remove(orb.mesh);
         orb.mesh.geometry.dispose();

@@ -954,11 +954,10 @@ export class Mob {
     const dy = ((this.targetRotY - this.group.rotation.y) + Math.PI * 3) % (Math.PI * 2) - Math.PI;
     this.group.rotation.y += dy * Math.min(1, dt * 7);
 
-    // Walk animation
-    const moved = new THREE.Vector2(
-      this.group.position.x - this.prevPos.x,
-      this.group.position.z - this.prevPos.z,
-    ).length();
+    // Walk animation — avoid new Vector2 allocation per frame
+    const mdx = this.group.position.x - this.prevPos.x;
+    const mdz = this.group.position.z - this.prevPos.z;
+    const moved = Math.sqrt(mdx * mdx + mdz * mdz);
     this.prevPos.copy(this.group.position);
 
     const spd = moved / dt;
