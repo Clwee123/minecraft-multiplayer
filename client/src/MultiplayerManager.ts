@@ -109,20 +109,29 @@ export class MultiplayerManager {
       other.targetRotY = player.rotY;
       other.targetRotX = player.rotX;
       other.health     = player.health;
+      // Snap to initial position so player doesn't slide in from (0,0,0)
+      const snapY = player.y - (1.6 - 0.8);
+      other.group.position.set(player.x, snapY, player.z);
+      other.group.rotation.y = player.rotY;
+      // Hide spectators immediately
+      other.group.visible = (player.gameMode !== "spectator");
       this.players.set(sessionId, other);
       this.updateCount();
 
-      player.onChange(() => {
+      // Colyseus 0.15 API: assign onChange as a property, not a method call
+      player.onChange = (_changes: any) => {
         const o = this.players.get(sessionId);
         if (!o) return;
         o.targetPos.set(player.x, player.y, player.z);
         o.targetRotY = player.rotY;
         o.targetRotX = player.rotX;
+        // Show/hide based on spectator mode
+        o.group.visible = (player.gameMode !== "spectator");
         if (o.health !== player.health) {
           o.setHealth(player.health);
           if (player.health <= 0 && !o["dead"]) o.die();
         }
-      });
+      };
     });
 
     this.room.state.players.onRemove((_p: any, sessionId: string) => {

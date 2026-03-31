@@ -69,8 +69,11 @@ export class GameRoom extends Room<GameState> {
     this.onMessage("move", (client, data: any) => {
       const p = this.state.players.get(client.sessionId);
       if (!p) return;
+      // Hide spectators from others by not broadcasting their position at all
+      if (p.gameMode === "spectator") return;
       p.x = data.x; p.y = data.y; p.z = data.z;
       p.rotY = data.rotY; p.rotX = data.rotX; p.onGround = data.onGround;
+      if (data.gameMode) p.gameMode = data.gameMode;
     });
 
     this.onMessage("addBlock", (client, data: any) => {
@@ -99,10 +102,14 @@ export class GameRoom extends Room<GameState> {
       if (!p) return;
       if (data.mode === "creative" || data.mode === "survival" || data.mode === "spectator") {
         p.gameMode = data.mode;
-        this.broadcast("chat", {
-          name: "Server",
-          text: `${p.name} switched to ${data.mode} mode.`,
-        });
+        // If switching to spectator, remove from visible world immediately
+        // Other clients will see gameMode change and hide the player
+        if (data.mode !== "spectator") {
+          this.broadcast("chat", {
+            name: "Server",
+            text: `${p.name} switched to ${data.mode} mode.`,
+          });
+        }
       }
     });
 

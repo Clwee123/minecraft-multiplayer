@@ -37,6 +37,7 @@ export class Player {
   health      = 40;
   maxHealth   = 40;
   invincible  = 0;
+  private spawnGrace = 0; // seconds of invincibility after spawning
   armor       = 0;
 
   private fallStartY   = 0;
@@ -229,7 +230,9 @@ export class Player {
   takeDamage(amount: number) {
     if (this.gameMode === "creative" || this.gameMode === "spectator") return;
     if (this.invincible > 0) return;
-    const reducedDamage = amount * (1 - this.armor / 20);
+    if (this.spawnGrace > 0) return; // spawn invincibility
+    // Reduce damage: armor absorbs up to 80%, mobs do 60% of their damage
+    const reducedDamage = amount * 0.6 * (1 - this.armor / 25);
     this.health = Math.max(0, this.health - reducedDamage);
     this.invincible = 2.0; // 2.0s grace window between hits
     this.onHealthChanged?.(this.health);
@@ -238,6 +241,7 @@ export class Player {
 
   respawn() {
     this.health = this.maxHealth;
+    this.spawnGrace = 3.0; // 3 seconds of spawn protection
     this.spawnAt((Math.random()-0.5)*4, (Math.random()-0.5)*4);
     this.onHealthChanged?.(this.health);
   }
@@ -362,6 +366,7 @@ export class Player {
   update(dt: number) {
     this._frameCount++;
     if (this.invincible > 0) this.invincible -= dt;
+    if (this.spawnGrace > 0) this.spawnGrace -= dt;
     if (this.gameMode === "creative" || this.gameMode === "spectator") this.updateCreative(dt);
     else                              this.applyPhysics(dt);
     this.applyMovement(dt);
@@ -634,6 +639,7 @@ export class Player {
     return {
       x: this.position.x, y: this.position.y, z: this.position.z,
       rotY: this.yaw, rotX: this.pitch, onGround: this.onGround,
+      gameMode: this.gameMode,
     };
   }
 
@@ -644,5 +650,6 @@ export class Player {
     this.velocity.set(0, 0, 0);
     this.onGround    = false;
     this.fallTracking = false;
+    if (this.spawnGrace <= 0) this.spawnGrace = 3.0; // 3s spawn protection
   }
 }
