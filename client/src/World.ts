@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { createNoise2D } from "simplex-noise";
 import { BLOCK_TYPES } from "./blocks";
-import { getBlockMaterial } from "./BlockTextures";
+import { getBlockMaterial, getBlockMaterials } from "./BlockTextures";
 
 const CHUNK_SIZE   = 16;
 const WORLD_HEIGHT = 40;
@@ -139,9 +139,10 @@ export class World {
 
     const geo = World.getSharedBoxGeo();
 
-    // Single material per block type for performance (1 draw call per type)
-    const mat = getBlockMaterial(blockType, info);
-    const mesh = new THREE.InstancedMesh(geo, mat, World.MAX_INSTANCES);
+    // Use per-face materials for blocks with top/side/bottom differentiation (grass, log, etc.)
+    const mats = getBlockMaterials(blockType, info);
+    const mat = mats.length === 1 ? mats[0] : mats;
+    const mesh = new THREE.InstancedMesh(geo, mat as any, World.MAX_INSTANCES);
     mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     mesh.count = 0; // start with 0 visible instances
     mesh.castShadow = false;

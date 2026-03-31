@@ -126,13 +126,49 @@ export function getBlockMaterial(blockType: number, info: any): THREE.Material {
   return mat;
 }
 
-// Legacy compat
+// Atlas texture getter (used by World for preloading)
+export function getAtlasTexture(): THREE.Texture | null {
+  return atlasTexture;
+}
+
+// Per-face tile mapping for blocks that have different top/side/bottom
+// [top_col, top_row, side_col, side_row, bottom_col, bottom_row]
+const BLOCK_FACE_TILES: Record<number, [number, number, number, number, number, number]> = {
+  1: [0, 0,  1, 0,  2, 0],  // Grass: top=grass_top, side=grass_side, bottom=dirt
+  5: [6, 0,  5, 0,  6, 0],  // Oak Log: top=log_top, side=log_side, bottom=log_top
+  22: [15,0, 9, 0, 9, 0],   // Crafting Table: top=crafting, side=planks, bottom=planks
+  23: [14,1, 2, 0, 2, 0],   // Furnace: top=stone, front=furnace, back=stone
+  24: [8, 1, 7, 1, 8, 1],   // TNT: top=tnt_top, side=tnt_side, bottom=tnt_top
+};
+
 export function getBlockMaterials(blockType: number, info: any): THREE.Material[] {
+  const faces = BLOCK_FACE_TILES[blockType];
+  if (faces) {
+    const [tc, tr, sc, sr, bc, br] = faces;
+    const top    = makeMat(makeTileTexture(tc, tr), info);
+    const side   = makeMat(makeTileTexture(sc, sr), info);
+    const bottom = makeMat(makeTileTexture(bc, br), info);
+    // Three.js BoxGeometry face order: +X, -X, +Y, -Y, +Z, -Z
+    return [side, side, top, bottom, side, side];
+  }
+  // Single material for all faces
   const mat = getBlockMaterial(blockType, info);
   return [mat, mat, mat, mat, mat, mat];
 }
 
-// Atlas texture getter (used by World for preloading)
-export function getAtlasTexture(): THREE.Texture | null {
-  return atlasTexture;
+function makeMat(tex: THREE.Texture, info: any): THREE.Material {
+  const isWater = false;
+  const isTransparent = info.transparent;
+  const mat = new THREE.MeshLambertMaterial({
+    map: tex,
+    transparent: isTransparent,
+    opacity: isTransparent ? 0.65 : 1,
+    depthWrite: true,
+    alphaTest: isTransparent ? 0 : 0.01,
+  });
+  if (info.emissive) {
+    mat.emissive = new THREE.Color(info.emissive);
+    mat.emissiveIntensity = 0.55;
+  }
+  return mat;
 }
