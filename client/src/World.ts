@@ -848,10 +848,10 @@ export class World {
   }
 
   toggleLever(x: number, y: number, z: number): void {
-    const key = `${x},${y},${z}`;
-    const currentState = this.redstoneState.get(key) ?? false;
+    const leverKey = `${x},${y},${z}`; // renamed to avoid shadowing module-level key() function
+    const currentState = this.redstoneState.get(leverKey) ?? false;
     const newState = !currentState;
-    this.redstoneState.set(key, newState);
+    this.redstoneState.set(leverKey, newState);
 
     if (newState) {
       // Activate nearby lamps — use blockData.get directly (no {type} object)
