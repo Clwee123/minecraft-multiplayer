@@ -92,6 +92,56 @@ export class Player {
   onRightClick?: () => void;  // For fishing rod and special interactions
   setDeathCause?: (cause: string) => void;  // To track death cause
 
+  // ── Crack textures (static cache) ────────────────────────────────────────
+  private static _crackTextures: THREE.CanvasTexture[] | null = null;
+
+  static getCrackTexture(stage: number): THREE.CanvasTexture {
+    if (!Player._crackTextures) {
+      Player._crackTextures = [];
+      for (let s = 0; s < 8; s++) {
+        const c = document.createElement("canvas");
+        c.width = c.height = 16;
+        const ctx = c.getContext("2d")!;
+        ctx.clearRect(0, 0, 16, 16);
+        // Draw progressively denser cracks
+        const density = s + 1;
+        ctx.strokeStyle = `rgba(0,0,0,${0.3 + s * 0.08})`;
+        ctx.lineWidth = 1;
+        // Main radial cracks from center
+        for (let i = 0; i < density * 2; i++) {
+          const angle = (i / (density * 2)) * Math.PI * 2 + s * 0.3;
+          const len = 3 + s * 0.8;
+          ctx.beginPath();
+          ctx.moveTo(8, 8);
+          ctx.lineTo(8 + Math.cos(angle) * len, 8 + Math.sin(angle) * len);
+          ctx.stroke();
+        }
+        // Secondary branching cracks
+        if (s > 2) {
+          ctx.strokeStyle = `rgba(0,0,0,${0.2 + s * 0.05})`;
+          for (let i = 0; i < s; i++) {
+            const x1 = 2 + Math.random() * 12, y1 = 2 + Math.random() * 12;
+            const x2 = x1 + (Math.random() - 0.5) * 6, y2 = y1 + (Math.random() - 0.5) * 6;
+            ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+          }
+        }
+        // Dark edge vignette for later stages
+        if (s > 4) {
+          const grad = ctx.createRadialGradient(8, 8, 4, 8, 8, 10);
+          grad.addColorStop(0, "rgba(0,0,0,0)");
+          grad.addColorStop(1, `rgba(0,0,0,${(s - 4) * 0.08})`);
+          ctx.fillStyle = grad;
+          ctx.fillRect(0, 0, 16, 16);
+        }
+        const tex = new THREE.CanvasTexture(c);
+        tex.magFilter = THREE.NearestFilter;
+        tex.minFilter = THREE.NearestFilter;
+        Player._crackTextures.push(tex);
+      }
+    }
+    return Player._crackTextures[Math.min(stage, 7)];
+  }
+
   getYaw(): number { return this.yaw; }
 
   /** Expose keys map so mobile controls can inject key states */
@@ -314,12 +364,16 @@ export class Player {
 
     // Create break indicator mesh if not exists
     if (!this.breakIndicator) {
-      const geo = new THREE.BoxGeometry(1.02, 1.02, 1.02);
+      const geo = new THREE.BoxGeometry(1.002, 1.002, 1.002);
+      // Minecraft-style crack overlay texture (generated procedurally)
       const mat = new THREE.MeshBasicMaterial({
-        color: 0x000000,
-        wireframe: true,
         transparent: true,
-        opacity: 0.6,
+        opacity: 0,
+        depthTest: true,
+        depthWrite: false,
+        polygonOffset: true,
+        polygonOffsetFactor: -1,
+        polygonOffsetUnits: -1,
       });
       this.breakIndicator = new THREE.Mesh(geo, mat);
       this.scene.add(this.breakIndicator);
@@ -377,13 +431,16 @@ export class Player {
       return;
     }
 
-    // Update indicator opacity
+    // Update Minecraft-style crack overlay
     if (this.breakIndicator) {
-      const opacity = 0.2 + this.breakProgress * 0.6;
-      (this.breakIndicator.material as THREE.MeshBasicMaterial).opacity = opacity;
-      // Scale to show cracking
-      const s = 1 + this.breakProgress * 0.05;
-      this.breakIndicator.scale.setScalar(s);
+      const stage = Math.floor(this.breakProgress * 8); // 0-7 crack stages
+      const mat = this.breakIndicator.material as THREE.MeshBasicMaterial;
+      const tex = Player.getCrackTexture(stage);
+      if (mat.map !== tex) {
+        mat.map = tex;
+        mat.opacity = 0.5 + stage * 0.06;
+        mat.needsUpdate = true;
+      }
     }
   }
 

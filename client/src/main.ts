@@ -219,6 +219,7 @@ function updateDayNight(dt: number) {
 
 const world     = new World(scene);
 const player    = new Player(camera, world, scene);
+scene.add(camera); // needed so fp arm (camera child) renders
 const ui        = new UI();
 
 // ── Mobile controls (touch joystick + look + buttons) ────────────────────────
