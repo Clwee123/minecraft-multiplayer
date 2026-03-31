@@ -2,6 +2,14 @@ import * as THREE from "three";
 
 export type MobType = "pig" | "zombie" | "chicken" | "cow" | "sheep" | "creeper" | "skeleton" | "horse" | "villager" | "enderdragon" | "spider" | "witherskeleton" | "wolf" | "cat" | "phantom" | "slime";
 
+// Pre-allocated module constant — no object literal created per damage event
+const MOB_ORIGINAL_COLORS: Record<MobType, number> = {
+  pig: 0xf9a8a8, zombie: 0x77bb77, chicken: 0xffffff, cow: 0x7a4a2a, sheep: 0xdddddd,
+  creeper: 0x4a8a2a, skeleton: 0xcccccc, witherskeleton: 0x111111, horse: 0xc8a46e,
+  villager: 0xffcc99, enderdragon: 0x110022, spider: 0x333333, wolf: 0x888888,
+  cat: 0xdd8833, phantom: 0x1a4455, slime: 0x44aa44,
+};
+
 export interface MobData {
   id:      string;
   type:    MobType;
@@ -1039,10 +1047,7 @@ export class Mob {
     (this.hpSprite.material as THREE.SpriteMaterial).map!.needsUpdate = true;
 
     // Flash (red for most, green for creeper, white for skeleton, purple for dragon, dark for spider)
-    const origColors: Record<MobType, number> = {
-      pig: 0xf9a8a8, zombie: 0x77bb77, chicken: 0xffffff, cow: 0x7a4a2a, sheep: 0xdddddd, creeper: 0x4a8a2a, skeleton: 0xcccccc, witherskeleton: 0x111111, horse: 0xc8a46e, villager: 0xffcc99, enderdragon: 0x110022, spider: 0x333333, wolf: 0x888888, cat: 0xdd8833, phantom: 0x1a4455, slime: 0x44aa44,
-    };
-    const origColor = origColors[this.type] ?? 0xffffff;
+    const origColor = MOB_ORIGINAL_COLORS[this.type] ?? 0xffffff;
     const damageColor = this.type === "creeper" ? 0x8aca5a : this.type === "skeleton" ? 0xffffff : this.type === "witherskeleton" ? 0xffffff : this.type === "enderdragon" ? 0xff8800 : 0xff4444;
     for (const m of this.bodyMeshes) {
       (m.material as THREE.MeshLambertMaterial).color.set(damageColor);
