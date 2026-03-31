@@ -675,6 +675,168 @@ export class UI {
     return this.chestPanel !== null;
   }
 
+  // ── Smelting UI ────────────────────────────────────────────────────────────
+
+  private smeltingPanel: HTMLElement | null = null;
+  onSmelt?: (inputType: number, fuelType: number) => number | null;
+
+  showSmeltingUI(): void {
+    if (this.smeltingPanel) return;
+
+    this.smeltingPanel = document.createElement("div");
+    this.smeltingPanel.id = "smelting-panel";
+    this.smeltingPanel.style.cssText = `
+      position: fixed;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      background: #8B8B8B;
+      border: 2px solid #2B2B2B;
+      padding: 20px;
+      width: 320px;
+      z-index: 1000;
+      border-radius: 4px;
+      box-shadow: 0 0 20px rgba(0,0,0,0.5);
+      font-family: Arial, sans-serif;
+    `;
+
+    const title = document.createElement("h2");
+    title.textContent = "Furnace";
+    title.style.cssText = "color: white; margin: 0 0 15px 0; text-align: center;";
+    this.smeltingPanel.appendChild(title);
+
+    // Input and output slots
+    const slotsContainer = document.createElement("div");
+    slotsContainer.style.cssText = "display: flex; gap: 15px; margin-bottom: 15px; align-items: center;";
+
+    // Input slot
+    const inputLabel = document.createElement("div");
+    inputLabel.style.cssText = "color: white; font-size: 12px; margin-bottom: 5px;";
+    inputLabel.textContent = "Input:";
+    const inputSlot = document.createElement("div");
+    inputSlot.id = "smelt-input";
+    inputSlot.style.cssText = `
+      width: 40px;
+      height: 40px;
+      background: #444444;
+      border: 2px solid #1a1a1a;
+      border-radius: 2px;
+    `;
+    const inputContainer = document.createElement("div");
+    inputContainer.appendChild(inputLabel);
+    inputContainer.appendChild(inputSlot);
+
+    // Progress arrow
+    const arrow = document.createElement("div");
+    arrow.style.cssText = `
+      font-size: 20px;
+      color: white;
+      animation: pulse 1s infinite;
+    `;
+    arrow.textContent = "→";
+
+    // Output slot
+    const outputLabel = document.createElement("div");
+    outputLabel.style.cssText = "color: white; font-size: 12px; margin-bottom: 5px;";
+    outputLabel.textContent = "Output:";
+    const outputSlot = document.createElement("div");
+    outputSlot.id = "smelt-output";
+    outputSlot.style.cssText = `
+      width: 40px;
+      height: 40px;
+      background: #444444;
+      border: 2px solid #1a1a1a;
+      border-radius: 2px;
+    `;
+    const outputContainer = document.createElement("div");
+    outputContainer.appendChild(outputLabel);
+    outputContainer.appendChild(outputSlot);
+
+    slotsContainer.appendChild(inputContainer);
+    slotsContainer.appendChild(arrow);
+    slotsContainer.appendChild(outputContainer);
+    this.smeltingPanel.appendChild(slotsContainer);
+
+    // Fuel slot
+    const fuelLabel = document.createElement("div");
+    fuelLabel.style.cssText = "color: white; font-size: 12px; margin-bottom: 5px;";
+    fuelLabel.textContent = "Fuel:";
+    const fuelSlot = document.createElement("div");
+    fuelSlot.id = "smelt-fuel";
+    fuelSlot.style.cssText = `
+      width: 40px;
+      height: 40px;
+      background: #444444;
+      border: 2px solid #1a1a1a;
+      border-radius: 2px;
+    `;
+    this.smeltingPanel.appendChild(fuelLabel);
+    this.smeltingPanel.appendChild(fuelSlot);
+
+    // Smelt button
+    const smeltBtn = document.createElement("button");
+    smeltBtn.style.cssText = `
+      display: block;
+      width: 100%;
+      padding: 10px;
+      margin: 15px 0 8px 0;
+      background: #5B8C5A;
+      color: white;
+      border: 2px solid #3D5A3D;
+      border-radius: 2px;
+      cursor: pointer;
+      font-weight: bold;
+    `;
+    smeltBtn.textContent = "Smelt";
+    smeltBtn.addEventListener("click", () => {
+      // For now, just call onSmelt with placeholder values
+      // In main.ts, actual items will be read from inventory
+      const result = this.onSmelt?.(14, 5); // Iron ore + wood as placeholder
+      if (result !== null && result !== undefined) {
+        this.addChatMessage("", `Smelted item (type ${result})!`, true);
+      }
+    });
+    this.smeltingPanel.appendChild(smeltBtn);
+
+    // Close button
+    const closeBtn = document.createElement("button");
+    closeBtn.style.cssText = `
+      display: block;
+      width: 100%;
+      padding: 10px;
+      margin: 8px 0;
+      background: #8B3333;
+      color: white;
+      border: 2px solid #5B0000;
+      border-radius: 2px;
+      cursor: pointer;
+      font-weight: bold;
+    `;
+    closeBtn.textContent = "Close";
+    closeBtn.addEventListener("click", () => this.hideSmeltingUI());
+    this.smeltingPanel.appendChild(closeBtn);
+
+    // Add CSS animation
+    const style = document.createElement("style");
+    style.textContent = `
+      @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+    `;
+    document.head.appendChild(style);
+
+    document.body.appendChild(this.smeltingPanel);
+  }
+
+  hideSmeltingUI(): void {
+    if (this.smeltingPanel) {
+      this.smeltingPanel.remove();
+      this.smeltingPanel = null;
+    }
+  }
+
+  isSmeltingOpen(): boolean {
+    return this.smeltingPanel !== null;
+  }
+
   // ── Kill Feed ──────────────────────────────────────────────────────────────
 
   private killFeedEl: HTMLElement | null = null;
@@ -1146,5 +1308,33 @@ Weather: ${info.weather}
 GameMode: ${info.gameMode}
 Mobs: ${info.mobCount}
 Blocks: ${info.blockCount}`;
+  }
+
+  // ── HUD visibility ────────────────────────────────────────────────────────
+
+  hideHUD(): void {
+    this.hotbarEl.style.display = "none";
+    this.topLeftEl.style.display = "none";
+    this.topRightEl.style.display = "none";
+    this.heartsEl.style.display = "none";
+    this.hungerEl.style.display = "none";
+    this.timeEl.style.display = "none";
+    this.gameModeEl.style.display = "none";
+    this.chatMsgsEl.style.display = "none";
+    this.blockNameEl.style.display = "none";
+    if (this.xpBarEl) this.xpBarEl.style.display = "none";
+  }
+
+  showHUD(): void {
+    this.hotbarEl.style.display = "block";
+    this.topLeftEl.style.display = "block";
+    this.topRightEl.style.display = "block";
+    this.heartsEl.style.display = "flex";
+    this.hungerEl.style.display = "flex";
+    this.timeEl.style.display = "block";
+    this.gameModeEl.style.display = "block";
+    this.chatMsgsEl.style.display = "block";
+    this.blockNameEl.style.display = "block";
+    if (this.xpBarEl) this.xpBarEl.style.display = "block";
   }
 }

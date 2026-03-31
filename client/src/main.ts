@@ -12,6 +12,7 @@ import { Minimap }            from "./Minimap";
 import { Weather }            from "./Weather";
 import { XPOrbManager }       from "./XPOrb";
 import { AchievementManager } from "./Achievements";
+import { StatsTracker }       from "./Stats";
 
 // ── Renderer ─────────────────────────────────────────────────────────────────
 
@@ -286,6 +287,22 @@ const potionEffects = { strength: 0, speed: 0 };
 let witherTimer = 0;
 const WITHER_DURATION = 5; // 5 seconds
 
+// ── Wave 10: Stats Tracker ───────────────────────────────────────────────────
+
+const stats = new StatsTracker();
+stats.load();
+let statsSaveTimer = 0;
+
+// ── Wave 10: Smelting Recipes ────────────────────────────────────────────────
+
+const smeltRecipes = new Map<number, number>([
+  [14, 62], // Iron ore → Iron ingot
+  [13, 63], // Gold ore → Gold ingot
+  [4, 9],   // Sand → Glass
+  [15, 64], // Coal ore → Coal
+  [61, 65], // Diamond ore → Diamond
+]);
+
 // ── Day/Night cycle tracking ──────────────────────────────────────────────────
 
 let prevDayTime = 0;
@@ -426,6 +443,40 @@ function handleCommand(cmd: string, playerName: string): boolean {
     return true;
   }
 
+  if (base === "/tame") {
+    const type = parts[1]?.toLowerCase();
+    if (type === "wolf" || type === "cat") {
+      // Find wolf or cat within 5 blocks
+      const mobs = mobManager?.getMobsByType(type as any) ?? [];
+      for (const { id, mob } of mobs) {
+        const dist = player.position.distanceTo(mob.group.position);
+        if (dist <= 5) {
+          (mob as any).data.state = "tamed";
+          ui.addChatMessage("", `Tamed a ${type}!`, true);
+          sounds.play("eat");
+          return true;
+        }
+      }
+      ui.addChatMessage("", `No ${type} found nearby`, true);
+    } else {
+      ui.addChatMessage("", "Usage: /tame wolf | cat", true);
+    }
+    return true;
+  }
+
+  if (base === "/stats") {
+    const allStats = stats.getAll();
+    ui.addChatMessage("", "--- Statistics ---", true);
+    ui.addChatMessage("", `Kills: ${allStats.kills}`, true);
+    ui.addChatMessage("", `Deaths: ${allStats.deaths}`, true);
+    ui.addChatMessage("", `Blocks Placed: ${allStats.blocksPlaced}`, true);
+    ui.addChatMessage("", `Blocks Broken: ${allStats.blocksBroken}`, true);
+    ui.addChatMessage("", `Mobs Killed: ${allStats.mobsKilled}`, true);
+    ui.addChatMessage("", `Distance Traveled: ${allStats.distanceTraveled.toFixed(1)}m`, true);
+    ui.addChatMessage("", `Play Time: ${Math.floor(allStats.playTime / 60)}m ${Math.floor(allStats.playTime % 60)}s`, true);
+    return true;
+  }
+
   if (base === "/help") {
     [
       "/gamemode creative | survival",
@@ -437,8 +488,10 @@ function handleCommand(cmd: string, playerName: string): boolean {
       "/nether enter | exit",
       "/boss - spawn the Ender Dragon",
       "/achievements - show achievements",
+      "/tame wolf | cat - tame nearby pet",
+      "/stats - show statistics",
       "/save · /load (singleplayer only)",
-      "F5 = 3rd person · Ctrl = sprint · E = inventory",
+      "F1 = Toggle HUD · F2 = Screenshot · F5 = 3rd person · Ctrl = sprint · E = furnace/inventory",
     ].forEach(c => ui.addChatMessage("", c, true));
     return true;
   }
@@ -535,6 +588,9 @@ async function startGame(name: string) {
     const b = world.getBlock(x, y, z);
     if (!b) return;
 
+    // Wave 10: Track blocks broken
+    stats.increment("blocksBroken");
+
     // Trigger first_block achievement
     achievements.trigger("first_block");
 
@@ -598,6 +654,9 @@ async function startGame(name: string) {
     mp?.sendRemoveBlock(x, y, z);
   };
   player.onPlaceBlock = (x, y, z, t) => {
+    // Wave 10: Track blocks placed
+    stats.increment("blocksPlaced");
+
     // Wave 9: Add torch lights
     if (t === 56) {
       world.addTorchLight(x, y + 0.5, z);
@@ -816,6 +875,37 @@ async function startGame(name: string) {
     }
   });
 
+  // F1 key for HUD visibility toggle
+  let hudVisible = true;
+  document.addEventListener("keydown", e => {
+    if (e.key === "F1" || e.key === "f1") {
+      e.preventDefault();
+      hudVisible = !hudVisible;
+      if (hudVisible) {
+        ui.showHUD();
+      } else {
+        ui.hideHUD();
+      }
+    }
+  });
+
+  // F2 key for screenshot
+  document.addEventListener("keydown", e => {
+    if (e.key === "F2" || e.key === "f2") {
+      e.preventDefault();
+      try {
+        const dataURL = renderer.domElement.toDataURL("image/png");
+        const a = document.createElement("a");
+        a.href = dataURL;
+        a.download = "minecraft-" + Date.now() + ".png";
+        a.click();
+        ui.addChatMessage("", "Screenshot saved!", true);
+      } catch (err) {
+        ui.addChatMessage("", "Failed to capture screenshot", true);
+      }
+    }
+  });
+
   // F3 key for debug screen
   document.addEventListener("keydown", e => {
     if (e.key === "F3" || e.key === "f3") {
@@ -829,9 +919,36 @@ async function startGame(name: string) {
     }
   });
 
-  // Wave 9: E key for lever interaction
+  // Wave 9/10: E key for lever and furnace interaction
   document.addEventListener("keydown", e => {
     if ((e.key === "e" || e.key === "E") && hud.style.display !== "none") {
+      // Check if looking at a furnace within 5 blocks
+      let furnacePos: [number, number, number] | null = null;
+      for (let x = -5; x <= 5; x++) {
+        for (let y = -5; y <= 5; y++) {
+          for (let z = -5; z <= 5; z++) {
+            const bx = Math.floor(player.position.x) + x;
+            const by = Math.floor(player.position.y) + y;
+            const bz = Math.floor(player.position.z) + z;
+            const block = world.getBlock(bx, by, bz);
+            if (block && block.type === 23) { // Furnace
+              const dist = player.position.distanceTo(new THREE.Vector3(bx + 0.5, by + 0.5, bz + 0.5));
+              if (dist <= 5) {
+                furnacePos = [bx, by, bz];
+                break;
+              }
+            }
+          }
+          if (furnacePos) break;
+        }
+        if (furnacePos) break;
+      }
+
+      if (furnacePos) {
+        ui.showSmeltingUI();
+        return;
+      }
+
       // Check if looking at a lever within 2 blocks
       const rayDir = new THREE.Vector3(0, 0, -1)
         .applyAxisAngle(new THREE.Vector3(1, 0, 0), player.camera.rotation.x)
@@ -876,6 +993,19 @@ async function startGame(name: string) {
       isSingleplayer ? ui.addChatMessage(currentPlayerName, text) : mp?.sendChat(text);
     }
     player.setChatOpen(false);
+  };
+
+  // Smelting callback
+  ui.onSmelt = (inputType: number, fuelType: number) => {
+    const output = smeltRecipes.get(inputType);
+    if (output) {
+      // Consume input from inventory (simplified: just add to inventory for now)
+      inventory.push(output);
+      ui.addChatMessage("", `Smelted: ${getBlockName(output)}`, true);
+      sounds.play("eat");
+      return output;
+    }
+    return null;
   };
 
   // Crafting
@@ -1078,6 +1208,17 @@ function animate() {
     // Wave 9: Update wither effect
     if (witherTimer > 0) {
       witherTimer -= dt;
+    }
+
+    // Wave 10: Update stats
+    stats.increment("playTime", dt);
+    if (player.velocity) {
+      stats.increment("distanceTraveled", player.velocity.length() * dt);
+    }
+    statsSaveTimer += dt;
+    if (statsSaveTimer >= 60) {
+      statsSaveTimer = 0;
+      stats.save();
     }
 
     // Wave 9: Check pressure plates

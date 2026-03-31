@@ -55,7 +55,7 @@ export class MobManager {
 
   spawnMob(type: MobType, x: number, y: number, z: number, id?: string): Mob {
     const mobId    = id ?? uid();
-    const maxHp    = type === "zombie" ? 20 : type === "creeper" ? 20 : type === "skeleton" ? 20 : type === "witherskeleton" ? 40 : type === "chicken" ? 4 : type === "cow" ? 16 : type === "sheep" ? 12 : type === "horse" ? 30 : type === "villager" ? 20 : type === "enderdragon" ? 200 : type === "spider" ? 16 : 10;
+    const maxHp    = type === "zombie" ? 20 : type === "creeper" ? 20 : type === "skeleton" ? 20 : type === "witherskeleton" ? 40 : type === "chicken" ? 4 : type === "cow" ? 16 : type === "sheep" ? 12 : type === "horse" ? 30 : type === "villager" ? 20 : type === "enderdragon" ? 200 : type === "spider" ? 16 : type === "wolf" ? 20 : type === "cat" ? 10 : 10;
     const data: MobData = {
       id: mobId, type, x, y, z,
       rotY:      rnd(0, Math.PI * 2),
@@ -79,7 +79,7 @@ export class MobManager {
                    ? (this.world as any).getSurfaceHeight(Math.floor(x), Math.floor(z)) + 1.5
                    : 20;
     const roll   = Math.random();
-    const type: MobType = roll < 0.22 ? "pig" : roll < 0.35 ? "chicken" : roll < 0.48 ? "cow" : roll < 0.60 ? "sheep" : roll < 0.70 ? "horse" : roll < 0.78 ? "zombie" : roll < 0.86 ? "creeper" : roll < 0.94 ? "spider" : roll < 0.99 ? "skeleton" : "witherskeleton";
+    const type: MobType = roll < 0.18 ? "pig" : roll < 0.28 ? "chicken" : roll < 0.38 ? "cow" : roll < 0.48 ? "sheep" : roll < 0.55 ? "horse" : roll < 0.60 ? "wolf" : roll < 0.65 ? "cat" : roll < 0.72 ? "zombie" : roll < 0.79 ? "creeper" : roll < 0.86 ? "spider" : roll < 0.94 ? "skeleton" : "witherskeleton";
     this.spawnMob(type, x, y, z);
   }
 
@@ -247,6 +247,10 @@ export class MobManager {
         this.witherskeletonAI(lm, dt, dist, dx2, dz2, playerPos);
       } else if (d.type === "spider") {
         this.spiderAI(lm, dt, dist, dx2, dz2, playerPos);
+      } else if (d.type === "wolf") {
+        this.wolfAI(lm, dt, dist, dx2, dz2, playerPos);
+      } else if (d.type === "cat") {
+        this.catAI(lm, dt, dist, dx2, dz2, playerPos);
       }
     }
 
@@ -661,6 +665,74 @@ export class MobManager {
       d.rotY = Math.atan2(dx, dz);
     }
     // Villagers don't move or attack - they just stand still
+  }
+
+  private wolfAI(lm: LocalMob, dt: number, playerDist: number, dx: number, dz: number, playerPos: THREE.Vector3) {
+    const d = lm.data;
+    const speed = 4.0;
+
+    // Untamed wolves: wander peacefully, flee if player very close
+    if (d.state !== "tamed") {
+      if (playerDist < 2) {
+        // Flee from player
+        d.state = "fleeing";
+        lm.timer = 3;
+      }
+
+      if (d.state === "fleeing") {
+        const fleeAngle = d.rotY + Math.PI;
+        d.x += Math.sin(fleeAngle) * speed * dt;
+        d.z += Math.cos(fleeAngle) * speed * dt;
+        if (lm.timer <= 0) d.state = "idle";
+      } else if (d.state === "idle") {
+        // Random wander
+        if (lm.timer <= 0) {
+          d.rotY += (Math.random() - 0.5) * Math.PI;
+          lm.timer = 3 + Math.random() * 3;
+        }
+        d.x += Math.sin(d.rotY) * 1.5 * dt;
+        d.z += Math.cos(d.rotY) * 1.5 * dt;
+      }
+    } else {
+      // Tamed: follow player if far
+      if (playerDist > 5) {
+        d.rotY = Math.atan2(dx, dz);
+        d.x += Math.sin(d.rotY) * speed * dt;
+        d.z += Math.cos(d.rotY) * speed * dt;
+        d.state = "following";
+      } else {
+        d.state = "sitting";
+      }
+    }
+  }
+
+  private catAI(lm: LocalMob, dt: number, playerDist: number, dx: number, dz: number, playerPos: THREE.Vector3) {
+    const d = lm.data;
+    const speed = 2.5;
+
+    if (d.state !== "tamed") {
+      // Untamed cats: wander slowly
+      if (d.state === "idle") {
+        if (lm.timer <= 0) {
+          d.rotY += (Math.random() - 0.5) * Math.PI;
+          lm.timer = 4 + Math.random() * 4;
+          if (Math.random() < 0.3) d.state = "sitting";
+        }
+        d.x += Math.sin(d.rotY) * 1.0 * dt;
+        d.z += Math.cos(d.rotY) * 1.0 * dt;
+      } else if (d.state === "sitting") {
+        if (lm.timer <= 0) d.state = "idle";
+      }
+    } else {
+      // Tamed cats: stay near player within 8 blocks
+      if (playerDist > 8) {
+        d.rotY = Math.atan2(dx, dz);
+        d.x += Math.sin(d.rotY) * speed * dt;
+        d.z += Math.cos(d.rotY) * speed * dt;
+      } else {
+        d.state = "sitting";
+      }
+    }
   }
 
   getAllMobsForDisplay(): Array<{ id: string; mob: Mob }> {

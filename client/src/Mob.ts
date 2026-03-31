@@ -1,6 +1,6 @@
 import * as THREE from "three";
 
-export type MobType = "pig" | "zombie" | "chicken" | "cow" | "sheep" | "creeper" | "skeleton" | "horse" | "villager" | "enderdragon" | "spider" | "witherskeleton";
+export type MobType = "pig" | "zombie" | "chicken" | "cow" | "sheep" | "creeper" | "skeleton" | "horse" | "villager" | "enderdragon" | "spider" | "witherskeleton" | "wolf" | "cat";
 
 export interface MobData {
   id:      string;
@@ -56,6 +56,8 @@ export class Mob {
       case "villager": this.buildVillager(); break;
       case "enderdragon": this.buildEnderDragon(); break;
       case "spider":  this.buildSpider();  break;
+      case "wolf":    this.buildWolf();    break;
+      case "cat":     this.buildCat();     break;
     }
 
     this.hpSprite = this.buildHpBar();
@@ -725,6 +727,114 @@ export class Mob {
     }
   }
 
+  private buildWolf() {
+    const GRAY = 0x888888;
+    const WHITE = 0xdddddd;
+    const BLACK = 0x222222;
+
+    // Body
+    const body = this.box(0.8, 0.6, 1.2, GRAY);
+    body.position.set(0, 0.45, 0);
+    this.group.add(body);
+
+    // Head
+    const head = this.box(0.5, 0.5, 0.5, GRAY);
+    this.headGroup.add(head);
+
+    // Eyes
+    const eyeL = this.box(0.1, 0.1, 0.05, BLACK);
+    eyeL.position.set(-0.15, 0.12, 0.28);
+    const eyeR = eyeL.clone();
+    eyeR.position.x = 0.15;
+    this.headGroup.add(eyeL, eyeR);
+
+    // Snout
+    const snout = this.box(0.28, 0.2, 0.16, WHITE);
+    snout.position.set(0, -0.08, 0.32);
+    this.headGroup.add(snout);
+
+    // Ears (triangular, approximated with small boxes)
+    const earL = this.box(0.12, 0.22, 0.08, GRAY);
+    earL.position.set(-0.22, 0.32, 0.08);
+    const earR = earL.clone();
+    earR.position.x = 0.22;
+    this.headGroup.add(earL, earR);
+
+    this.headGroup.position.set(0, 0.72, 0.6);
+    this.group.add(this.headGroup);
+
+    // Legs (4)
+    const legPositions: [number, number][] = [[-0.25, -0.4], [0.25, -0.4], [-0.25, 0.4], [0.25, 0.4]];
+    for (const [lx, lz] of legPositions) {
+      const g = new THREE.Group();
+      const leg = this.box(0.18, 0.5, 0.18, GRAY);
+      leg.position.y = -0.25;
+      g.add(leg);
+      g.position.set(lx, 0, lz);
+      this.group.add(g);
+      this.legs.push(g);
+    }
+
+    // Tail (thin box at back)
+    const tail = this.box(0.1, 0.08, 0.7, GRAY);
+    tail.position.set(0, 0.2, -0.8);
+    this.group.add(tail);
+  }
+
+  private buildCat() {
+    const ORANGE = 0xdd8833;
+    const BLACK = 0x222222;
+    const PINK = 0xff99aa;
+
+    // Body
+    const body = this.box(0.6, 0.4, 0.9, ORANGE);
+    body.position.set(0, 0.35, 0);
+    this.group.add(body);
+
+    // Head
+    const head = this.box(0.4, 0.4, 0.35, ORANGE);
+    this.headGroup.add(head);
+
+    // Eyes
+    const eyeL = this.box(0.09, 0.09, 0.04, BLACK);
+    eyeL.position.set(-0.12, 0.08, 0.22);
+    const eyeR = eyeL.clone();
+    eyeR.position.x = 0.12;
+    this.headGroup.add(eyeL, eyeR);
+
+    // Ears (pointy triangles, approximated with small boxes)
+    const earL = this.box(0.08, 0.18, 0.06, ORANGE);
+    earL.position.set(-0.16, 0.26, 0.05);
+    const earR = earL.clone();
+    earR.position.x = 0.16;
+    this.headGroup.add(earL, earR);
+
+    // Nose
+    const nose = this.box(0.06, 0.06, 0.04, PINK);
+    nose.position.set(0, -0.06, 0.25);
+    this.headGroup.add(nose);
+
+    this.headGroup.position.set(0, 0.6, 0.4);
+    this.group.add(this.headGroup);
+
+    // Legs (4)
+    const legPositions: [number, number][] = [[-0.18, -0.28], [0.18, -0.28], [-0.18, 0.28], [0.18, 0.28]];
+    for (const [lx, lz] of legPositions) {
+      const g = new THREE.Group();
+      const leg = this.box(0.12, 0.38, 0.12, ORANGE);
+      leg.position.y = -0.19;
+      g.add(leg);
+      g.position.set(lx, 0, lz);
+      this.group.add(g);
+      this.legs.push(g);
+    }
+
+    // Tail (long thin box at back)
+    const tail = this.box(0.08, 0.06, 0.6, ORANGE);
+    tail.position.set(0, 0.1, -0.6);
+    this.group.add(tail);
+  }
+
   // ── HP bar ────────────────────────────────────────────────────────────────
 
   private buildHpBar(): THREE.Sprite {
@@ -735,7 +845,7 @@ export class Mob {
     const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false });
     const sp  = new THREE.Sprite(mat);
     sp.scale.set(1.2, 0.18, 1);
-    const hpY: Record<MobType, number> = { pig: 1.4, chicken: 1.0, zombie: 1.6, cow: 1.8, sheep: 1.7, creeper: 1.9, skeleton: 1.9, witherskeleton: 2.5, horse: 2.2, villager: 1.8, enderdragon: 3.5, spider: 0.8 };
+    const hpY: Record<MobType, number> = { pig: 1.4, chicken: 1.0, zombie: 1.6, cow: 1.8, sheep: 1.7, creeper: 1.9, skeleton: 1.9, witherskeleton: 2.5, horse: 2.2, villager: 1.8, enderdragon: 3.5, spider: 0.8, wolf: 1.5, cat: 1.2 };
     sp.position.y = hpY[this.type] ?? 1.6;
     return sp;
   }
@@ -818,6 +928,14 @@ export class Mob {
         const phase = (i % 2 === 0) ? 0 : Math.PI;
         this.legs[i].rotation.y = Math.sin(this.walkCycle + phase) * 0.3;
       }
+    } else if (this.type === "wolf" || this.type === "cat") {
+      // Wolf/Cat: diagonal leg pairs
+      for (let i = 0; i < this.legs.length; i++) {
+        const phase = (i === 0 || i === 3) ? 0 : Math.PI;
+        this.legs[i].rotation.x = Math.sin(this.walkCycle + phase) * SWING * 0.5;
+      }
+      // Head bobs
+      this.headGroup.rotation.x = Math.abs(sw) * 0.05;
     }
   }
 
@@ -833,7 +951,7 @@ export class Mob {
 
     // Flash (red for most, green for creeper, white for skeleton, purple for dragon, dark for spider)
     const origColors: Record<MobType, number> = {
-      pig: 0xf9a8a8, zombie: 0x77bb77, chicken: 0xffffff, cow: 0x7a4a2a, sheep: 0xdddddd, creeper: 0x4a8a2a, skeleton: 0xcccccc, witherskeleton: 0x111111, horse: 0xc8a46e, villager: 0xffcc99, enderdragon: 0x110022, spider: 0x333333,
+      pig: 0xf9a8a8, zombie: 0x77bb77, chicken: 0xffffff, cow: 0x7a4a2a, sheep: 0xdddddd, creeper: 0x4a8a2a, skeleton: 0xcccccc, witherskeleton: 0x111111, horse: 0xc8a46e, villager: 0xffcc99, enderdragon: 0x110022, spider: 0x333333, wolf: 0x888888, cat: 0xdd8833,
     };
     const origColor = origColors[this.type] ?? 0xffffff;
     const damageColor = this.type === "creeper" ? 0x8aca5a : this.type === "skeleton" ? 0xffffff : this.type === "witherskeleton" ? 0xffffff : this.type === "enderdragon" ? 0xff8800 : 0xff4444;

@@ -72,6 +72,13 @@ export const BLOCK_TYPES: Record<number, {
   59: { name: "Redstone Lamp",  color: 0xff2200, emissive: 0x000000 },
   60: { name: "Map",            color: 0xddcc88 },
   61: { name: "Diamond Ore",    color: 0x55ffee },
+  62: { name: "Iron Ingot",     color: 0xdddddd },
+  63: { name: "Gold Ingot",     color: 0xffdd44 },
+  64: { name: "Coal",           color: 0x222222 },
+  65: { name: "Diamond",        color: 0x44ffee },
+  66: { name: "Rail",           color: 0x888866 },
+  67: { name: "Powered Rail",   color: 0xff8800 },
+  68: { name: "Minecart",       color: 0x888888 },
 };
 
 // Hotbar presets — what shows in the 8 hotbar slots by default
