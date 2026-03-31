@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { World }              from "./World";
 import { Player, GameMode }   from "./Player";
+import { MobileControls, isMobile } from "./MobileControls";
 import { MultiplayerManager } from "./MultiplayerManager";
 import { MobManager }         from "./MobManager";
 import { UI }                 from "./UI";
@@ -219,6 +220,23 @@ function updateDayNight(dt: number) {
 const world     = new World(scene);
 const player    = new Player(camera, world, scene);
 const ui        = new UI();
+
+// ── Mobile controls (touch joystick + look + buttons) ────────────────────────
+let mobileControls: MobileControls | null = null;
+if (isMobile()) {
+  mobileControls = new MobileControls(
+    player.getKeys(),
+    () => player.breakBlockNow(),
+    () => player.placeBlockNow(),
+  );
+  // Hook look delta into player yaw/pitch
+  mobileControls.onLookDelta = (dx: number, dy: number) => {
+    (player as any).yaw   -= dx * 0.004;
+    (player as any).pitch -= dy * 0.004;
+    (player as any).pitch = Math.max(-Math.PI/2+0.01, Math.min(Math.PI/2-0.01, (player as any).pitch));
+  };
+  mobileControls.hide(); // hidden until game starts
+}
 const particles = new Particles(scene);
 const sounds    = new SoundManager();
 const itemDrops = new ItemDropManager(scene);
@@ -526,6 +544,12 @@ async function startGame(name: string) {
   loginScreen.style.display = "none";
   hud.style.display         = "block";
 
+  // Show mobile controls if on a touch device
+  if (mobileControls) {
+    mobileControls.show();
+    // On mobile, don't request pointer lock (it blocks touch)
+  }
+
   // Load saved world if singleplayer
   if (isSingleplayer) {
     world.loadFromStorage();
@@ -534,7 +558,9 @@ async function startGame(name: string) {
   }
 
   player.spawnAt(0, 0);
-  setTimeout(() => document.body.requestPointerLock(), 200);
+  if (!isMobile()) {
+    setTimeout(() => document.body.requestPointerLock(), 200);
+  }
 
   // Player callbacks
   player.onHealthChanged = hp => ui.updateHearts(hp, player.maxHealth);

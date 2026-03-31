@@ -84,6 +84,15 @@ export class Player {
 
   getYaw(): number { return this.yaw; }
 
+  /** Expose keys map so mobile controls can inject key states */
+  getKeys(): Record<string, boolean> { return this.keys; }
+
+  /** Trigger a one-shot break from external (mobile button) */
+  breakBlockNow(): void { this.breakBlock(); }
+
+  /** Trigger a one-shot place from external (mobile button) */
+  placeBlockNow(): void { this.placeBlock(); }
+
   constructor(camera: THREE.PerspectiveCamera, world: World, scene: THREE.Scene) {
     this.camera = camera;
     this.world  = world;
