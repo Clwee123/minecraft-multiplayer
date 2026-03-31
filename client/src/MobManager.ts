@@ -625,10 +625,11 @@ export class MobManager {
       d.y += (playerPos.y - d.y) * lerpSpeed * dt;
       d.z += (playerPos.z - d.z) * lerpSpeed * dt;
 
-      const distToPlayer = Math.hypot(playerPos.x - d.x, playerPos.z - d.z);
+      // Use squared distance — avoid Math.hypot (sqrt) per frame
+      const _ddx = playerPos.x - d.x, _ddz = playerPos.z - d.z;
 
       // Deal damage if close enough
-      if (distToPlayer < 4) {
+      if (_ddx*_ddx + _ddz*_ddz < 16) { // 4^2 = 16
         this.cb.onPlayerDamage(5);
         d.state = "circling";
         (lm as any).dragonTimer = 0;
@@ -705,13 +706,10 @@ export class MobManager {
 
   private villagerAI(lm: LocalMob, dt: number, playerPos: THREE.Vector3) {
     const d = lm.data;
-    // Villagers stand idle and rotate to face player when nearby
+    // Villagers stand idle and rotate to face player when nearby — squared distance avoids sqrt
     const dx = playerPos.x - d.x;
     const dz = playerPos.z - d.z;
-    const playerDist = Math.sqrt(dx * dx + dz * dz);
-
-    if (playerDist < 10) {
-      // Face player
+    if (dx * dx + dz * dz < 100) { // 10^2 = 100
       d.rotY = Math.atan2(dx, dz);
     }
     // Villagers don't move or attack - they just stand still
@@ -804,11 +802,14 @@ export class MobManager {
     if (d.y < 20) d.y += 3 * dt;
     if (d.y > 30) d.y -= 3 * dt;
 
-    // Check for tamed cats nearby (should flee)
-    const catsNearby = Array.from(this.mobs.values()).some(m =>
-      m.data.type === "cat" && m.data.state === "tamed" &&
-      Math.hypot(m.data.x - d.x, m.data.z - d.z, m.data.y - d.y) < 10
-    );
+    // Check for tamed cats nearby — iterate map directly, use squared distance (no Array.from + sqrt)
+    let catsNearby = false;
+    for (const m of this.mobs.values()) {
+      if (m.data.type === "cat" && m.data.state === "tamed") {
+        const _cdx = m.data.x - d.x, _cdz = m.data.z - d.z, _cdy = m.data.y - d.y;
+        if (_cdx*_cdx + _cdz*_cdz + _cdy*_cdy < 100) { catsNearby = true; break; } // 10^2=100
+      }
+    }
 
     if (catsNearby) {
       // Flee from cat
