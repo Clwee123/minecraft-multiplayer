@@ -21,6 +21,8 @@ export class UI {
   private craftingPanel: HTMLElement | null = null;
   private inventoryPanel: HTMLElement | null = null;
   private xpBarEl: HTMLElement | null = null;
+  private debugScreenEl: HTMLElement | null = null;
+  private debugVisible = false;
 
   onChat?:   (text: string) => void;
   onRespawn?: () => void;
@@ -124,9 +126,27 @@ export class UI {
     }
   }
 
-  showDeath() {
+  showDeath(cause = "You died", x = 0, y = 0, z = 0, xpLevel = 0) {
     this.deathScreen.style.display = "flex";
     document.exitPointerLock();
+
+    // Update death message
+    const deathMsg = this.deathScreen.querySelector(".death-message");
+    if (deathMsg) {
+      deathMsg.textContent = cause;
+    }
+
+    // Update coordinates
+    const coordsEl = this.deathScreen.querySelector(".death-coords");
+    if (coordsEl) {
+      coordsEl.textContent = `You died at X=${Math.round(x)}, Y=${Math.round(y)}, Z=${Math.round(z)}`;
+    }
+
+    // Update score
+    const scoreEl = this.deathScreen.querySelector(".death-score");
+    if (scoreEl) {
+      scoreEl.textContent = `Level: ${xpLevel}`;
+    }
   }
 
   // ── Hunger bar ───────────────────────────────────────────────────────────
@@ -1048,5 +1068,75 @@ export class UI {
       toast.style.animation = "slideOutRight 0.3s ease-in";
       setTimeout(() => toast.remove(), 300);
     }, 4000);
+  }
+
+  // ── F3 Debug Screen ───────────────────────────────────────────────────────
+
+  showDebugScreen(): void {
+    if (this.debugScreenEl) return;
+
+    this.debugScreenEl = document.createElement("div");
+    this.debugScreenEl.id = "debug-screen";
+    this.debugScreenEl.style.cssText = `
+      position: fixed;
+      left: 5px;
+      top: 5px;
+      font-family: monospace;
+      font-size: 12px;
+      color: #7cfc00;
+      background: rgba(0, 0, 0, 0.5);
+      padding: 8px;
+      border-radius: 4px;
+      pointer-events: none;
+      white-space: pre;
+      line-height: 1.4;
+      z-index: 200;
+    `;
+    document.body.appendChild(this.debugScreenEl);
+    this.debugVisible = true;
+  }
+
+  hideDebugScreen(): void {
+    if (this.debugScreenEl) {
+      this.debugScreenEl.remove();
+      this.debugScreenEl = null;
+    }
+    this.debugVisible = false;
+  }
+
+  isDebugVisible(): boolean {
+    return this.debugVisible;
+  }
+
+  updateDebugScreen(info: {
+    fps: number;
+    x: number; y: number; z: number;
+    biome: string;
+    blockBelow: string;
+    facing: string;
+    dayTime: number;
+    mobCount: number;
+    blockCount: number;
+    weather: string;
+    gameMode: string;
+    version: string;
+  }): void {
+    if (!this.debugScreenEl) return;
+
+    const dayPhase = info.dayTime < 0.2 ? "Night" : info.dayTime < 0.3 ? "Dawn" : info.dayTime < 0.7 ? "Daytime" : info.dayTime < 0.8 ? "Dusk" : "Night";
+
+    this.debugScreenEl.textContent = `Minecraft JS ${info.version} (Three.js)
+---
+FPS: ${Math.round(info.fps)}
+XYZ: ${info.x.toFixed(1)} / ${info.y.toFixed(1)} / ${info.z.toFixed(1)}
+Facing: ${info.facing}
+Biome: ${info.biome}
+Block below: ${info.blockBelow}
+---
+Day: ${(info.dayTime * 100).toFixed(0)} (${dayPhase})
+Weather: ${info.weather}
+GameMode: ${info.gameMode}
+Mobs: ${info.mobCount}
+Blocks: ${info.blockCount}`;
   }
 }

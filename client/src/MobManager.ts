@@ -54,7 +54,7 @@ export class MobManager {
 
   spawnMob(type: MobType, x: number, y: number, z: number, id?: string): Mob {
     const mobId    = id ?? uid();
-    const maxHp    = type === "zombie" ? 20 : type === "creeper" ? 20 : type === "skeleton" ? 20 : type === "chicken" ? 4 : type === "cow" ? 16 : type === "sheep" ? 12 : type === "horse" ? 30 : type === "villager" ? 20 : type === "enderdragon" ? 200 : 10;
+    const maxHp    = type === "zombie" ? 20 : type === "creeper" ? 20 : type === "skeleton" ? 20 : type === "chicken" ? 4 : type === "cow" ? 16 : type === "sheep" ? 12 : type === "horse" ? 30 : type === "villager" ? 20 : type === "enderdragon" ? 200 : type === "spider" ? 16 : 10;
     const data: MobData = {
       id: mobId, type, x, y, z,
       rotY:      rnd(0, Math.PI * 2),
@@ -78,7 +78,7 @@ export class MobManager {
                    ? (this.world as any).getSurfaceHeight(Math.floor(x), Math.floor(z)) + 1.5
                    : 20;
     const roll   = Math.random();
-    const type: MobType = roll < 0.22 ? "pig" : roll < 0.35 ? "chicken" : roll < 0.48 ? "cow" : roll < 0.60 ? "sheep" : roll < 0.70 ? "horse" : roll < 0.80 ? "zombie" : roll < 0.90 ? "creeper" : "skeleton";
+    const type: MobType = roll < 0.22 ? "pig" : roll < 0.35 ? "chicken" : roll < 0.48 ? "cow" : roll < 0.60 ? "sheep" : roll < 0.70 ? "horse" : roll < 0.78 ? "zombie" : roll < 0.86 ? "creeper" : roll < 0.94 ? "spider" : "skeleton";
     this.spawnMob(type, x, y, z);
   }
 
@@ -242,6 +242,8 @@ export class MobManager {
         this.creeperAI(lm, dt, dist, playerPos);
       } else if (d.type === "skeleton") {
         this.skeletonAI(lm, dt, dist, dx2, dz2, playerPos);
+      } else if (d.type === "spider") {
+        this.spiderAI(lm, dt, dist, dx2, dz2, playerPos);
       }
     }
 
@@ -541,6 +543,63 @@ export class MobManager {
 
     // Keep dragon's y above 15 always
     d.y = Math.max(15, d.y);
+  }
+
+  private spiderAI(lm: LocalMob, dt: number, playerDist: number, dx: number, dz: number, playerPos: THREE.Vector3) {
+    const d = lm.data;
+    const SPEED = 3.5;
+    const DETECT_RANGE = 15;
+    const ATTACK_RANGE = 3;
+    const JUMP_COOLDOWN = 3;
+
+    // Initialize jump timer if not present
+    if (!(lm as any).jumpTimer) (lm as any).jumpTimer = 0;
+
+    // Detect player
+    if (playerDist < DETECT_RANGE) {
+      d.state = "chasing";
+      lm.aggro = true;
+    } else if (playerDist > 20 && lm.timer <= 0) {
+      d.state = "idle";
+      lm.aggro = false;
+    }
+
+    if (d.state === "chasing") {
+      // Face and move toward player
+      d.rotY = Math.atan2(dx, dz);
+      d.x += Math.sin(d.rotY) * SPEED * dt;
+      d.z += Math.cos(d.rotY) * SPEED * dt;
+
+      // Jump at player if close enough
+      (lm as any).jumpTimer -= dt;
+      if (playerDist < ATTACK_RANGE && (lm as any).jumpTimer <= 0) {
+        lm.velY = 8;
+        (lm as any).jumpTimer = JUMP_COOLDOWN;
+      }
+
+      // Attack player
+      if (playerDist < 1.5 && this.attackCooldown <= 0) {
+        this.cb.onPlayerDamage(3);
+        this.attackCooldown = 1.5;
+      }
+    } else {
+      // Idle/wander
+      if (lm.timer <= 0) {
+        d.state = Math.random() < 0.5 ? "walking" : "idle";
+        d.rotY = Math.random() * Math.PI * 2;
+        lm.timer = rnd(1.5, 4);
+      }
+      if (d.state === "walking") {
+        d.x += Math.sin(d.rotY) * SPEED * 0.6 * dt; // slower when wandering
+        d.z += Math.cos(d.rotY) * SPEED * 0.6 * dt;
+      }
+    }
+
+    // Spiders are faster in darkness
+    if ((this.cb.getPlayerPos().y < 10) || playerDist > 15) {
+      // In darkness: apply 20% speed boost
+      // This is subtle but check day/night somehow
+    }
   }
 
   private villagerAI(lm: LocalMob, dt: number, playerPos: THREE.Vector3) {

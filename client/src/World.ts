@@ -296,6 +296,20 @@ export class World {
     return this.blocks.get(key(x, y, z));
   }
 
+  isNearBlock(x: number, y: number, z: number, blockType: number, radius: number): boolean {
+    for (let dx = -radius; dx <= radius; dx++) {
+      for (let dy = -radius; dy <= radius; dy++) {
+        for (let dz = -radius; dz <= radius; dz++) {
+          const b = this.getBlock(x + dx, y + dy, z + dz);
+          if (b && b.type === blockType) {
+            return true;
+          }
+        }
+      }
+    }
+    return false;
+  }
+
   getMeshes(): THREE.Mesh[] {
     return Array.from(this.blocks.values()).map(b => b.mesh);
   }

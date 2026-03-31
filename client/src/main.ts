@@ -4,7 +4,7 @@ import { Player, GameMode }   from "./Player";
 import { MultiplayerManager } from "./MultiplayerManager";
 import { MobManager }         from "./MobManager";
 import { UI }                 from "./UI";
-import { HOTBAR_BLOCKS }      from "./blocks";
+import { HOTBAR_BLOCKS, getBlockName }      from "./blocks";
 import { Particles }          from "./Particles";
 import { SoundManager }       from "./SoundManager";
 import { ItemDropManager }    from "./ItemDrop";
@@ -285,6 +285,23 @@ const potionEffects = { strength: 0, speed: 0 };
 
 let prevDayTime = 0;
 
+// ── Debug screen ───────────────────────────────────────────────────────────────
+
+let debugVisible = false;
+let fpsFrames = 0;
+let fpsSamples: number[] = [];
+const FPS_SAMPLE_SIZE = 60;
+
+// ── Death tracking ──────────────────────────────────────────────────────────────
+
+let lastDeathCause = "You died";
+let lastDeathPos = new THREE.Vector3();
+
+// ── Campfire timer ──────────────────────────────────────────────────────────────
+
+let campfireTimer = 0;
+let prevWaterState = false;
+
 // ── Command handler ───────────────────────────────────────────────────────────
 
 function handleCommand(cmd: string, playerName: string): boolean {
@@ -450,8 +467,10 @@ async function startGame(name: string) {
 
   // Player callbacks
   player.onHealthChanged = hp => ui.updateHearts(hp, player.maxHealth);
+  player.setDeathCause = (cause) => { lastDeathCause = cause; };
   player.onDied = () => {
-    ui.showDeath();
+    lastDeathPos.copy(player.position);
+    ui.showDeath(lastDeathCause, lastDeathPos.x, lastDeathPos.y, lastDeathPos.z, xpLevel);
     ui.addChatMessage("", "☠ You died!", true);
     sounds.play("hurt");
   };
@@ -522,6 +541,7 @@ async function startGame(name: string) {
         flashCount++;
         if (flashCount > 8) {
           clearInterval(flashInterval);
+          particles.explosion(x, y, z, 30);
           // Explode - destroy blocks in radius
           const radius = 5;
           for (let dx = -radius; dx <= radius; dx++) {
@@ -775,6 +795,19 @@ async function startGame(name: string) {
     }
   });
 
+  // F3 key for debug screen
+  document.addEventListener("keydown", e => {
+    if (e.key === "F3" || e.key === "f3") {
+      e.preventDefault();
+      debugVisible = !debugVisible;
+      if (debugVisible) {
+        ui.showDebugScreen();
+      } else {
+        ui.hideDebugScreen();
+      }
+    }
+  });
+
   // Chat
   ui.onChat = (text) => {
     if (text.startsWith("/")) {
@@ -838,6 +871,7 @@ async function startGame(name: string) {
 
     mobManager = new MobManager(scene, world, {
       onPlayerDamage: (amount) => {
+        lastDeathCause = "You were killed by a mob";
         if (player.gameMode === "survival") {
           player.takeDamage(amount);
           sounds.play("hurt");
@@ -955,6 +989,13 @@ function animate() {
   const now = performance.now();
   const dt  = Math.min((now - lastTime) / 1000, 0.05);
   lastTime  = now;
+
+  // Track FPS
+  if (dt > 0) {
+    const fps = 1 / dt;
+    fpsSamples.push(fps);
+    if (fpsSamples.length > FPS_SAMPLE_SIZE) fpsSamples.shift();
+  }
 
   if (hud.style.display !== "none") {
     player.update(dt);
@@ -1107,6 +1148,7 @@ function animate() {
 
       // Starving damage when hunger = 0
       if (hunger <= 0) {
+        lastDeathCause = "You starved";
         regenTimer += dt;
         if (regenTimer > 4) {
           regenTimer = 0;
@@ -1123,6 +1165,7 @@ function animate() {
       const pz = Math.round(player.position.z);
       const blockAtPlayer = world.getBlock(px, py, pz);
       if (blockAtPlayer && blockAtPlayer.type === 47) { // Lava
+        lastDeathCause = "You burned in lava";
         regenTimer += dt;
         if (regenTimer > 0.5) {
           regenTimer = 0;
@@ -1173,6 +1216,75 @@ function animate() {
     // Thunder flash effect
     if (weather.isThunderFlashing()) {
       renderer.setClearColor(new THREE.Color(0xffffff));
+    }
+
+    // Water splash particles
+    const playerInWater = world.getBlock(Math.round(player.position.x), Math.round(player.position.y), Math.round(player.position.z))?.type === 7;
+    if (playerInWater && !prevWaterState) {
+      particles.splash(player.position.x, player.position.y, player.position.z, 12);
+    }
+    prevWaterState = playerInWater;
+
+    // Campfire detection and effects
+    campfireTimer += dt;
+    if (campfireTimer > 1) {
+      campfireTimer = 0;
+      const nearCampfire = world.isNearBlock(
+        Math.round(player.position.x),
+        Math.round(player.position.y),
+        Math.round(player.position.z),
+        55,
+        5
+      );
+      if (nearCampfire) {
+        particles.smoke(player.position.x, player.position.y + 1, player.position.z, 2);
+      }
+    }
+
+    // Update debug screen
+    if (debugVisible) {
+      // Calculate average FPS
+      const avgFps = fpsSamples.length > 0 ? fpsSamples.reduce((a, b) => a + b, 0) / fpsSamples.length : 0;
+
+      // Calculate facing direction
+      const yaw = player.getYaw();
+      const yawDeg = (yaw * 180 / Math.PI + 360) % 360;
+      let facing = "Unknown";
+      if (yawDeg < 45 || yawDeg >= 315) facing = "South (0°)";
+      else if (yawDeg < 135) facing = "West (90°)";
+      else if (yawDeg < 225) facing = "North (180°)";
+      else facing = "East (270°)";
+
+      // Get biome (stub for now)
+      const biome = "Unknown";
+
+      // Get block below player
+      const blockBelowPos = Math.round(player.position.y - 1);
+      const blockBelow = world.getBlock(Math.round(player.position.x), blockBelowPos, Math.round(player.position.z));
+      const blockBelowName = blockBelow ? getBlockName(blockBelow.type) : "Air";
+
+      // Get weather
+      const weatherStr = weather && (weather as any).isRaining ? "Rainy" : "Clear";
+
+      // Get mob/block count
+      const mobCount = mobManager?.getAllMobsForDisplay().length ?? 0;
+      const blockCount = world.blocks.size;
+
+      ui.updateDebugScreen({
+        fps: avgFps,
+        x: player.position.x,
+        y: player.position.y,
+        z: player.position.z,
+        biome,
+        blockBelow: blockBelowName,
+        facing,
+        dayTime,
+        mobCount,
+        blockCount,
+        weather: weatherStr,
+        gameMode: player.gameMode,
+        version: "0.8",
+      });
     }
   }
 

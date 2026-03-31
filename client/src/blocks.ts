@@ -65,6 +65,7 @@ export const BLOCK_TYPES: Record<number, {
   52: { name: "Dead Bush",      color: 0x8b5a2b, solid: false },
   53: { name: "Packed Ice",     color: 0x9bcdff, transparent: true },
   54: { name: "Terracotta",     color: 0xaa6644 },
+  55: { name: "Campfire",       color: 0xff6600, emissive: 0xff4400 },
 };
 
 // Hotbar presets — what shows in the 8 hotbar slots by default

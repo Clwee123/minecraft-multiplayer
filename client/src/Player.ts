@@ -70,6 +70,7 @@ export class Player {
   onDied?:      () => void;
   onHealthChanged?: (hp: number) => void;
   onRightClick?: () => void;  // For fishing rod and special interactions
+  setDeathCause?: (cause: string) => void;  // To track death cause
 
   getYaw(): number { return this.yaw; }
 
@@ -348,6 +349,7 @@ export class Player {
         this.waterTimer += dt;
         if (this.waterTimer > 15) {
           this.waterTimer = 0;
+          this.setDeathCause?.("You drowned");
           this.takeDamage(1);
         }
       }
@@ -374,7 +376,10 @@ export class Player {
             // Fall damage
             if (this.fallTracking) {
               const dist = this.fallStartY - (testY + 1);
-              if (dist > 3.5) this.takeDamage(Math.floor(dist - 3));
+              if (dist > 3.5) {
+                this.setDeathCause?.("You fell");
+                this.takeDamage(Math.floor(dist - 3));
+              }
               this.fallTracking = false;
             }
             this.position.y = standY;

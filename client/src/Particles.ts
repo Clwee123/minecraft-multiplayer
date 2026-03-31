@@ -44,7 +44,107 @@ export class Particles {
 
   /** Splash of blue particles (water effect). */
   splash(x: number, y: number, z: number, count = 8) {
-    this.burst(x, y, z, 7, count); // water color
+    for (let i = 0; i < count; i++) {
+      const mat = new THREE.MeshLambertMaterial({ color: 0x4488ff + Math.random() * 0x00ff00 });
+      const mesh = new THREE.Mesh(GEO, mat);
+      mesh.position.set(
+        x + (Math.random() - 0.5) * 1.5,
+        y + Math.random() * 0.5,
+        z + (Math.random() - 0.5) * 1.5
+      );
+      this.scene.add(mesh);
+
+      const angle = Math.random() * Math.PI * 2;
+      const speed = 2 + Math.random() * 4;
+
+      this.particles.push({
+        mesh,
+        vx: Math.cos(angle) * speed,
+        vy: 3 + Math.random() * 2,
+        vz: Math.sin(angle) * speed,
+        life: 0,
+        maxLife: 0.6 + Math.random() * 0.4,
+      });
+    }
+  }
+
+  /** Smoke particles (for furnaces, lava, etc). */
+  smoke(x: number, y: number, z: number, count = 8) {
+    for (let i = 0; i < count; i++) {
+      const color = 0x444444 + Math.floor(Math.random() * 0x444444);
+      const mat = new THREE.MeshLambertMaterial({ color, transparent: true });
+      const mesh = new THREE.Mesh(GEO, mat);
+      mesh.position.set(
+        x + (Math.random() - 0.5) * 0.8,
+        y + Math.random() * 0.5,
+        z + (Math.random() - 0.5) * 0.8
+      );
+      this.scene.add(mesh);
+
+      this.particles.push({
+        mesh,
+        vx: (Math.random() - 0.5) * 0.8,
+        vy: 0.5 + Math.random() * 1.5, // upward drift
+        vz: (Math.random() - 0.5) * 0.8,
+        life: 0,
+        maxLife: 1.2 + Math.random() * 0.6,
+      });
+    }
+  }
+
+  /** Magic/enchantment particles. */
+  magic(x: number, y: number, z: number, count = 12) {
+    for (let i = 0; i < count; i++) {
+      const isPurple = Math.random() < 0.5;
+      const color = isPurple ? 0xaa44ff : 0xffcc00;
+      const mat = new THREE.MeshLambertMaterial({ color, emissive: color });
+      const mesh = new THREE.Mesh(GEO, mat);
+      mesh.position.set(x, y, z);
+      this.scene.add(mesh);
+
+      const angle = Math.random() * Math.PI * 2;
+      const speed = 4 + Math.random() * 3;
+
+      this.particles.push({
+        mesh,
+        vx: Math.cos(angle) * speed,
+        vy: 1 + Math.random() * 2,
+        vz: Math.sin(angle) * speed,
+        life: 0,
+        maxLife: 0.8 + Math.random() * 0.4,
+      });
+    }
+  }
+
+  /** Explosion particles. */
+  explosion(x: number, y: number, z: number, count = 30) {
+    for (let i = 0; i < count; i++) {
+      const roll = Math.random();
+      const color = roll < 0.33 ? 0xff4400 : roll < 0.66 ? 0xff8800 : roll < 0.85 ? 0xffcc00 : 0x000000;
+      const mat = new THREE.MeshLambertMaterial({ color });
+      const mesh = new THREE.Mesh(GEO, mat);
+      const size = 0.2 + Math.random() * 0.2;
+      mesh.scale.setScalar(size);
+      mesh.position.set(
+        x + (Math.random() - 0.5) * 1.5,
+        y + (Math.random() - 0.5) * 1.5,
+        z + (Math.random() - 0.5) * 1.5
+      );
+      this.scene.add(mesh);
+
+      const angle = Math.random() * Math.PI * 2;
+      const elevation = Math.random() * Math.PI;
+      const speed = 6 + Math.random() * 8;
+
+      this.particles.push({
+        mesh,
+        vx: Math.sin(elevation) * Math.cos(angle) * speed,
+        vy: Math.cos(elevation) * speed,
+        vz: Math.sin(elevation) * Math.sin(angle) * speed,
+        life: 0,
+        maxLife: 0.8 + Math.random() * 0.4,
+      });
+    }
   }
 
   /** Red damage flash particles. */
