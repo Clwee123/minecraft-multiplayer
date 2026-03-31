@@ -100,6 +100,9 @@ export class World {
     return n > -0.03 && n < 0.03;
   }
 
+  // Reusable Matrix4 for block placement — avoids per-block heap allocation
+  private static _mat4 = new THREE.Matrix4();
+
   // Shared geometry for all block types (deduplication)
   private static sharedBoxGeo: THREE.BoxGeometry | null = null;
   private static getSharedBoxGeo(): THREE.BoxGeometry {
@@ -370,9 +373,8 @@ export class World {
     const idx = this.instanceCount.get(type) ?? 0;
     if (idx >= World.MAX_INSTANCES) return; // safety cap
 
-    const matrix = new THREE.Matrix4();
-    matrix.setPosition(x, y, z);
-    mesh.setMatrixAt(idx, matrix);
+    World._mat4.setPosition(x, y, z);
+    mesh.setMatrixAt(idx, World._mat4);
     mesh.count = idx + 1;
     mesh.instanceMatrix.needsUpdate = true;
 
@@ -408,10 +410,9 @@ export class World {
     const lastIdx = count - 1;
 
     if (idx !== lastIdx) {
-      // Swap with last instance
-      const lastMatrix = new THREE.Matrix4();
-      mesh.getMatrixAt(lastIdx, lastMatrix);
-      mesh.setMatrixAt(idx, lastMatrix);
+      // Swap with last instance — reuse static matrix to avoid allocation
+      mesh.getMatrixAt(lastIdx, World._mat4);
+      mesh.setMatrixAt(idx, World._mat4);
       mesh.instanceMatrix.needsUpdate = true;
 
       // Find which key maps to lastIdx and update it
@@ -437,6 +438,11 @@ export class World {
 
   hasBlock(x: number, y: number, z: number): boolean {
     return this.blockData.has(key(x, y, z));
+  }
+
+  /** Fast O(1) block type lookup — returns undefined if no block, 0 reserved for air */
+  getBlockType(x: number, y: number, z: number): number | undefined {
+    return this.blockData.get(key(x, y, z));
   }
 
   getBlock(x: number, y: number, z: number) {

@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Minecraft JS</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+
+    *{margin:0;padding:0;box-sizing:border-box}
+
+    body{background:#000;overflow:hidden;font-family:'Segoe UI',sans-serif}
+
+    canvas{display:block}
+
+    /* ── MENU ──────────────────────────────────────────────────────────── */
+
+    #loginScreen{
+      position:fixed;inset:0;
+      background:linear-gradient(160deg,#0a1f0a 0%,#142814 40%,#0a1a0a 100%);
+      display:flex;align-items:center;justify-content:center;z-index:200;
+    }
+
+    /* animated grass/dirt stripes at bottom */
+
+    #loginScreen::after{
+      content:'';position:absolute;bottom:0;left:0;right:0;height:60px;
+      background:repeating-linear-gradient(90deg,
+        #4a7c3f 0px,#4a7c3f 30px,
+        #3d6832 30px,#3d6832 60px,
+        #4a7c3f 60px,#4a7c3f 90px,
+        #3d6832 90px,#3d6832 120px
+      );
+      opacity:0.5;
+    }
+
+    .login-box{
+      background:rgba(0,0,0,0.82);
+      border:3px solid #5a9c5a;
+      border-radius:12px;
+      padding:40px 48px;
+      text-align:center;
+      min-width:380px;
+      max-width:440px;
+      position:relative;
+      box-shadow:0 0 60px rgba(0,180,0,0.12), inset 0 0 40px rgba(0,0,0,0.5);
+    }
+
+    /* Pixel-art dirt texture border effect */
+
+    .login-box::before{
+      content:'';position:absolute;inset:-3px;border-radius:14px;
+      background:linear-gradient(45deg,#5a9c5a,#3a6c3a,#5a9c5a,#3a6c3a);
+      z-index:-1;
+    }
+
+    .mc-title{
+      font-family:'Press Start 2P',monospace;
+      font-size:1.7rem;color:#7cfc00;
+      letter-spacing:2px;margin-bottom:4px;
+      text-shadow:3px 3px 0 #004400, 0 0 30px rgba(124,252,0,0.5);
+      line-height:1.3;
+    }
+
+    .mc-subtitle{
+      color:#8a9a8a;font-size:0.72rem;margin-bottom:28px;
+      letter-spacing:1px;
+    }
+
+    .mc-input{
+      width:100%;padding:12px 16px;margin-bottom:12px;
+      background:rgba(0,0,0,0.6);
+      border:2px solid #4a7c4a;
+      border-radius:6px;color:#fff;font-size:0.95rem;outline:none;
+      transition:border-color 0.2s, box-shadow 0.2s;
+    }
+
+    .mc-input:focus{
+      border-color:#7cfc00;
+      box-shadow:0 0 10px rgba(124,252,0,0.25);
+    }
+
+    /* Mode buttons */
+
+    #menuModeRow{display:flex;gap:10px;margin-bottom:14px}
+
+    .mode-btn{
+      flex:1;padding:14px 8px;
+      border:2px solid #4a7c4a;border-radius:8px;
+      background:rgba(0,0,0,0.45);color:#ccc;
+      font-size:0.88rem;cursor:pointer;
+      transition:all 0.15s;
+      position:relative;overflow:hidden;
+    }
+
+    .mode-btn .mode-icon{font-size:1.5rem;display:block;margin-bottom:4px}
+
+    .mode-btn .mode-label{font-weight:bold;display:block;margin-bottom:2px}
+
+    .mode-btn .mode-sub{font-size:0.68rem;color:#888;display:block}
+
+    .mode-btn:hover{background:rgba(124,252,0,0.08);border-color:#7cfc00;color:#eee}
+
+    .mode-btn.selected{
+      background:rgba(124,252,0,0.15);
+      border-color:#7cfc00;color:#7cfc00;
+      box-shadow:0 0 12px rgba(124,252,0,0.2);
+    }
+
+    .mode-btn.selected .mode-sub{color:#5acc5a}
+
+    /* Server row */
+
+    #serverRow{display:none;gap:8px;margin-bottom:12px;align-items:center}
+
+    #serverRow.visible{display:flex}
+
+    #serverRow span{color:#7a9a7a;font-size:0.82rem;white-space:nowrap}
+
+    #serverRow input{flex:1;margin-bottom:0}
+
+    /* Play button */
+
+    .play-btn{
+      width:100%;padding:14px;
+      background:linear-gradient(180deg,#3a8a3a,#2a6a2a);
+      border:2px solid #5aaa5a;border-radius:8px;
+      color:#fff;font-size:1rem;font-weight:bold;
+      cursor:pointer;letter-spacing:2px;
+      text-shadow:1px 1px 2px #000;
+      transition:all 0.15s;margin-top:4px;
+      box-shadow:0 4px 0 #1a4a1a;
+    }
+
+    .play-btn:hover{background:linear-gradient(180deg,#4a9a4a,#3a7a3a);transform:translateY(-1px)}
+
+    .play-btn:active{transform:translateY(2px);box-shadow:0 2px 0 #1a4a1a}
+
+    .help-hint{
+      color:#445544;font-size:0.67rem;margin-top:16px;
+      line-height:1.8;border-top:1px solid #2a4a2a;padding-top:12px;
+    }
+
+    .help-hint strong{color:#5a8a5a}
+
+    /* ── HUD ────────────────────────────────────────────────────────────── */
+
+    #hud{position:fixed;inset:0;pointer-events:none;z-index:10;display:none}
+
+    /* Crosshair */
+
+    #crosshair{
+      position:absolute;top:50%;left:50%;
+      transform:translate(-50%,-50%);width:22px;height:22px;
+    }
+
+    #crosshair::before,#crosshair::after{
+      content:'';position:absolute;
+      background:rgba(255,255,255,0.9);
+      border-radius:1px;
+    }
+
+    #crosshair::before{width:2px;height:100%;left:50%;transform:translateX(-50%)}
+
+    #crosshair::after {width:100%;height:2px;top:50%;transform:translateY(-50%)}
+
+    /* Hotbar */
+
+    #hotbar{
+      position:absolute;bottom:24px;left:50%;transform:translateX(-50%);
+      display:flex;gap:3px;
+      background:rgba(0,0,0,0.55);
+      border:2px solid rgba(255,255,255,0.2);
+      border-radius:4px;padding:3px;
+    }
+
+    .hotbar-slot{
+      width:50px;height:50px;
+      border:2px solid rgba(255,255,255,0.2);
+      border-radius:3px;
+      display:flex;flex-direction:column;align-items:center;justify-content:center;
+      font-size:0.55rem;color:#bbb;cursor:default;
+      background:rgba(0,0,0,0.4);
+      transition:border-color 0.1s, background 0.1s;
+    }
+
+    .hotbar-slot.active{
+      border-color:#fff;background:rgba(255,255,255,0.18);
+      box-shadow:inset 0 0 8px rgba(255,255,255,0.1);
+    }
+
+    .slot-icon{width:26px;height:26px;border-radius:2px;margin-bottom:2px}
+
+    /* Hearts */
+
+    #hearts{
+      position:absolute;bottom:82px;left:50%;
+      transform:translateX(calc(-50% - 60px));
+      display:flex;gap:2px;
+    }
+
+    .heart{width:18px;height:18px;font-size:15px;line-height:18px;text-align:center}
+
+    .heart.full::before {content:'❤';color:#e83333;filter:drop-shadow(0 0 3px #ff0000)}
+
+    .heart.half::before {content:'❤';color:#cc1111}
+
+    .heart.empty::before{content:'🖤';color:#441111}
+
+    /* Wave 9: Wither effect */
+
+    .heart.wither.full::before {content:'❤';color:#555555;filter:drop-shadow(0 0 3px #333333)}
+
+    .heart.wither.half::before {content:'❤';color:#444444}
+
+    .heart.wither.empty::before{content:'🖤';color:#333333}
+
+    /* Hunger */
+
+    #hunger{
+      position:absolute;bottom:82px;left:50%;
+      transform:translateX(calc(-50% + 60px));
+      display:flex;gap:2px;flex-direction:row-reverse;
+    }
+
+    .hunger-icon{width:18px;height:18px;font-size:15px;line-height:18px;text-align:center}
+
+    .hunger-icon.full::before {content:'🍗';filter:drop-shadow(0 0 2px #cc8800)}
+
+    .hunger-icon.half::before {content:'🍗';opacity:0.55}
+
+    .hunger-icon.empty::before{content:'🍗';opacity:0.2;filter:grayscale(1)}
+
+    /* Time display */
+
+    #timeDisplay{
+      position:absolute;top:10px;left:50%;transform:translateX(-50%);
+      color:#fff;font-size:0.72rem;
+      text-shadow:1px 1px 2px #000;
+      background:rgba(0,0,0,0.42);
+      padding:2px 12px;border-radius:10px;
+      letter-spacing:1px;
+      margin-top:28px;
+    }
+
+    /* Info panels */
+
+    #topLeft{
+      position:absolute;top:10px;left:12px;
+      color:#fff;font-size:0.73rem;line-height:2.0;
+      text-shadow:1px 1px 2px #000;
+    }
+
+    #topRight{
+      position:absolute;top:10px;right:12px;
+      color:#7cfc00;font-size:0.78rem;
+      text-shadow:1px 1px 2px #000;text-align:right;
+      line-height:1.8;
+    }
+
+    /* Gamemode badge */
+
+    .gamemode-badge{
+      position:absolute;top:56px;left:50%;transform:translateX(-50%);
+      padding:3px 14px;border-radius:12px;font-size:0.7rem;font-weight:bold;
+      pointer-events:none;letter-spacing:1px;
+    }
+
+    .gamemode-badge.creative{background:rgba(0,120,255,0.65);color:#fff;box-shadow:0 0 10px rgba(0,100,255,0.3)}
+
+    .gamemode-badge.survival{background:transparent;color:transparent}
+
+    /* Chat */
+
+    #chat{position:absolute;bottom:88px;left:12px;width:400px}
+
+    #chatMessages{
+      max-height:168px;overflow-y:auto;
+      padding:4px 6px;scrollbar-width:none;
+    }
+
+    .chat-msg{
+      color:#fff;font-size:0.76rem;
+      text-shadow:1px 1px 2px #000;
+      background:rgba(0,0,0,0.42);
+      padding:2px 6px;border-radius:2px;
+      margin-bottom:2px;
+      word-break:break-word;
+    }
+
+    .chat-msg .chat-name{color:#7cfc00;font-weight:bold}
+
+    .chat-msg.sys-msg{color:#aaffaa;font-style:italic}
+
+    #chatInput{
+      display:none;width:100%;padding:7px 11px;
+      background:rgba(0,0,0,0.78);
+      border:1px solid rgba(255,255,255,0.45);
+      border-radius:4px;color:#fff;font-size:0.83rem;
+      outline:none;pointer-events:all;
+    }
+
+    #chatInput.visible{display:block}
+
+    /* Connection status */
+
+    #connStatus{
+      position:absolute;bottom:132px;left:50%;transform:translateX(-50%);
+      padding:4px 14px;border-radius:12px;font-size:0.7rem;font-weight:bold;
+      transition:opacity 0.6s;letter-spacing:1px;
+    }
+
+    #connStatus.connected   {background:rgba(0,180,0,0.75);color:#fff}
+
+    #connStatus.connecting  {background:rgba(200,140,0,0.75);color:#fff}
+
+    #connStatus.disconnected{background:rgba(180,0,0,0.75);color:#fff}
+
+    /* Block name tooltip */
+
+    #blockName{
+      position:absolute;bottom:82px;left:50%;transform:translateX(-50%);
+      color:#fff;font-size:0.76rem;
+      text-shadow:1px 1px 2px #000;
+      background:rgba(0,0,0,0.5);
+      padding:2px 12px;border-radius:10px;
+    }
+
+    /* Minimap */
+
+    #minimap{
+      position:absolute;top:10px;right:12px;width:120px;height:120px;
+      border-radius:50%;border:2px solid rgba(255,255,255,0.4);
+      overflow:hidden;background-color:#1a1a1a;
+    }
+
+    #compassLabel{
+      position:absolute;top:132px;right:12px;
+      color:#7cfc00;font-size:0.75rem;font-weight:bold;
+      letter-spacing:2px;text-shadow:1px 1px 2px #000;
+    }
+
+    /* ── DEATH SCREEN ────────────────────────────────────────────────── */
+
+    #deathScreen{
+      display:none;position:fixed;inset:0;
+      background:rgba(100,0,0,0.6);
+      flex-direction:column;align-items:center;justify-content:center;
+      z-index:150;pointer-events:all;
+    }
+
+    #deathScreen h2{
+      color:#ff4444;font-size:3rem;margin-bottom:10px;
+      text-shadow:0 0 30px #ff0000, 2px 2px 0 #440000;
+      font-family:'Press Start 2P',monospace;font-size:2rem;
+    }
+
+    #deathScreen p{color:#ffaaaa;font-size:0.95rem;margin-bottom:30px}
+
+    #respawnBtn{
+      padding:14px 44px;
+      background:linear-gradient(180deg,#aa0000,#880000);
+      border:2px solid #ff4444;border-radius:6px;
+      color:#fff;font-size:1rem;font-weight:bold;cursor:pointer;
+      letter-spacing:1px;transition:all 0.15s;pointer-events:all;
+      box-shadow:0 4px 0 #440000;
+    }
+
+    #respawnBtn:hover{background:linear-gradient(180deg,#cc0000,#aa0000)}
+
+    #respawnBtn:active{transform:translateY(2px);box-shadow:0 2px 0 #440000}
+
+    /* Kill feed animation */
+
+    @keyframes fadeOut {
+      0% { opacity: 1; transform: translateX(0); }
+      80% { opacity: 1; }
+      100% { opacity: 0; transform: translateX(20px); }
+    }
+
+    #killfeed {
+      position: absolute;
+      top: 170px;
+      right: 12px;
+      width: 220px;
+      z-index: 500;
+      pointer-events: none;
+    }
+
+    /* Player list panel */
+
+    #player-list {
+      pointer-events: all;
+    }
+
+    #player-list::-webkit-scrollbar {
+      width: 6px;
+    }
+
+    #player-list::-webkit-scrollbar-track {
+      background: rgba(0, 0, 0, 0.4);
+    }
+
+    #player-list::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.3);
+      border-radius: 3px;
+    }
+
+    #player-list::-webkit-scrollbar-thumb:hover {
+      background: rgba(255, 255, 255, 0.5);
+    }
+  </style>
+  <script type="module" crossorigin src="/assets/index-Yh738npT.js"></script>
+</head>
+<body>
+
+  <!-- ── MENU ─────────────────────────────────────────────────────── -->
+  <div id="loginScreen">
+    <div class="login-box">
+      <div class="mc-title">⛏ MINECRAFT JS</div>
+      <p class="mc-subtitle">Three.js · Colyseus · WebGL</p>
+
+      <input id="nameInput" class="mc-input" type="text"
+             placeholder="Enter your username…" maxlength="24" autocomplete="off"/>
+
+      <div id="menuModeRow">
+        <button class="mode-btn selected" id="btnSP" onclick="selectMode('sp')">
+          <span class="mode-icon">🌍</span>
+          <span class="mode-label">Singleplayer</span>
+          <span class="mode-sub">Solo + mobs</span>
+        </button>
+        <button class="mode-btn" id="btnMP" onclick="selectMode('mp')">
+          <span class="mode-icon">🌐</span>
+          <span class="mode-label">Multiplayer</span>
+          <span class="mode-sub">Join a server</span>
+        </button>
+      </div>
+
+      <div id="serverRow">
+        <span>Server:</span>
+        <input id="serverInput" class="mc-input" type="text"
+               value="localhost:8471" placeholder="host:port"/>
+      </div>
+
+      <button class="play-btn" id="playBtn">▶  PLAY</button>
+
+      <p class="help-hint">
+        <strong>Move</strong> WASD &nbsp;·&nbsp;
+        <strong>Jump</strong> Space &nbsp;·&nbsp;
+        <strong>Sprint</strong> Ctrl<br>
+        <strong>Break</strong> Left-click &nbsp;·&nbsp;
+        <strong>Place</strong> Right-click<br>
+        <strong>Chat</strong> T &nbsp;·&nbsp;
+        <strong>3rd person</strong> F5 &nbsp;·&nbsp;
+        <strong>Commands</strong> /help
+      </p>
+    </div>
+  </div>
+
+  <!-- ── HUD ──────────────────────────────────────────────────────── -->
+  <div id="hud">
+    <div id="crosshair"></div>
+    <div id="hotbar"></div>
+    <div id="hearts"></div>
+    <div id="hunger"></div>
+    <div id="timeDisplay"></div>
+    <div id="topLeft"></div>
+    <div id="topRight"></div>
+    <div id="gameModeEl" class="gamemode-badge survival"></div>
+    <div id="chat">
+      <div id="chatMessages"></div>
+      <input id="chatInput" type="text" placeholder="Type a message… (/ for commands)" maxlength="200"/>
+    </div>
+    <div id="connStatus" class="connecting" style="opacity:0"></div>
+    <div id="blockName"></div>
+    <div id="minimap"></div>
+    <div id="compassLabel">N</div>
+  </div>
+
+  <!-- ── DEATH SCREEN ─────────────────────────────────────────────── -->
+  <div id="deathScreen">
+    <h2>YOU DIED</h2>
+    <p class="death-message">Better luck next time…</p>
+    <p class="death-coords" style="font-size: 0.85rem; color: #aaaaaa; margin: 10px 0;"></p>
+    <p class="death-score" style="font-size: 0.85rem; color: #aaaaaa; margin: 10px 0 30px 0;"></p>
+    <button id="respawnBtn">↺  Respawn</button>
+  </div>
+
+  <script>
+    let selectedMode = 'sp';
+    function selectMode(mode) {
+      selectedMode = mode;
+      document.getElementById('btnSP').classList.toggle('selected', mode === 'sp');
+      document.getElementById('btnMP').classList.toggle('selected', mode === 'mp');
+      const row = document.getElementById('serverRow');
+      row.classList.toggle('visible', mode === 'mp');
+    }
+    window.__getSelectedMode = () => selectedMode;
+    window.__getServerAddr  = () => {
+      const v = document.getElementById('serverInput').value.trim();
+      return v || 'localhost:8471';
+    };
+  </script>
+</body>
+</html>

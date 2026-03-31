@@ -23,6 +23,16 @@ export class Player {
   onGround    = false;
   gameMode: GameMode = "survival";
 
+  // Pre-allocated vectors to avoid per-frame heap allocation
+  private _forward  = new THREE.Vector3();
+  private _right    = new THREE.Vector3();
+  private _move     = new THREE.Vector3();
+  private _rayDir   = new THREE.Vector3();
+  // Cache last raycast result so updateHighlight doesn't re-raycast
+  private _lastHit: ReturnType<World["raycastBlock"]> = null;
+  private _lastHitFrame = -1;
+  private _frameCount   = 0;
+
   health      = 20;
   maxHealth   = 20;
   invincible  = 0;
@@ -310,26 +320,33 @@ export class Player {
   }
 
   private raycast(): THREE.Intersection | null {
-    // Use math-based raycasting from camera center (works with InstancedMesh)
-    const dir = new THREE.Vector3(0, 0, -1);
-    dir.applyQuaternion(this.camera.quaternion);
-    const origin = this.camera.position;
+    // Cache result per frame — avoid re-raycasting multiple times per update tick
+    if (this._lastHitFrame === this._frameCount) {
+      if (!this._lastHit) return null;
+      const h = this._lastHit;
+      return {
+        point: new THREE.Vector3(h.x + 0.5, h.y + 0.5, h.z + 0.5),
+        face: { normal: h.face.clone().normalize() },
+      } as any;
+    }
 
-    const hit = this.world.raycastBlock(origin, dir, REACH);
+    // Reuse pre-allocated ray direction vector
+    this._rayDir.set(0, 0, -1).applyQuaternion(this.camera.quaternion);
+    const hit = this.world.raycastBlock(this.camera.position, this._rayDir, REACH);
+    this._lastHit = hit;
+    this._lastHitFrame = this._frameCount;
+
     if (!hit) return null;
-
-    // Construct a fake THREE.Intersection object for compatibility
     return {
       point: new THREE.Vector3(hit.x + 0.5, hit.y + 0.5, hit.z + 0.5),
-      face: {
-        normal: hit.face.clone().normalize(),
-      },
+      face: { normal: hit.face.clone().normalize() },
     } as any;
   }
 
   // ── Main update ────────────────────────────────────────────────────────────
 
   update(dt: number) {
+    this._frameCount++;
     if (this.invincible > 0) this.invincible -= dt;
     if (this.gameMode === "creative") this.updateCreative(dt);
     else                              this.applyPhysics(dt);
@@ -436,15 +453,14 @@ export class Player {
    * Uses a swept rectangle check over all corner and mid points.
    */
   private footprintOverBlock(x: number, z: number, blockY: number): boolean {
-    const R = PLAYER_W / 2 - 0.01; // slight inset to avoid edge false-positives
-    const xs = [x - R, x, x + R];
-    const zs = [z - R, z, z + R];
-    for (const bx of xs) {
-      for (const bz of zs) {
-        if (!this.world.hasBlock(Math.floor(bx), blockY, Math.floor(bz))) continue;
-        const entry = this.world.getBlock(Math.floor(bx), blockY, Math.floor(bz));
-        if (entry && entry.type === 7) continue; // water is not solid
-        return true;
+    const R = PLAYER_W / 2 - 0.01;
+    // Check 3×3 sample points across the player footprint
+    for (let xi = 0; xi < 3; xi++) {
+      const bx = Math.floor(x + (xi - 1) * R);
+      for (let zi = 0; zi < 3; zi++) {
+        const bz = Math.floor(z + (zi - 1) * R);
+        const type = this.world.getBlockType(bx, blockY, bz);
+        if (type !== undefined && type !== 0 && type !== 7) return true;
       }
     }
     return false;
@@ -454,15 +470,13 @@ export class Player {
     const R   = PLAYER_W / 2 - 0.01;
     const bot = Math.floor(y - EYE_HEIGHT + 0.05);
     const top = Math.floor(y - EYE_HEIGHT + PLAYER_H - 0.05);
-    const xs  = [x - R, x + R];
-    const zs  = [z - R, z + R];
     for (let by = bot; by <= top; by++) {
-      for (const bx of xs) {
-        for (const bz of zs) {
-          if (!this.world.hasBlock(Math.floor(bx), by, Math.floor(bz))) continue;
-          const entry = this.world.getBlock(Math.floor(bx), by, Math.floor(bz));
-          if (entry && entry.type === 7) continue;
-          return true;
+      for (let xi = 0; xi < 2; xi++) {
+        const bx = Math.floor(x + (xi === 0 ? -R : R));
+        for (let zi = 0; zi < 2; zi++) {
+          const bz = Math.floor(z + (zi === 0 ? -R : R));
+          const type = this.world.getBlockType(bx, by, bz);
+          if (type !== undefined && type !== 0 && type !== 7) return true;
         }
       }
     }
@@ -498,9 +512,10 @@ export class Player {
   // ── Horizontal movement ────────────────────────────────────────────────────
 
   private applyMovement(dt: number) {
-    const forward = new THREE.Vector3(-Math.sin(this.yaw), 0, -Math.cos(this.yaw));
-    const right   = new THREE.Vector3( Math.cos(this.yaw), 0, -Math.sin(this.yaw));
-    const move    = new THREE.Vector3();
+    // Reuse pre-allocated vectors — no heap allocation
+    const forward = this._forward.set(-Math.sin(this.yaw), 0, -Math.cos(this.yaw));
+    const right   = this._right.set( Math.cos(this.yaw), 0, -Math.sin(this.yaw));
+    const move    = this._move.set(0, 0, 0);
 
     if (this.keys["KeyW"]) move.add(forward);
     if (this.keys["KeyS"]) move.sub(forward);
