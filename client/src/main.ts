@@ -273,6 +273,13 @@ interface Arrow {
 }
 const playerArrows: Arrow[] = [];
 
+// Shared geo/mat for player arrows — no new geometry per shot
+const _PLAYER_ARROW_GEO = new THREE.BoxGeometry(0.05, 0.05, 0.4);
+const _PLAYER_ARROW_MAT = new THREE.MeshBasicMaterial({ color: 0xffdd44 });
+// Shared geo/mat for fishing bobber — no new geometry per cast
+const _BOBBER_GEO = new THREE.SphereGeometry(0.15, 8, 8);
+const _BOBBER_MAT = new THREE.MeshBasicMaterial({ color: 0x0066cc });
+
 interface FishingBobber {
   mesh: THREE.Mesh;
   vel: THREE.Vector3;
@@ -287,6 +294,7 @@ let netherMode = false;
 
 const attackRaycaster = new THREE.Raycaster();
 attackRaycaster.far   = 5;
+const _CENTER_VEC2 = new THREE.Vector2(0, 0); // reuse for setFromCamera calls
 
 const arrowRaycaster = new THREE.Raycaster();
 arrowRaycaster.far   = 1;
@@ -591,10 +599,8 @@ async function startGame(name: string) {
   player.onRightClick = () => {
     if (player.selectedBlockType === 33) { // Fishing Rod
       if (fishingBobber) {
-        // Reel in
+        // Reel in — don't dispose shared geo/mat
         scene.remove(fishingBobber.mesh);
-        fishingBobber.mesh.geometry.dispose();
-        (fishingBobber.mesh.material as THREE.MeshBasicMaterial).dispose();
         if (fishingBobber.inWater) {
           // Random chance to catch a fish
           const fishes = ["Salmon", "Cod", "Tropical Fish", "Pufferfish"];
@@ -611,9 +617,8 @@ async function startGame(name: string) {
           .applyAxisAngle(_X_AXIS, player.camera.rotation.x)
           .applyAxisAngle(_Y_AXIS, player.camera.rotation.y);
 
-        const bobberGeo = new THREE.SphereGeometry(0.15, 8, 8);
-        const bobberMat = new THREE.MeshBasicMaterial({ color: 0x0066cc });
-        const bobberMesh = new THREE.Mesh(bobberGeo, bobberMat);
+        // Reuse shared geo/mat — no allocation per cast
+        const bobberMesh = new THREE.Mesh(_BOBBER_GEO, _BOBBER_MAT);
         bobberMesh.position.copy(player.position);
         bobberMesh.position.y += 0.6;
         scene.add(bobberMesh);
@@ -774,11 +779,9 @@ async function startGame(name: string) {
 
     // Check for arrow fire
     if (player.selectedBlockType === 32) { // Bow
-      // Fire arrow
+      // Fire arrow — reuse shared geo/mat, no allocation per shot
       const arrowDir = _inputRayDir.set(0, 0, -1).applyAxisAngle(_X_AXIS, player.camera.rotation.x).applyAxisAngle(_Y_AXIS, player.camera.rotation.y);
-      const arrowGeo = new THREE.BoxGeometry(0.05, 0.05, 0.4);
-      const arrowMat = new THREE.MeshBasicMaterial({ color: 0xffdd44 });
-      const arrowMesh = new THREE.Mesh(arrowGeo, arrowMat);
+      const arrowMesh = new THREE.Mesh(_PLAYER_ARROW_GEO, _PLAYER_ARROW_MAT);
       arrowMesh.position.copy(player.position);
       arrowMesh.position.y += 0.6;
       scene.add(arrowMesh);
@@ -791,7 +794,7 @@ async function startGame(name: string) {
       return;
     }
 
-    attackRaycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
+    attackRaycaster.setFromCamera(_CENTER_VEC2, camera);
     const result = mobManager?.tryAttack(attackRaycaster, enchants);
     if (result) {
       sounds.play("hit");
@@ -893,9 +896,9 @@ async function startGame(name: string) {
 
       // Check for villager interaction
       if (mobManager) {
-        const villagerRaycaster = new THREE.Raycaster();
-        villagerRaycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
-        villagerRaycaster.far = 3;
+        // Reuse attackRaycaster with a shorter far distance
+        attackRaycaster.far = 3;
+        attackRaycaster.setFromCamera(_CENTER_VEC2, camera);
         const villagerMobs = mobManager.getAllMobsForDisplay();
         const villagerMeshes: Array<{ mesh: THREE.Object3D; mobId: string; type: string }> = [];
 
@@ -909,11 +912,13 @@ async function startGame(name: string) {
           }
         }
 
-        const villagerHits = villagerRaycaster.intersectObjects(villagerMeshes.map(v => v.mesh));
+        const _villagerMeshObjs = villagerMeshes.map(v => v.mesh); // build array once per click
+        const villagerHits = attackRaycaster.intersectObjects(_villagerMeshObjs);
         if (villagerHits.length > 0) {
           const firstHit = villagerHits[0];
           const villagerInfo = villagerMeshes.find(v => v.mesh === firstHit.object);
           if (villagerInfo) {
+            attackRaycaster.far = 5; // restore default far
             const trades = [
               { give: "45", giveName: "5 Wheat", receive: "food", receiveName: "1 Bread" },
               { give: "14", giveName: "3 Iron Ore", receive: "36", receiveName: "1 Iron Chestplate" },
@@ -928,6 +933,7 @@ async function startGame(name: string) {
             return;
           }
         }
+        attackRaycaster.far = 5; // restore default far
       }
 
       // Otherwise open inventory
@@ -1391,9 +1397,8 @@ function animate() {
       const by = Math.round(arrow.mesh.position.y);
       const bz = Math.round(arrow.mesh.position.z);
       if (world.hasBlock(bx, by, bz)) {
+        // Don't dispose — geo/mat are shared module-level resources
         scene.remove(arrow.mesh);
-        arrow.mesh.geometry.dispose();
-        (arrow.mesh.material as THREE.MeshBasicMaterial).dispose();
         playerArrows.splice(i, 1);
         continue;
       }
@@ -1402,14 +1407,15 @@ function animate() {
       let hit = false;
       if (mobManager) for (const lm of mobManager.iterMobs()) {
         const mob = lm.mob;
-        const dist = arrow.mesh.position.distanceTo(_animVec3.set(mob.targetPos.x, mob.targetPos.y, mob.targetPos.z));
-        if (dist < 0.8 && mob.alive) {
+        // Squared distance instead of distanceTo (no sqrt)
+        const _adx = arrow.mesh.position.x - mob.targetPos.x;
+        const _ady = arrow.mesh.position.y - mob.targetPos.y;
+        const _adz = arrow.mesh.position.z - mob.targetPos.z;
+        if (_adx*_adx + _ady*_ady + _adz*_adz < 0.64 && mob.alive) { // 0.8^2=0.64
           mob.health -= 5;
           mob.showDamage(mob.health);
           if (mob.health <= 0) mob.die();
           scene.remove(arrow.mesh);
-          arrow.mesh.geometry.dispose();
-          (arrow.mesh.material as THREE.MeshBasicMaterial).dispose();
           playerArrows.splice(i, 1);
           hit = true;
           sounds.play("hit");
@@ -1417,11 +1423,9 @@ function animate() {
         }
       }
 
-      // Remove if expired
+      // Remove if expired — don't dispose shared geo/mat
       if (arrow.life <= 0 && !hit) {
         scene.remove(arrow.mesh);
-        arrow.mesh.geometry.dispose();
-        (arrow.mesh.material as THREE.MeshBasicMaterial).dispose();
         playerArrows.splice(i, 1);
       }
     }
