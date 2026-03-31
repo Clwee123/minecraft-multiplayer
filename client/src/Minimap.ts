@@ -2,6 +2,16 @@ import * as THREE from "three";
 import { World } from "./World";
 import { BLOCK_TYPES } from "./blocks";
 
+// Pre-compute CSS hex color strings for all block types — eliminates toString(16)+padStart per pixel
+const _BLOCK_CSS_COLORS: Record<number, string> = {};
+for (const [idStr, info] of Object.entries(BLOCK_TYPES)) {
+  const id = Number(idStr);
+  if (info && (info as any).color != null) {
+    const hex = ((info as any).color as number).toString(16).padStart(6, "0");
+    _BLOCK_CSS_COLORS[id] = `#${hex}`;
+  }
+}
+
 export class Minimap {
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
@@ -86,14 +96,14 @@ export class Minimap {
 
         if (blockType === 0) continue;
 
-        const info = BLOCK_TYPES[blockType];
-        const color = info?.color ?? 0xffffff;
+        // Use pre-computed CSS color string — no toString/padStart allocation per pixel
+        const cssColor = _BLOCK_CSS_COLORS[blockType] ?? "#ffffff";
 
         // Convert to canvas coordinates
         const px = centerX + (bx - playerPos.x) * scale;
         const py = centerY + (bz - playerPos.z) * scale;
 
-        this.ctx.fillStyle = `#${color.toString(16).padStart(6, "0")}`;
+        this.ctx.fillStyle = cssColor;
         this.ctx.fillRect(px - scale / 2, py - scale / 2, scale, scale);
       }
     }
