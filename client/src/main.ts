@@ -1600,16 +1600,16 @@ function animate() {
       // Get biome (stub for now)
       const biome = "Unknown";
 
-      // Get block below player
+      // Get block below player — use getBlockType (no object allocation)
       const blockBelowPos = Math.round(player.position.y - 1);
-      const blockBelow = world.getBlock(Math.round(player.position.x), blockBelowPos, Math.round(player.position.z));
-      const blockBelowName = blockBelow ? getBlockName(blockBelow.type) : "Air";
+      const _blockBelowType = world.getBlockType(Math.round(player.position.x), blockBelowPos, Math.round(player.position.z));
+      const blockBelowName = _blockBelowType !== undefined ? getBlockName(_blockBelowType) : "Air";
 
       // Get weather
       const weatherStr = weather && (weather as any).isRaining ? "Rainy" : "Clear";
 
-      // Get mob/block count
-      const mobCount = mobManager?.getAllMobsForDisplay().length ?? 0;
+      // Get mob/block count — getMobCount() uses mobs.size, no array allocation
+      const mobCount = mobManager?.getMobCount() ?? 0;
       const blockCount = world.getBlockCount?.() ?? 0;
 
       ui.updateDebugScreen({

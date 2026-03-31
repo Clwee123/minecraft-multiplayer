@@ -897,6 +897,8 @@ export class MobManager {
     return this.mobs.get(id)?.mob;
   }
 
+  getMobCount(): number { return this.mobs.size; }
+
   getMobsByType(type: MobType): Array<{ id: string; mob: Mob }> {
     return Array.from(this.mobs.entries())
       .filter(([, lm]) => lm.data.type === type && lm.mob.alive)
