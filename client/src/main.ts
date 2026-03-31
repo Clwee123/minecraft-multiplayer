@@ -1293,9 +1293,15 @@ const _inputRayDir = new THREE.Vector3();
 const _blockDistVec = new THREE.Vector3();
 const _X_AXIS = new THREE.Vector3(1, 0, 0);
 const _Y_AXIS = new THREE.Vector3(0, 1, 0);
-// Reusable array for minimap mob display — cleared and refilled each frame, no new array
+// Reusable array for minimap mob display — pool of 20 entry objects, no allocation per mob per frame
+const _MOB_POOL_SIZE = 20;
+const _minimapMobPool: Array<{ x: number; z: number; alive: boolean }> =
+  Array.from({ length: _MOB_POOL_SIZE }, () => ({ x: 0, z: 0, alive: true }));
 const _minimapMobsBuf: Array<{ x: number; z: number; alive: boolean }> = [];
-// Reusable array for minimap other-player display
+// Reusable pool for minimap other-player display — no new object per player per frame
+const _PLAYER_POOL_SIZE = 8;
+const _minimapPlayerPool: Array<{ x: number; z: number }> =
+  Array.from({ length: _PLAYER_POOL_SIZE }, () => ({ x: 0, z: 0 }));
 const _minimapPlayersBuf: Array<{ x: number; z: number }> = [];
 
 function animate() {
@@ -1435,16 +1441,26 @@ function animate() {
       _minimapPlayersBuf.length = 0;
       if (mp && (mp as any).getPlayerData) {
         const playersData = (mp as any).getPlayerData?.() ?? [];
+        let _playerPoolIdx = 0;
         for (const p of playersData) {
-          if (p.name !== currentPlayerName) {
-            _minimapPlayersBuf.push({ x: p.x, z: p.z });
+          if (p.name !== currentPlayerName && _playerPoolIdx < _PLAYER_POOL_SIZE) {
+            // Reuse pool entry — no new object per player per frame
+            const pe = _minimapPlayerPool[_playerPoolIdx++];
+            pe.x = p.x; pe.z = p.z;
+            _minimapPlayersBuf.push(pe);
           }
         }
       }
       _minimapMobsBuf.length = 0;
       if (mobManager) {
+        let _mobPoolIdx = 0;
         for (const lm of mobManager.iterMobs()) {
-          _minimapMobsBuf.push({ x: lm.mob.targetPos.x, z: lm.mob.targetPos.z, alive: lm.mob.alive });
+          if (_mobPoolIdx < _MOB_POOL_SIZE) {
+            // Reuse pool entry — no new object allocation per mob per frame
+            const entry = _minimapMobPool[_mobPoolIdx++];
+            entry.x = lm.mob.targetPos.x; entry.z = lm.mob.targetPos.z; entry.alive = lm.mob.alive;
+            _minimapMobsBuf.push(entry);
+          }
         }
       }
       minimap.update(dt, player.position, player.getYaw(), _minimapPlayersBuf, _minimapMobsBuf);
