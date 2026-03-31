@@ -6,16 +6,25 @@ const CHUNK_SIZE   = 16;
 const WORLD_HEIGHT = 40;
 const SEA_LEVEL    = 8;
 
-function key(x: number, y: number, z: number) { return `${x},${y},${z}`; }
+// Integer key packing — avoids string allocation on every block lookup
+// X and Z are offset by 512 to handle negative coords; Y is 0-63
+// Pack: (x+512) in bits 0-9, y in bits 10-15, (z+512) in bits 16-25
+const KEY_X_OFFSET = 512;
+const KEY_Z_OFFSET = 512;
+function key(x: number, y: number, z: number): number {
+  return (x + KEY_X_OFFSET) | (y << 10) | ((z + KEY_Z_OFFSET) << 16);
+}
+// String key for maps that need string keys (instanceRevIndex)
+function strKey(x: number, y: number, z: number): string { return `${x},${y},${z}`; }
 
 export class World {
   scene:  THREE.Scene;
 
   // NEW: Data structures for InstancedMesh
-  private blockData: Map<string, number> = new Map(); // key -> blockType
+  private blockData: Map<number, number> = new Map(); // intKey -> blockType
   private instancedMeshes: Map<number, THREE.InstancedMesh> = new Map(); // blockType -> InstancedMesh
-  private instanceIndex: Map<string, number> = new Map(); // key -> instance index in its type's mesh
-  private instanceRevIndex: Map<string, string> = new Map(); // "type:idx" -> key
+  private instanceIndex: Map<number, number> = new Map(); // intKey -> instance index in its type's mesh
+  private instanceRevIndex: Map<string, number> = new Map(); // "type:idx" -> intKey
   private instanceCount: Map<number, number> = new Map(); // blockType -> current count
   private static readonly MAX_INSTANCES = 60000;
 
@@ -166,18 +175,22 @@ export class World {
   private generateTerrain() {
     const R = 3; // render distance in chunks (reduced from 4 for performance)
 
-    // Pass 1: build a raw voxel map without adding to scene
-    const rawBlocks = new Map<string, number>();
+    // Pass 1: build a raw voxel map without adding to scene (integer keys)
+    const rawBlocks = new Map<number, number>();
+    // Also store coords for pass 2 iteration (avoid decoding integer keys)
+    const rawCoords: Array<[number, number, number]> = [];
 
     for (let cx = -R; cx <= R; cx++) {
       for (let cz = -R; cz <= R; cz++) {
-        this.generateChunkRaw(cx, cz, rawBlocks);
+        this.generateChunkRaw(cx, cz, rawBlocks, rawCoords);
       }
     }
 
     // Pass 2: only place blocks that have at least one exposed face
-    for (const [k, type] of rawBlocks) {
-      const [x, y, z] = k.split(",").map(Number);
+    for (const [x, y, z] of rawCoords) {
+      const k = key(x, y, z);
+      const type = rawBlocks.get(k);
+      if (type === undefined) continue;
 
       // Non-opaque blocks (water, glass, flowers, etc.) always show
       if (!World.isOpaque(type)) {
@@ -185,14 +198,14 @@ export class World {
         continue;
       }
 
-      // Check 6 neighbors — if any neighbor is absent or transparent, this block is visible
+      // Check 6 neighbors with integer key arithmetic — zero string allocation
       const exposed =
-        !World.isOpaque(rawBlocks.get(`${x+1},${y},${z}`) ?? 0) ||
-        !World.isOpaque(rawBlocks.get(`${x-1},${y},${z}`) ?? 0) ||
-        !World.isOpaque(rawBlocks.get(`${x},${y+1},${z}`) ?? 0) ||
-        !World.isOpaque(rawBlocks.get(`${x},${y-1},${z}`) ?? 0) ||
-        !World.isOpaque(rawBlocks.get(`${x},${y},${z+1}`) ?? 0) ||
-        !World.isOpaque(rawBlocks.get(`${x},${y},${z-1}`) ?? 0);
+        !World.isOpaque(rawBlocks.get(key(x+1, y, z)) ?? 0) ||
+        !World.isOpaque(rawBlocks.get(key(x-1, y, z)) ?? 0) ||
+        !World.isOpaque(rawBlocks.get(key(x, y+1, z)) ?? 0) ||
+        !World.isOpaque(rawBlocks.get(key(x, y-1, z)) ?? 0) ||
+        !World.isOpaque(rawBlocks.get(key(x, y, z+1)) ?? 0) ||
+        !World.isOpaque(rawBlocks.get(key(x, y, z-1)) ?? 0);
 
       if (exposed) {
         this.placeBlock(x, y, z, type, false);
@@ -210,7 +223,7 @@ export class World {
     }
   }
 
-  private generateChunkRaw(cx: number, cz: number, rawBlocks: Map<string, number>) {
+  private generateChunkRaw(cx: number, cz: number, rawBlocks: Map<number, number>, rawCoords: Array<[number, number, number]>) {
     for (let lx = 0; lx < CHUNK_SIZE; lx++) {
       for (let lz = 0; lz < CHUNK_SIZE; lz++) {
         const wx = cx * CHUNK_SIZE + lx;
@@ -219,6 +232,11 @@ export class World {
         const biome = this.getBiome(wx, wz);
         const isRiver = this.isRiver(wx, wz);
 
+        const setBlock = (y: number, type: number) => {
+          rawBlocks.set(key(wx, y, wz), type);
+          rawCoords.push([wx, y, wz]);
+        };
+
         for (let y = 0; y <= h; y++) {
           // Cave carving
           if (y > 0 && y < h - 1 && this.getCaveNoise(wx, y, wz) > 0.55) continue;
@@ -226,7 +244,7 @@ export class World {
           let type: number;
 
           if (isRiver && y === 10 && h < SEA_LEVEL + 2) {
-            type = 7; // water for rivers
+            type = 7;
           } else if (biome === 1) { // Desert
             if (y === h) type = 4;
             else if (y >= h - 2) type = 4;
@@ -259,13 +277,13 @@ export class World {
 
           if (type === 3 && y >= 3 && Math.random() < 0.008) type = 12;
 
-          rawBlocks.set(`${wx},${y},${wz}`, type);
+          setBlock(y, type);
         }
 
         // Water fill
         if (h < SEA_LEVEL) {
           for (let y = h + 1; y <= SEA_LEVEL; y++) {
-            rawBlocks.set(`${wx},${y},${wz}`, 7);
+            setBlock(y, 7);
           }
         }
 
@@ -273,7 +291,7 @@ export class World {
         if (h > 5 && Math.random() < 0.003) {
           for (let dy = Math.max(0, h - 8); dy <= h - 5; dy++) {
             if (Math.random() < 0.6) {
-              rawBlocks.set(`${wx},${dy},${wz}`, 47);
+              setBlock(dy, 47);
             }
           }
         }
@@ -281,7 +299,7 @@ export class World {
     }
   }
 
-  private generateChunkDecorations(cx: number, cz: number, rawBlocks: Map<string, number>) {
+  private generateChunkDecorations(cx: number, cz: number, _rawBlocks: Map<number, number>) {
     for (let lx = 0; lx < CHUNK_SIZE; lx++) {
       for (let lz = 0; lz < CHUNK_SIZE; lz++) {
         const wx = cx * CHUNK_SIZE + lx;
@@ -382,9 +400,9 @@ export class World {
     this.instanceRevIndex.set(`${type}:${idx}`, k);
     this.instanceCount.set(type, idx + 1);
 
-    // Track modifications
+    // Track modifications (use string key for save/load compatibility)
     if (overwrite) {
-      this.modifications.set(k, type);
+      this.modifications.set(strKey(x, y, z), type);
     }
   }
 
@@ -394,11 +412,11 @@ export class World {
 
     this._removeBlockInstance(k);
     this.blockData.delete(k);
-    this.modifications.set(k, 0);
+    this.modifications.set(strKey(x, y, z), 0);
     return true;
   }
 
-  private _removeBlockInstance(k: string) {
+  private _removeBlockInstance(k: number) {
     const type = this.blockData.get(k);
     if (type === undefined) return;
 
@@ -417,7 +435,7 @@ export class World {
 
       // Find which key maps to lastIdx and update it
       const lastKey = this.instanceRevIndex.get(`${type}:${lastIdx}`);
-      if (lastKey) {
+      if (lastKey !== undefined) {
         this.instanceIndex.set(lastKey, idx);
         this.instanceRevIndex.set(`${type}:${idx}`, lastKey);
       }
@@ -836,43 +854,43 @@ export class World {
   }
 
   activateLamp(x: number, y: number, z: number): void {
-    const key = `${x},${y},${z}`;
-    const type = this.blockData.get(key);
+    const skey = `${x},${y},${z}`;
+    const type = this.blockData.get(key(x, y, z));
     if (type !== 59) return; // must be redstone lamp
 
-    const lampState = this.redstoneState.get(key) ?? false;
+    const lampState = this.redstoneState.get(skey) ?? false;
     if (lampState) return; // Already on
 
-    this.redstoneState.set(key, true);
+    this.redstoneState.set(skey, true);
 
     // With InstancedMesh, color changes would require instance color buffer
     // For now, we just control the light. Color change via material is a limitation
     // of InstancedMesh but lights are the primary visual feedback anyway.
 
     // Create light if not already there
-    if (!this.redstoneLoights.has(key)) {
+    if (!this.redstoneLoights.has(skey)) {
       const light = new THREE.PointLight(0xff6600, 1.2, 6);
       light.position.set(x, y, z);
       this.scene.add(light);
-      this.redstoneLoights.set(key, light);
+      this.redstoneLoights.set(skey, light);
     }
   }
 
   deactivateLamp(x: number, y: number, z: number): void {
-    const key = `${x},${y},${z}`;
-    const type = this.blockData.get(key);
+    const skey = `${x},${y},${z}`;
+    const type = this.blockData.get(key(x, y, z));
     if (type !== 59) return; // must be redstone lamp
 
-    const lampState = this.redstoneState.get(key) ?? false;
+    const lampState = this.redstoneState.get(skey) ?? false;
     if (!lampState) return; // Already off
 
-    this.redstoneState.set(key, false);
+    this.redstoneState.set(skey, false);
 
     // Remove light
-    const light = this.redstoneLoights.get(key);
+    const light = this.redstoneLoights.get(skey);
     if (light) {
       this.scene.remove(light);
-      this.redstoneLoights.delete(key);
+      this.redstoneLoights.delete(skey);
     }
   }
 
@@ -880,9 +898,12 @@ export class World {
 
   // Scan for torch blocks and create lights (called after loading)
   initializeTorchLights() {
-    for (const [key, type] of this.blockData.entries()) {
+    for (const [k, type] of this.blockData.entries()) {
       if (type === 56) {
-        const [x, y, z] = key.split(",").map(Number);
+        // Decode integer key: x in bits 0-9, y in bits 10-15, z in bits 16-25
+        const x = (k & 0x3FF) - KEY_X_OFFSET;
+        const y = (k >> 10) & 0x3F;
+        const z = ((k >> 16) & 0x3FF) - KEY_Z_OFFSET;
         this.addTorchLight(x, y + 0.5, z);
       }
     }
