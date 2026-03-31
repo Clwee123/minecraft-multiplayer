@@ -660,11 +660,11 @@ async function startGame(name: string) {
           particles.explosion(x, y, z, 30);
           // Explode - destroy blocks in radius
           const radius = 5;
+          const radiusSq = radius * radius; // avoid sqrt in triple-nested loop
           for (let dx = -radius; dx <= radius; dx++) {
             for (let dy = -radius; dy <= radius; dy++) {
               for (let dz = -radius; dz <= radius; dz++) {
-                const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
-                if (dist <= radius) {
+                if (dx*dx + dy*dy + dz*dz <= radiusSq) {
                   const bx = Math.round(x) + dx;
                   const by = Math.round(y) + dy;
                   const bz = Math.round(z) + dz;
@@ -678,12 +678,8 @@ async function startGame(name: string) {
             }
           }
           // Damage player if in range
-          const distToPlayer = Math.sqrt(
-            Math.pow(player.position.x - x, 2) +
-            Math.pow(player.position.y - y, 2) +
-            Math.pow(player.position.z - z, 2)
-          );
-          if (distToPlayer < 7 && player.gameMode === "survival") {
+          const _epx = player.position.x - x, _epy = player.position.y - y, _epz = player.position.z - z;
+          if (_epx*_epx + _epy*_epy + _epz*_epz < 49 && player.gameMode === "survival") { // 7^2=49
             player.takeDamage(6);
             ui.updateHearts(player.health, player.maxHealth);
           }
@@ -1174,12 +1170,12 @@ async function startGame(name: string) {
       },
       getPlayerPos: () => player.position,
       onExplosion: (x, y, z, radius) => {
-        // Destroy blocks in radius
+        // Destroy blocks in radius — squared avoids sqrt in triple loop
+        const _rSq = radius * radius;
         for (let dx = -radius; dx <= radius; dx++) {
           for (let dy = -radius; dy <= radius; dy++) {
             for (let dz = -radius; dz <= radius; dz++) {
-              const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
-              if (dist <= radius) {
+              if (dx*dx + dy*dy + dz*dz <= _rSq) {
                 const bx = Math.round(x) + dx;
                 const by = Math.round(y) + dy;
                 const bz = Math.round(z) + dz;
@@ -1238,12 +1234,12 @@ async function startGame(name: string) {
       onPlayerDamage: () => {},
       getPlayerPos:   () => player.position,
       onExplosion: (x, y, z, radius) => {
-        // Destroy blocks in radius
+        // Destroy blocks in radius — squared avoids sqrt in triple loop
+        const _rSq2 = radius * radius;
         for (let dx = -radius; dx <= radius; dx++) {
           for (let dy = -radius; dy <= radius; dy++) {
             for (let dz = -radius; dz <= radius; dz++) {
-              const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
-              if (dist <= radius) {
+              if (dx*dx + dy*dy + dz*dz <= _rSq2) {
                 const bx = Math.round(x) + dx;
                 const by = Math.round(y) + dy;
                 const bz = Math.round(z) + dz;
@@ -1475,9 +1471,9 @@ function animate() {
       const _hdx = player.position.x - lastMoved.x;
       const _hdy = player.position.y - lastMoved.y;
       const _hdz = player.position.z - lastMoved.z;
-      const moved = Math.sqrt(_hdx*_hdx + _hdy*_hdy + _hdz*_hdz);
+      const movedSq = _hdx*_hdx + _hdy*_hdy + _hdz*_hdz;
       lastMoved.copy(player.position);
-      if (moved > 0.1) {
+      if (movedSq > 0.01) { // 0.1^2=0.01 — avoids sqrt per frame
         hungerTimer += dt;
         if (hungerTimer > 1.5) {
           hungerTimer = 0;
