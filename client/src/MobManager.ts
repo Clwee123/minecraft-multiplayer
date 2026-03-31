@@ -17,6 +17,7 @@ interface LocalMob {
   timer: number;      // AI state timer
   aggro: boolean;     // zombie chasing player
   shootTimer?: number; // skeleton shoot cooldown
+  hitCooldown: number; // per-mob player-hit cooldown (prevents spam)
 }
 
 interface Arrow {
@@ -66,7 +67,7 @@ export class MobManager {
       state:     "idle",
     };
     const mob = new Mob(this.scene, data);
-    this.mobs.set(mobId, { data, mob, velY: 0, timer: 0, aggro: false, shootTimer: 0 });
+    this.mobs.set(mobId, { data, mob, velY: 0, timer: 0, aggro: false, shootTimer: 0, hitCooldown: 0 });
     return mob;
   }
 
@@ -120,7 +121,7 @@ export class MobManager {
         existing.data = d;
       } else {
         const mob = new Mob(this.scene, d);
-        this.mobs.set(d.id, { data: d, mob, velY: 0, timer: 0, aggro: false });
+        this.mobs.set(d.id, { data: d, mob, velY: 0, timer: 0, aggro: false, hitCooldown: 0 });
       }
     }
     // Remove mobs that left
@@ -182,6 +183,8 @@ export class MobManager {
     const playerPos = this.cb.getPlayerPos();
 
     for (const [id, lm] of this.mobs) {
+      // Tick per-mob hit cooldown
+      if (lm.hitCooldown > 0) lm.hitCooldown = Math.max(0, lm.hitCooldown - dt);
       lm.mob.update(dt);
 
       if (!lm.mob.alive) continue;
@@ -391,10 +394,10 @@ export class MobManager {
       d.x   += Math.sin(d.rotY) * SPEED * dt;
       d.z   += Math.cos(d.rotY) * SPEED * dt;
 
-      // Attack player
-      if (playerDist < 1.8 && this.attackCooldown <= 0) {
+      // Attack player — use per-mob hitCooldown so multiple zombies don't stack instantly
+      if (playerDist < 1.8 && lm.hitCooldown <= 0) {
         this.cb.onPlayerDamage(2);
-        this.attackCooldown = 1.5;
+        lm.hitCooldown = 2.0; // 2s between hits per zombie
       }
     } else {
       this.animalAI(lm, dt, playerDist, dx, dz, 1.5);
@@ -453,7 +456,7 @@ export class MobManager {
     const dy = playerPos.y - d.y;
     const dz = playerPos.z - d.z;
     if (dx * dx + dy * dy + dz * dz < DAMAGE_RADIUS * DAMAGE_RADIUS) {
-      this.cb.onPlayerDamage(8);
+      this.cb.onPlayerDamage(6); // Creeper explosion: reduced from 8 → 6
     }
 
     // Trigger explosion callback
@@ -528,10 +531,10 @@ export class MobManager {
       d.x += Math.sin(d.rotY) * SPEED * dt;
       d.z += Math.cos(d.rotY) * SPEED * dt;
 
-      // Melee attack if close
-      if (playerDist < ATTACK_RANGE && lm.shootTimer <= 0) {
-        this.cb.onPlayerDamage(5); // More damage than skeleton
-        lm.shootTimer = ATTACK_COOLDOWN;
+      // Melee attack if close — per-mob cooldown
+      if (playerDist < ATTACK_RANGE && lm.hitCooldown <= 0) {
+        this.cb.onPlayerDamage(4); // Wither skeleton: reduced from 5 → 4
+        lm.hitCooldown = 2.5;
         // Wave 9: Apply wither effect
         this.cb.onWitherEffect?.();
       }
@@ -663,10 +666,10 @@ export class MobManager {
         (lm as any).jumpTimer = JUMP_COOLDOWN;
       }
 
-      // Attack player
-      if (playerDist < 1.5 && this.attackCooldown <= 0) {
-        this.cb.onPlayerDamage(3);
-        this.attackCooldown = 1.5;
+      // Attack player — per-mob cooldown
+      if (playerDist < 1.5 && lm.hitCooldown <= 0) {
+        this.cb.onPlayerDamage(2);
+        lm.hitCooldown = 2.0;
       }
     } else {
       // Idle/wander
@@ -815,9 +818,10 @@ export class MobManager {
       d.z += Math.cos(diveAngle) * 12 * dt;
       d.y -= 8 * dt; // Swoop down
 
-      // Check if we hit the player
-      if (dist < 1 && d.y <= playerPos.y + 1) {
-        this.cb.onPlayerDamage(3);
+      // Check if we hit the player — per-mob hitCooldown
+      if (dist < 1 && d.y <= playerPos.y + 1 && lm.hitCooldown <= 0) {
+        this.cb.onPlayerDamage(2);
+        lm.hitCooldown = 3.0; // phantom can only swoop-hit every 3s
         d.state = "ascending";
         lm.timer = 5; // Go back up
       }
@@ -872,9 +876,10 @@ export class MobManager {
       lm.timer = 0.8; // Hop every 0.8 seconds
     }
 
-    // Check if landing on player with upward velocity
-    if (lm.velY < 0 && playerDist < 2) {
-      this.cb.onPlayerDamage(3);
+    // Check if landing on player — per-mob hitCooldown prevents rapid-fire hits
+    if (lm.velY < 0 && playerDist < 2 && lm.hitCooldown <= 0) {
+      this.cb.onPlayerDamage(2);
+      lm.hitCooldown = 1.5;
     }
   }
 

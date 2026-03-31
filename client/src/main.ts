@@ -360,7 +360,7 @@ function handleCommand(cmd: string, playerName: string): boolean {
 
   if (base === "/gamemode") {
     const mode = parts[1]?.toLowerCase() as GameMode;
-    if (mode === "creative" || mode === "survival") {
+    if (mode === "creative" || mode === "survival" || mode === "spectator") {
       player.setGameMode(mode);
       ui.setGameMode(mode);
       if (mode === "survival") { hunger = 20; ui.updateHunger(hunger, maxHunger); }
@@ -368,7 +368,15 @@ function handleCommand(cmd: string, playerName: string): boolean {
       mp?.sendGameMode(mode);
       return true;
     }
-    ui.addChatMessage("", "Usage: /gamemode creative | survival", true);
+    ui.addChatMessage("", "Usage: /gamemode creative | survival | spectator", true);
+    return true;
+  }
+
+  // Shortcut commands for game modes
+  if (base === "/spectator" || base === "/spec") {
+    player.setGameMode("spectator");
+    ui.setGameMode("spectator");
+    ui.addChatMessage("", "Spectator mode — fly freely, no collisions, no damage", true);
     return true;
   }
 

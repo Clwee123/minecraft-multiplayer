@@ -11,7 +11,7 @@ const PLAYER_W    = 0.55;
 const EYE_HEIGHT  = 1.62;
 const REACH       = 5;
 
-export type GameMode = "survival" | "creative";
+export type GameMode = "survival" | "creative" | "spectator";
 
 export class Player {
   camera: THREE.PerspectiveCamera;
@@ -222,14 +222,15 @@ export class Player {
   setGameMode(mode: GameMode) {
     this.gameMode = mode;
     if (mode === "survival") { this.flying = false; this.velocity.y = 0; }
+    if (mode === "spectator") { this.flying = true; } // spectator always flies + noclip
   }
 
   takeDamage(amount: number) {
-    if (this.gameMode === "creative") return;
+    if (this.gameMode === "creative" || this.gameMode === "spectator") return;
     if (this.invincible > 0) return;
     const reducedDamage = amount * (1 - this.armor / 20);
     this.health = Math.max(0, this.health - reducedDamage);
-    this.invincible = 0.5;
+    this.invincible = 1.0; // increased from 0.5s → 1.0s grace window between hits
     this.onHealthChanged?.(this.health);
     if (this.health <= 0) this.onDied?.();
   }
@@ -357,7 +358,7 @@ export class Player {
   update(dt: number) {
     this._frameCount++;
     if (this.invincible > 0) this.invincible -= dt;
-    if (this.gameMode === "creative") this.updateCreative(dt);
+    if (this.gameMode === "creative" || this.gameMode === "spectator") this.updateCreative(dt);
     else                              this.applyPhysics(dt);
     this.applyMovement(dt);
     this.updateCamera();
@@ -410,12 +411,12 @@ export class Player {
         if (this.footprintOverBlock(this.position.x, this.position.z, testY)) {
           const standY = testY + 1 + EYE_HEIGHT;
           if (proposedY <= standY + 0.02) {
-            // Fall damage
+            // Fall damage — safe from falls up to 5 blocks; beyond that scales gently
             if (this.fallTracking) {
               const dist = this.fallStartY - (testY + 1);
-              if (dist > 3.5) {
+              if (dist > 5) {
                 this.setDeathCause?.("You fell");
-                this.takeDamage(Math.floor(dist - 3));
+                this.takeDamage(Math.floor((dist - 5) * 0.75)); // gentler scaling
               }
               this.fallTracking = false;
             }
@@ -534,18 +535,25 @@ export class Player {
     const sprinting = this.keys["ControlLeft"] && this.gameMode === "survival";
     let speed = sprinting ? MOVE_SPEED * SPRINT_MULT : MOVE_SPEED;
     if (this.gameMode === "creative") speed = this.flying ? FLY_SPEED : MOVE_SPEED * 1.2;
+    if (this.gameMode === "spectator") speed = FLY_SPEED * 1.5; // spectators move faster
     // Swimming reduces speed to 60% of normal
     if (this.inWater) speed *= 0.6;
 
     if (move.lengthSq() > 0) {
       move.normalize().multiplyScalar(speed * dt);
       const nx = this.position.x + move.x;
-      if (!this.wallCollision(nx, this.position.y, this.position.z)) {
-        this.position.x = nx;
-      }
       const nz = this.position.z + move.z;
-      if (!this.wallCollision(this.position.x, this.position.y, nz)) {
+      if (this.gameMode === "spectator") {
+        // Noclip: pass through blocks freely
+        this.position.x = nx;
         this.position.z = nz;
+      } else {
+        if (!this.wallCollision(nx, this.position.y, this.position.z)) {
+          this.position.x = nx;
+        }
+        if (!this.wallCollision(this.position.x, this.position.y, nz)) {
+          this.position.z = nz;
+        }
       }
     }
 

@@ -197,11 +197,14 @@ export class UI {
 
   setGameMode(mode: GameMode) {
     this.gameMode = mode;
-    this.gameModeEl.textContent = mode === "creative" ? "✈ Creative" : "⚔ Survival";
+    this.gameModeEl.textContent =
+      mode === "creative"  ? "✈ Creative"  :
+      mode === "spectator" ? "👁 Spectator" : "⚔ Survival";
     this.gameModeEl.className   = `gamemode-badge ${mode}`;
-    // Hearts + hunger hidden in creative
-    this.heartsEl.style.display = mode === "creative" ? "none" : "flex";
-    this.hungerEl.style.display = mode === "creative" ? "none" : "flex";
+    // Hearts + hunger hidden in creative/spectator
+    const hideBars = mode === "creative" || mode === "spectator";
+    this.heartsEl.style.display = hideBars ? "none" : "flex";
+    this.hungerEl.style.display = hideBars ? "none" : "flex";
   }
 
   // ── XP Bar ────────────────────────────────────────────────────────────────
