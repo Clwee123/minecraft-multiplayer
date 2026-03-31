@@ -31,6 +31,7 @@ export class UI {
   private _lastHunger = -1;
   private _lastMaxHunger = -1;
   private _lastTimeStr = "";
+  private _lastTimeDayTime = -1; // skip updateTime computation when dayTime hasn't changed a minute
   private _lastPosX = NaN;
   private _lastPosY = NaN;
   private _lastPosZ = NaN;
@@ -211,6 +212,9 @@ export class UI {
 
   /** dayTime: 0-1 float (0=midnight, 0.25=dawn, 0.5=noon, 0.75=dusk) */
   updateTime(dayTime: number) {
+    // Skip all string building if less than one display-minute has passed (~0.000694 day units)
+    if (Math.abs(dayTime - this._lastTimeDayTime) < 0.0007) return;
+    this._lastTimeDayTime = dayTime;
     const hours   = (dayTime * 24 + 6) % 24; // offset so 0.25 = 6AM dawn
     const h       = Math.floor(hours);
     const m       = Math.floor((hours - h) * 60);
