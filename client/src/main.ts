@@ -1505,8 +1505,7 @@ function animate() {
       const px = Math.round(player.position.x);
       const py = Math.round(player.position.y);
       const pz = Math.round(player.position.z);
-      const blockAtPlayer = world.getBlock(px, py, pz);
-      if (blockAtPlayer && blockAtPlayer.type === 47) { // Lava
+      if (world.getBlockType(px, py, pz) === 47) { // Lava — getBlockType avoids {type} object
         lastDeathCause = "You burned in lava";
         regenTimer += dt;
         if (regenTimer > 0.5) {
@@ -1560,8 +1559,8 @@ function animate() {
       renderer.setClearColor(_thunderColor);
     }
 
-    // Water splash particles
-    const playerInWater = world.getBlock(Math.round(player.position.x), Math.round(player.position.y), Math.round(player.position.z))?.type === 7;
+    // Water splash particles — use getBlockType to avoid {type} object allocation
+    const playerInWater = world.getBlockType(Math.round(player.position.x), Math.round(player.position.y), Math.round(player.position.z)) === 7;
     if (playerInWater && !prevWaterState) {
       particles.splash(player.position.x, player.position.y, player.position.z, 12);
     }

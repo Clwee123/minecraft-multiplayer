@@ -52,33 +52,26 @@ export class ItemDropManager {
 
   update(dt: number, playerPos: THREE.Vector3, onPickup?: (type: string) => void) {
     const pickupCallback = onPickup ?? this.onPickup;
-    const dead: number[] = [];
-    for (let i = 0; i < this.drops.length; i++) {
+    // Iterate backwards — remove dead items in-place without a dead[] accumulator array
+    for (let i = this.drops.length - 1; i >= 0; i--) {
       const d = this.drops[i];
       d.life -= dt;
       d.bobOffset += dt * 2;
       d.mesh.position.y = d.y + Math.sin(d.bobOffset) * 0.12;
       d.mesh.rotation.y += dt * 1.5;
 
-      // Pickup radius
+      // Pickup radius — use squared distance, avoid sqrt
       const dx = playerPos.x - d.x;
       const dz = playerPos.z - d.z;
       const dy = playerPos.y - d.y;
-      if (Math.sqrt(dx * dx + dy * dy + dz * dz) < 1.5) {
-        pickupCallback?.(d.type);
-        dead.push(i);
-      } else if (d.life <= 0) {
-        dead.push(i);
+      const dead = (dx * dx + dy * dy + dz * dz < 2.25) || d.life <= 0; // 1.5^2=2.25
+      if (dead) {
+        if (dx * dx + dy * dy + dz * dz < 2.25) pickupCallback?.(d.type);
+        this.scene.remove(d.mesh);
+        (d.mesh.material as THREE.MeshLambertMaterial).dispose();
+        d.mesh.geometry.dispose();
+        this.drops.splice(i, 1);
       }
-    }
-
-    // Remove dead items (iterate backwards to avoid index issues)
-    for (let i = dead.length - 1; i >= 0; i--) {
-      const d = this.drops[dead[i]];
-      this.scene.remove(d.mesh);
-      (d.mesh.material as THREE.MeshLambertMaterial).dispose();
-      d.mesh.geometry.dispose();
-      this.drops.splice(dead[i], 1);
     }
   }
 
