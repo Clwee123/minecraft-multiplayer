@@ -6,13 +6,19 @@ const CHUNK_SIZE   = 16;
 const WORLD_HEIGHT = 40;
 const SEA_LEVEL    = 8;
 
-type BlockMap = Map<string, { mesh: THREE.Mesh; type: number }>;
-
 function key(x: number, y: number, z: number) { return `${x},${y},${z}`; }
 
 export class World {
   scene:  THREE.Scene;
-  blocks: BlockMap = new Map();
+
+  // NEW: Data structures for InstancedMesh
+  private blockData: Map<string, number> = new Map(); // key -> blockType
+  private instancedMeshes: Map<number, THREE.InstancedMesh> = new Map(); // blockType -> InstancedMesh
+  private instanceIndex: Map<string, number> = new Map(); // key -> instance index in its type's mesh
+  private instanceRevIndex: Map<string, string> = new Map(); // "type:idx" -> key
+  private instanceCount: Map<number, number> = new Map(); // blockType -> current count
+  private static readonly MAX_INSTANCES = 60000;
+
   private chestInventory: Map<string, number[]> = new Map();
   private visibilityTimer = 0;
   private modifications: Map<string, number> = new Map(); // Track player-modified blocks
@@ -20,7 +26,6 @@ export class World {
   private noise2D  = createNoise2D();
   private noise2D2 = createNoise2D();
   private biomeNoise = createNoise2D(); // For biome generation
-  private blockGeo = new THREE.BoxGeometry(1, 1, 1);
 
   // Wave 9: Torch lights system
   torchLights: Map<string, THREE.PointLight> = new Map();
@@ -95,38 +100,52 @@ export class World {
     return n > -0.03 && n < 0.03;
   }
 
-  // ── Mesh factory ───────────────────────────────────────────────────────────
+  // ── InstancedMesh factory ──────────────────────────────────────────────────────
 
-  private makeFacedMesh(type: number): THREE.Mesh {
-    const info = BLOCK_TYPES[type];
-    if (!info) return new THREE.Mesh(this.blockGeo, new THREE.MeshLambertMaterial({ color: 0xffffff }));
-
-    const makeMat = (color: number) => {
-      const mat = new THREE.MeshLambertMaterial({ color });
-      if (info.transparent) { mat.transparent = true; mat.opacity = type === 7 ? 0.68 : 0.55; }
-      if (info.emissive)    { mat.emissive = new THREE.Color(info.emissive); mat.emissiveIntensity = 0.6; }
-      return mat;
-    };
-
-    if (info.topColor || info.bottomColor) {
-      const mats = [
-        makeMat(info.color),
-        makeMat(info.color),
-        makeMat(info.topColor    ?? info.color),
-        makeMat(info.bottomColor ?? info.color),
-        makeMat(info.color),
-        makeMat(info.color),
-      ];
-      return new THREE.Mesh(this.blockGeo, mats);
+  private getOrCreateInstancedMesh(blockType: number): THREE.InstancedMesh {
+    if (this.instancedMeshes.has(blockType)) {
+      return this.instancedMeshes.get(blockType)!;
     }
 
-    return new THREE.Mesh(this.blockGeo, makeMat(info.color));
+    const info = BLOCK_TYPES[blockType];
+    if (!info) return this.getOrCreateInstancedMesh(1); // fallback to grass
+
+    const geo = new THREE.BoxGeometry(1, 1, 1);
+
+    let mat: THREE.Material;
+    if (info.transparent) {
+      mat = new THREE.MeshLambertMaterial({
+        color: info.color,
+        transparent: true,
+        opacity: blockType === 7 ? 0.68 : 0.55,
+      });
+    } else if (info.emissive) {
+      mat = new THREE.MeshLambertMaterial({
+        color: info.color,
+        emissive: new THREE.Color(info.emissive),
+        emissiveIntensity: 0.6,
+      });
+    } else {
+      mat = new THREE.MeshLambertMaterial({ color: info.color });
+    }
+
+    const mesh = new THREE.InstancedMesh(geo, mat, World.MAX_INSTANCES);
+    mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    mesh.count = 0; // start with 0 visible instances
+    mesh.castShadow = false; // disable per-block shadows for performance
+    mesh.receiveShadow = false;
+    mesh.frustumCulled = false; // we do our own culling
+    this.scene.add(mesh);
+
+    this.instancedMeshes.set(blockType, mesh);
+    this.instanceCount.set(blockType, 0);
+    return mesh;
   }
 
   // ── World generation ───────────────────────────────────────────────────────
 
   private generateTerrain() {
-    const R = 4; // render distance in chunks
+    const R = 3; // render distance in chunks (reduced from 4 for performance)
     for (let cx = -R; cx <= R; cx++) {
       for (let cz = -R; cz <= R; cz++) {
         this.generateChunk(cx, cz);
@@ -275,22 +294,36 @@ export class World {
 
   placeBlock(x: number, y: number, z: number, type: number, overwrite = true) {
     const k = key(x, y, z);
-    if (!overwrite && this.blocks.has(k)) return;
 
-    const existing = this.blocks.get(k);
-    if (existing) {
-      this.scene.remove(existing.mesh);
-      this.disposeMesh(existing.mesh);
+    // If overwrite=false and block already exists, skip
+    if (!overwrite && this.blockData.has(k)) return;
+
+    // Remove existing block at this position first
+    if (this.blockData.has(k)) {
+      this._removeBlockInstance(k);
     }
 
-    const mesh = this.makeFacedMesh(type);
-    mesh.position.set(x, y, z);
-    mesh.castShadow    = true;
-    mesh.receiveShadow = true;
-    this.scene.add(mesh);
-    this.blocks.set(k, { mesh, type });
+    // Store block data
+    this.blockData.set(k, type);
 
-    // Track player modification (not terrain generation)
+    // Get/create the instanced mesh for this block type
+    const mesh = this.getOrCreateInstancedMesh(type);
+
+    // Add new instance
+    const idx = this.instanceCount.get(type) ?? 0;
+    if (idx >= World.MAX_INSTANCES) return; // safety cap
+
+    const matrix = new THREE.Matrix4();
+    matrix.setPosition(x, y, z);
+    mesh.setMatrixAt(idx, matrix);
+    mesh.count = idx + 1;
+    mesh.instanceMatrix.needsUpdate = true;
+
+    this.instanceIndex.set(k, idx);
+    this.instanceRevIndex.set(`${type}:${idx}`, k);
+    this.instanceCount.set(type, idx + 1);
+
+    // Track modifications
     if (overwrite) {
       this.modifications.set(k, type);
     }
@@ -298,29 +331,65 @@ export class World {
 
   removeBlock(x: number, y: number, z: number): boolean {
     const k = key(x, y, z);
-    const entry = this.blocks.get(k);
-    if (!entry) return false;
-    this.scene.remove(entry.mesh);
-    this.disposeMesh(entry.mesh);
-    this.blocks.delete(k);
+    if (!this.blockData.has(k)) return false;
 
-    // Track removal as modification with type 0
+    this._removeBlockInstance(k);
+    this.blockData.delete(k);
     this.modifications.set(k, 0);
-
     return true;
   }
 
-  private disposeMesh(mesh: THREE.Mesh) {
-    if (Array.isArray(mesh.material)) mesh.material.forEach(m => m.dispose());
-    else mesh.material.dispose();
+  private _removeBlockInstance(k: string) {
+    const type = this.blockData.get(k);
+    if (type === undefined) return;
+
+    const mesh = this.instancedMeshes.get(type);
+    const idx = this.instanceIndex.get(k);
+    if (!mesh || idx === undefined) return;
+
+    const count = this.instanceCount.get(type) ?? 0;
+    const lastIdx = count - 1;
+
+    if (idx !== lastIdx) {
+      // Swap with last instance
+      const lastMatrix = new THREE.Matrix4();
+      mesh.getMatrixAt(lastIdx, lastMatrix);
+      mesh.setMatrixAt(idx, lastMatrix);
+      mesh.instanceMatrix.needsUpdate = true;
+
+      // Find which key maps to lastIdx and update it
+      const lastKey = this.instanceRevIndex.get(`${type}:${lastIdx}`);
+      if (lastKey) {
+        this.instanceIndex.set(lastKey, idx);
+        this.instanceRevIndex.set(`${type}:${idx}`, lastKey);
+      }
+    }
+
+    // Remove the last instance
+    this.instanceIndex.delete(k);
+    this.instanceRevIndex.delete(`${type}:${lastIdx}`);
+    if (idx !== lastIdx) {
+      this.instanceRevIndex.delete(`${type}:${idx}`);
+    }
+
+    const newCount = lastIdx;
+    mesh.count = newCount;
+    this.instanceCount.set(type, newCount);
+    mesh.instanceMatrix.needsUpdate = true;
   }
 
   hasBlock(x: number, y: number, z: number): boolean {
-    return this.blocks.has(key(x, y, z));
+    return this.blockData.has(key(x, y, z));
   }
 
   getBlock(x: number, y: number, z: number) {
-    return this.blocks.get(key(x, y, z));
+    const type = this.blockData.get(key(x, y, z));
+    if (type === undefined) return undefined;
+    return { type };
+  }
+
+  getBlockCount(): number {
+    return this.blockData.size;
   }
 
   isNearBlock(x: number, y: number, z: number, blockType: number, radius: number): boolean {
@@ -337,21 +406,43 @@ export class World {
     return false;
   }
 
-  getMeshes(): THREE.Mesh[] {
-    return Array.from(this.blocks.values()).map(b => b.mesh);
+  getMeshes(): THREE.Object3D[] {
+    return Array.from(this.instancedMeshes.values());
   }
 
-  updateVisibility(playerPos: THREE.Vector3): void {
-    for (const entry of this.blocks.values()) {
-      const mesh = entry.mesh;
-      const dx = mesh.position.x - playerPos.x;
-      const dz = mesh.position.z - playerPos.z;
-      const dist = Math.sqrt(dx * dx + dz * dz);
+  updateVisibility(_playerPos: THREE.Vector3): void {
+    // With InstancedMesh, all instances of a type are drawn together.
+    // View distance is controlled by render distance R at generation time.
+    // No per-frame visibility updates needed.
+  }
 
-      mesh.visible = dist < 80;
-      mesh.castShadow = dist < 40;
-      mesh.receiveShadow = dist < 40;
+  // ── Raycasting (math-based, works with InstancedMesh) ────────────────────────
+
+  raycastBlock(origin: THREE.Vector3, direction: THREE.Vector3, maxDist = 6): {
+    x: number; y: number; z: number; face: THREE.Vector3;
+  } | null {
+    const step = 0.05;
+    let prev = {
+      x: Math.floor(origin.x),
+      y: Math.floor(origin.y),
+      z: Math.floor(origin.z),
+    };
+
+    for (let d = 0; d < maxDist; d += step) {
+      const px = origin.x + direction.x * d;
+      const py = origin.y + direction.y * d;
+      const pz = origin.z + direction.z * d;
+      const bx = Math.floor(px);
+      const by = Math.floor(py);
+      const bz = Math.floor(pz);
+
+      if (this.hasBlock(bx, by, bz)) {
+        const face = new THREE.Vector3(prev.x - bx, prev.y - by, prev.z - bz);
+        return { x: bx, y: by, z: bz, face };
+      }
+      prev = { x: bx, y: by, z: bz };
     }
+    return null;
   }
 
   // ── Height queries ─────────────────────────────────────────────────────────
@@ -359,8 +450,8 @@ export class World {
   /** Y of the top face of the highest non-liquid solid block at (x, z). */
   getSurfaceHeight(x: number, z: number): number {
     for (let y = WORLD_HEIGHT + 5; y >= 0; y--) {
-      const entry = this.blocks.get(key(x, y, z));
-      if (entry && entry.type !== 7 && entry.type !== 9 && entry.type !== 21) return y;
+      const type = this.blockData.get(key(x, y, z));
+      if (type !== undefined && type !== 7 && type !== 9 && type !== 21) return y;
     }
     return SEA_LEVEL;
   }
@@ -683,22 +774,17 @@ export class World {
 
   activateLamp(x: number, y: number, z: number): void {
     const key = `${x},${y},${z}`;
-    const block = this.getBlock(x, y, z);
-    if (!block || block.type !== 59) return;
+    const type = this.blockData.get(key);
+    if (type !== 59) return; // must be redstone lamp
 
     const lampState = this.redstoneState.get(key) ?? false;
     if (lampState) return; // Already on
 
     this.redstoneState.set(key, true);
 
-    // Update mesh color and add light
-    const mesh = block.mesh;
-    if (mesh.material instanceof THREE.Material) {
-      const mat = mesh.material as THREE.MeshLambertMaterial;
-      mat.color.setHex(0xff8800);
-      mat.emissive.setHex(0xff6600);
-      mat.emissiveIntensity = 0.8;
-    }
+    // With InstancedMesh, color changes would require instance color buffer
+    // For now, we just control the light. Color change via material is a limitation
+    // of InstancedMesh but lights are the primary visual feedback anyway.
 
     // Create light if not already there
     if (!this.redstoneLoights.has(key)) {
@@ -711,22 +797,13 @@ export class World {
 
   deactivateLamp(x: number, y: number, z: number): void {
     const key = `${x},${y},${z}`;
-    const block = this.getBlock(x, y, z);
-    if (!block || block.type !== 59) return;
+    const type = this.blockData.get(key);
+    if (type !== 59) return; // must be redstone lamp
 
     const lampState = this.redstoneState.get(key) ?? false;
     if (!lampState) return; // Already off
 
     this.redstoneState.set(key, false);
-
-    // Update mesh color
-    const mesh = block.mesh;
-    if (mesh.material instanceof THREE.Material) {
-      const mat = mesh.material as THREE.MeshLambertMaterial;
-      mat.color.setHex(0xff2200);
-      mat.emissive.setHex(0x000000);
-      mat.emissiveIntensity = 0;
-    }
 
     // Remove light
     const light = this.redstoneLoights.get(key);
@@ -740,8 +817,8 @@ export class World {
 
   // Scan for torch blocks and create lights (called after loading)
   initializeTorchLights() {
-    for (const [key, blockData] of this.blocks.entries()) {
-      if (blockData.type === 56) {
+    for (const [key, type] of this.blockData.entries()) {
+      if (type === 56) {
         const [x, y, z] = key.split(",").map(Number);
         this.addTorchLight(x, y + 0.5, z);
       }

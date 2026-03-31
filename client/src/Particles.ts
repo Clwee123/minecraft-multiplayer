@@ -19,7 +19,7 @@ export class Particles {
   }
 
   /** Burst block-break particles at world position (x,y,z) for given block type. */
-  burst(x: number, y: number, z: number, blockType: number, count = 10) {
+  burst(x: number, y: number, z: number, blockType: number, count = 6) {
     const color = getBlockColor(blockType);
     for (let i = 0; i < count; i++) {
       const mat  = new THREE.MeshLambertMaterial({ color });
@@ -117,7 +117,7 @@ export class Particles {
   }
 
   /** Explosion particles. */
-  explosion(x: number, y: number, z: number, count = 30) {
+  explosion(x: number, y: number, z: number, count = 15) {
     for (let i = 0; i < count; i++) {
       const roll = Math.random();
       const color = roll < 0.33 ? 0xff4400 : roll < 0.66 ? 0xff8800 : roll < 0.85 ? 0xffcc00 : 0x000000;
@@ -148,7 +148,7 @@ export class Particles {
   }
 
   /** Red damage flash particles. */
-  damage(x: number, y: number, z: number, count = 6) {
+  damage(x: number, y: number, z: number, count = 3) {
     for (let i = 0; i < count; i++) {
       const mat  = new THREE.MeshLambertMaterial({ color: 0xff2222 });
       const mesh = new THREE.Mesh(GEO, mat);

@@ -16,12 +16,12 @@ import { StatsTracker }       from "./Stats";
 
 // ── Renderer ─────────────────────────────────────────────────────────────────
 
-const renderer = new THREE.WebGLRenderer({ antialias: true });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+const renderer = new THREE.WebGLRenderer({ antialias: false }); // disable antialias for perf
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1)); // cap at 1x on high-DPI screens
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
-renderer.shadowMap.type    = THREE.PCFSoftShadowMap;
-renderer.toneMapping       = THREE.ACESFilmicToneMapping;
+renderer.shadowMap.type    = THREE.BasicShadowMap; // reduced from PCFSoftShadowMap for perf
+renderer.toneMapping       = THREE.NoToneMapping; // disable tone mapping for perf
 renderer.toneMappingExposure = 1.1;
 document.body.appendChild(renderer.domElement);
 
@@ -35,9 +35,9 @@ window.addEventListener("resize", () => {
 
 const scene  = new THREE.Scene();
 scene.background = new THREE.Color(0x87ceeb);
-scene.fog        = new THREE.Fog(0x87ceeb, 55, 160);
+scene.fog        = new THREE.Fog(0x87ceeb, 55, 96); // reduced far from 160 to match render distance
 
-const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.05, 300);
+const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 120);
 
 // ── Shield system ─────────────────────────────────────────────────────────────
 let shieldActive = false;
@@ -116,7 +116,7 @@ scene.add(ambient);
 
 const sun = new THREE.DirectionalLight(0xfff4e0, 1.4);
 sun.castShadow = true;
-sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.mapSize.set(512, 512); // reduced from 2048 for performance
 sun.shadow.camera.near = 0.5;
 sun.shadow.camera.far  = 300;
 sun.shadow.camera.left = sun.shadow.camera.bottom = -110;
@@ -276,7 +276,8 @@ let maxHunger   = 20;
 let regenTimer  = 0;
 let hungerTimer = 0;
 let lastMoved   = new THREE.Vector3();
-let visibilityTimer = 0;
+let pressurePlateTimer = 0;
+let minimapTimer = 0;
 let caveAmbientTimer = 0;
 
 // ── Enchantments ──────────────────────────────────────────────────────────────
@@ -812,18 +813,15 @@ async function startGame(name: string) {
       if (!document.pointerLockElement || ui.isChatOpen()) return;
       e.preventDefault();
 
-      // Check for enchanting table interaction
-      const enchantRaycaster = new THREE.Raycaster();
-      enchantRaycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
-      enchantRaycaster.far = 5;
-      const enchantHits = enchantRaycaster.intersectObjects(world.getMeshes());
+      // Check for enchanting table and bed interaction using DDA raycast
+      const rayDir = new THREE.Vector3(0, 0, -1)
+        .applyAxisAngle(new THREE.Vector3(1, 0, 0), player.camera.rotation.x)
+        .applyAxisAngle(new THREE.Vector3(0, 1, 0), player.camera.rotation.y)
+        .normalize();
+      const enchantHit = world.raycastBlock(player.position, rayDir, 5);
 
-      for (const hit of enchantHits) {
-        const meshPos = hit.point.clone().add(hit.face!.normal.clone().multiplyScalar(0.1));
-        const bx = Math.round(meshPos.x);
-        const by = Math.round(meshPos.y);
-        const bz = Math.round(meshPos.z);
-        const enchantBlock = world.getBlock(bx, by, bz);
+      if (enchantHit) {
+        const enchantBlock = world.getBlock(enchantHit.x, enchantHit.y, enchantHit.z);
 
         if (enchantBlock && enchantBlock.type === 40) { // Enchanting Table
           if (xpLevel >= 5) {
@@ -1161,7 +1159,7 @@ async function startGame(name: string) {
       },
     }, true);
 
-    for (let i = 0; i < 16; i++) mobManager.spawnRandom(0, 0);
+    for (let i = 0; i < 10; i++) mobManager.spawnRandom(0, 0);
 
     minimap = new Minimap(world);
 
@@ -1282,12 +1280,9 @@ function animate() {
       stats.save();
     }
 
-    // Wave 9: Check pressure plates
-    world.checkPressurePlate(player.position);
-
-    // Call updateVisibility every 2 seconds
-    visibilityTimer += dt;
-    if (visibilityTimer > 2) { visibilityTimer = 0; world.updateVisibility(player.position); }
+    // Wave 9: Check pressure plates (throttled to 0.1s intervals)
+    pressurePlateTimer += dt;
+    if (pressurePlateTimer > 0.1) { pressurePlateTimer = 0; world.checkPressurePlate(player.position); }
 
     // Ambient sounds
     caveAmbientTimer += dt;
@@ -1553,7 +1548,7 @@ function animate() {
 
       // Get mob/block count
       const mobCount = mobManager?.getAllMobsForDisplay().length ?? 0;
-      const blockCount = world.blocks.size;
+      const blockCount = world.getBlockCount?.() ?? 0;
 
       ui.updateDebugScreen({
         fps: avgFps,

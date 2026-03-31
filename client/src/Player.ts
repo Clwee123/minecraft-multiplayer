@@ -310,10 +310,21 @@ export class Player {
   }
 
   private raycast(): THREE.Intersection | null {
-    this.raycaster.setFromCamera(new THREE.Vector2(0,0), this.camera);
-    this.raycaster.far = REACH;
-    const hits = this.raycaster.intersectObjects(this.world.getMeshes());
-    return hits.length ? hits[0] : null;
+    // Use math-based raycasting from camera center (works with InstancedMesh)
+    const dir = new THREE.Vector3(0, 0, -1);
+    dir.applyQuaternion(this.camera.quaternion);
+    const origin = this.camera.position;
+
+    const hit = this.world.raycastBlock(origin, dir, REACH);
+    if (!hit) return null;
+
+    // Construct a fake THREE.Intersection object for compatibility
+    return {
+      point: new THREE.Vector3(hit.x + 0.5, hit.y + 0.5, hit.z + 0.5),
+      face: {
+        normal: hit.face.clone().normalize(),
+      },
+    } as any;
   }
 
   // ── Main update ────────────────────────────────────────────────────────────
