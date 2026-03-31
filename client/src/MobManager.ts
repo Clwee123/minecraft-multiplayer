@@ -24,6 +24,10 @@ interface LocalMob {
   aggro: boolean;     // zombie chasing player
   shootTimer?: number; // skeleton shoot cooldown
   hitCooldown: number; // per-mob player-hit cooldown (prevents spam)
+  // Surface height cache — avoid getSurfaceHeight scan (up to 65 Map.get) every frame
+  _surfCacheX: number;
+  _surfCacheZ: number;
+  _surfCacheY: number;
 }
 
 interface Arrow {
@@ -73,7 +77,7 @@ export class MobManager {
       state:     "idle",
     };
     const mob = new Mob(this.scene, data);
-    this.mobs.set(mobId, { data, mob, velY: 0, timer: 0, aggro: false, shootTimer: 0, hitCooldown: 0 });
+    this.mobs.set(mobId, { data, mob, velY: 0, timer: 0, aggro: false, shootTimer: 0, hitCooldown: 0, _surfCacheX: NaN, _surfCacheZ: NaN, _surfCacheY: 0 });
     return mob;
   }
 
@@ -127,7 +131,7 @@ export class MobManager {
         existing.data = d;
       } else {
         const mob = new Mob(this.scene, d);
-        this.mobs.set(d.id, { data: d, mob, velY: 0, timer: 0, aggro: false, hitCooldown: 0 });
+        this.mobs.set(d.id, { data: d, mob, velY: 0, timer: 0, aggro: false, hitCooldown: 0, _surfCacheX: NaN, _surfCacheZ: NaN, _surfCacheY: 0 });
       }
     }
     // Remove mobs that left
@@ -264,9 +268,17 @@ export class MobManager {
       // Gravity / floor snap for other mobs
       d.y += lm.velY * dt;
       lm.velY += MOB_GRAVITY * dt;
-      const surfY = (this.world as any).getSurfaceHeight
-        ? (this.world as any).getSurfaceHeight(Math.round(d.x), Math.round(d.z)) + 0.5
-        : 0;
+      // Surface height cache — only call getSurfaceHeight (up to 65 Map.get) when column changes
+      const _snappedX = Math.round(d.x);
+      const _snappedZ = Math.round(d.z);
+      if (_snappedX !== lm._surfCacheX || _snappedZ !== lm._surfCacheZ) {
+        lm._surfCacheX = _snappedX;
+        lm._surfCacheZ = _snappedZ;
+        lm._surfCacheY = (this.world as any).getSurfaceHeight
+          ? (this.world as any).getSurfaceHeight(_snappedX, _snappedZ) + 0.5
+          : 0;
+      }
+      const surfY = lm._surfCacheY;
       if (d.y <= surfY) { d.y = surfY; lm.velY = 0; }
 
       // Type-specific AI
