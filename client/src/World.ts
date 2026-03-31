@@ -840,8 +840,7 @@ export class World {
     const py = Math.floor(playerPos.y - 0.1);
     const pz = Math.floor(playerPos.z);
 
-    const block = this.getBlock(px, py, pz);
-    if (block && block.type === 57) {
+    if (this.blockData.get(key(px, py, pz)) === 57) {
       // Pressure plate activated
       this.activateLamp(px, py, pz);
       // Also open nearby doors (future feature)
@@ -855,12 +854,11 @@ export class World {
     this.redstoneState.set(key, newState);
 
     if (newState) {
-      // Activate nearby lamps
+      // Activate nearby lamps — use blockData.get directly (no {type} object)
       for (let dx = -4; dx <= 4; dx++) {
         for (let dy = -4; dy <= 4; dy++) {
           for (let dz = -4; dz <= 4; dz++) {
-            const block = this.getBlock(x + dx, y + dy, z + dz);
-            if (block && block.type === 59) {
+            if (this.blockData.get(key(x + dx, y + dy, z + dz)) === 59) {
               this.activateLamp(x + dx, y + dy, z + dz);
             }
           }
@@ -871,8 +869,7 @@ export class World {
       for (let dx = -4; dx <= 4; dx++) {
         for (let dy = -4; dy <= 4; dy++) {
           for (let dz = -4; dz <= 4; dz++) {
-            const block = this.getBlock(x + dx, y + dy, z + dz);
-            if (block && block.type === 59) {
+            if (this.blockData.get(key(x + dx, y + dy, z + dz)) === 59) {
               this.deactivateLamp(x + dx, y + dy, z + dz);
             }
           }
