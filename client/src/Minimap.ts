@@ -27,6 +27,12 @@ export class Minimap {
       throw new Error("Minimap container not found");
     }
 
+    // Mount canvas directly — avoids toDataURL PNG encode each update
+    this.container.innerHTML = "";
+    this.canvas.style.width = "100%";
+    this.canvas.style.height = "100%";
+    this.container.appendChild(this.canvas);
+
     // Draw initial empty map
     this.drawEmptyMap();
   }
@@ -71,18 +77,11 @@ export class Minimap {
 
     for (let bx = minBlockX; bx <= maxBlockX; bx++) {
       for (let bz = minBlockZ; bz <= maxBlockZ; bz++) {
-        // Get block type at surface
-        const blocks = (this.world as any).blocks as Map<string, any>;
-        if (!blocks) continue;
-
+        // Use getBlockType — O(1) integer-key lookup, no string allocation
         let blockType = 0;
         for (let by = 40; by >= 0; by--) {
-          const key = `${bx},${by},${bz}`;
-          const block = blocks.get(key);
-          if (block && block.type) {
-            blockType = block.type;
-            break;
-          }
+          const t = this.world.getBlockType(bx, by, bz);
+          if (t !== undefined) { blockType = t; break; }
         }
 
         if (blockType === 0) continue;
@@ -137,11 +136,7 @@ export class Minimap {
     this.ctx.lineTo(dirX, dirY);
     this.ctx.stroke();
 
-    // Update canvas in DOM
-    const imageData = this.canvas.toDataURL("image/png");
-    (this.container as any).style.backgroundImage = `url(${imageData})`;
-    (this.container as any).style.backgroundSize = "cover";
-    (this.container as any).style.backgroundPosition = "center";
+    // Canvas is mounted directly — no toDataURL needed (was expensive PNG encode every 0.3s)
   }
 
   dispose() {
