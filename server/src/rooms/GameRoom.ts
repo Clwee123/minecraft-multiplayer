@@ -139,7 +139,7 @@ export class GameRoom extends Room<GameState> {
 
     // ── Spawn initial mobs & start AI loop ───────────────────────────────────
     this.spawnInitialMobs();
-    this.mobLoop = setInterval(() => this.tickMobs(0.2), 200);
+    this.mobLoop = setInterval(() => { try { this.tickMobs(0.2); } catch(e) { console.error("[GameRoom] mob tick error:", e); } }, 200);
   }
 
   // ── Player lifecycle ──────────────────────────────────────────────────────

@@ -31,6 +31,7 @@ export class World {
 
   private chestInventory: Map<string, number[]> = new Map();
   private visibilityTimer = 0;
+  private generatedChunks = new Set<string>();
   private modifications: Map<string, number> = new Map(); // Track player-modified blocks
 
   private noise2D  = createNoise2D();
@@ -207,6 +208,65 @@ export class World {
     // Pass 3: decorations (trees, flowers, etc.) — placed on top, always exposed
     for (let cx = -R; cx <= R; cx++) {
       for (let cz = -R; cz <= R; cz++) {
+        this.generateChunkDecorations(cx, cz, rawBlocks);
+        this.generatedChunks.add(`${cx},${cz}`);
+      }
+    }
+  }
+
+  /** Generate new chunks around player position (call periodically) */
+  generateAroundPlayer(px: number, pz: number) {
+    const R = 4;
+    const cx0 = Math.floor(px / 16);
+    const cz0 = Math.floor(pz / 16);
+    const rawBlocks = new Map<number, number>();
+    const rawCoords: Array<[number, number, number]> = [];
+    let generated = 0;
+
+    for (let cx = cx0 - R; cx <= cx0 + R; cx++) {
+      for (let cz = cz0 - R; cz <= cz0 + R; cz++) {
+        const chunkKey = `${cx},${cz}`;
+        if (this.generatedChunks.has(chunkKey)) continue;
+        this.generatedChunks.add(chunkKey);
+        this.generateChunkRaw(cx, cz, rawBlocks, rawCoords);
+        generated++;
+      }
+    }
+
+    if (generated === 0) return;
+
+    // Place raw blocks with visibility culling
+    for (const [x, y, z] of rawCoords) {
+      const k = key(x, y, z);
+      const type = rawBlocks.get(k);
+      if (type === undefined) continue;
+
+      if (!World.isOpaque(type)) {
+        this.placeBlock(x, y, z, type, false);
+        continue;
+      }
+
+      const exposed =
+        !World.isOpaque(rawBlocks.get(key(x+1, y, z)) ?? (this.blockData.get(key(x+1,y,z)) ?? 0)) ||
+        !World.isOpaque(rawBlocks.get(key(x-1, y, z)) ?? (this.blockData.get(key(x-1,y,z)) ?? 0)) ||
+        !World.isOpaque(rawBlocks.get(key(x, y+1, z)) ?? (this.blockData.get(key(x,y+1,z)) ?? 0)) ||
+        !World.isOpaque(rawBlocks.get(key(x, y-1, z)) ?? (this.blockData.get(key(x,y-1,z)) ?? 0)) ||
+        !World.isOpaque(rawBlocks.get(key(x, y, z+1)) ?? (this.blockData.get(key(x,y,z+1)) ?? 0)) ||
+        !World.isOpaque(rawBlocks.get(key(x, y, z-1)) ?? (this.blockData.get(key(x,y,z-1)) ?? 0));
+
+      if (exposed) {
+        this.placeBlock(x, y, z, type, false);
+      } else {
+        this.blockData.set(k, type);
+      }
+    }
+
+    // Decorations for new chunks
+    for (let cx = cx0 - R; cx <= cx0 + R; cx++) {
+      for (let cz = cz0 - R; cz <= cz0 + R; cz++) {
+        const decKey = `${cx},${cz}_dec`;
+        if (this.generatedChunks.has(decKey)) continue;
+        this.generatedChunks.add(decKey);
         this.generateChunkDecorations(cx, cz, rawBlocks);
       }
     }

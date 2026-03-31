@@ -68,14 +68,14 @@ export class UI {
 
   private buildHotbar() {
     this.hotbarEl.innerHTML = "";
-    HOTBAR_BLOCKS.forEach((blockType, i) => {
+    for (let i = 0; i < 8; i++) {
       const slot  = document.createElement("div");
       slot.className = "hotbar-slot" + (i === 0 ? " active" : "");
       slot.dataset.index = String(i);
 
       const icon = document.createElement("div");
       icon.className = "slot-icon";
-      icon.style.background = "#" + getBlockColor(blockType).toString(16).padStart(6, "0");
+      icon.style.background = "transparent";
 
       const label = document.createElement("span");
       label.textContent = String(i + 1);
@@ -84,11 +84,32 @@ export class UI {
       slot.appendChild(label);
       this.hotbarEl.appendChild(slot);
       slot.addEventListener("click", () => this.selectSlot(i));
-    });
+    }
+  }
 
-    document.addEventListener("keydown", e => {
-      const n = parseInt(e.key);
-      if (n >= 1 && n <= 8) this.selectSlot(n - 1);
+  updateHotbarFromInventory(inv: number[]) {
+    const slots = this.hotbarEl.querySelectorAll(".hotbar-slot");
+    slots.forEach((slot, i) => {
+      const icon = slot.querySelector(".slot-icon") as HTMLElement;
+      if (!icon) return;
+      const type = inv[i] ?? 0;
+      if (type === 0) {
+        icon.style.background = "transparent";
+        icon.title = "";
+      } else {
+        icon.style.background = "#" + getBlockColor(type).toString(16).padStart(6, "0");
+        icon.title = getBlockName(type);
+        // Show item count
+        let countEl = slot.querySelector(".item-count") as HTMLElement;
+        if (!countEl) {
+          countEl = document.createElement("span");
+          countEl.className = "item-count";
+          countEl.style.cssText = "position:absolute;bottom:1px;right:2px;font-size:9px;color:#fff;text-shadow:1px 1px 0 #000";
+          slot.appendChild(countEl);
+        }
+        const count = inv.filter((v, j) => j >= 0 && v === type).length;
+        countEl.textContent = count > 1 ? String(count) : "";
+      }
     });
   }
 
@@ -97,12 +118,11 @@ export class UI {
     document.querySelectorAll(".hotbar-slot").forEach((el, i) => {
       el.classList.toggle("active", i === index);
     });
-    const bt = HOTBAR_BLOCKS[index];
-    this.blockNameEl.textContent = getBlockName(bt);
-    return bt;
+    this.blockNameEl.textContent = "";
+    return index;
   }
 
-  getSelectedBlock(): number { return HOTBAR_BLOCKS[this.selectedIndex]; }
+  getSelectedBlock(): number { return this.selectedIndex; }
 
   // ── HUD panels ────────────────────────────────────────────────────────────
 

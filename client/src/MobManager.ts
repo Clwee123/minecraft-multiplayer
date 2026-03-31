@@ -5,7 +5,7 @@ import { World } from "./World";
 function rnd(a: number, b: number) { return a + Math.random() * (b - a); }
 function uid() { return Math.random().toString(36).slice(2, 10); }
 
-const MAX_SP_MOBS   = 20;
+const MAX_SP_MOBS   = 8;
 const SPAWN_RADIUS  = 30;
 const DESPAWN_RADIUS = 60;
 const MOB_GRAVITY   = -20;
@@ -100,10 +100,10 @@ export class MobManager {
       type = "phantom";
     } else {
       // Check for slime in caves (low y positions)
-      const surfaceY = (this.world as any).getSurfaceHeight
-        ? (this.world as any).getSurfaceHeight(Math.floor(x), Math.floor(z)) + 1.5
+      const rawSurf = (this.world as any).getSurfaceHeight
+        ? (this.world as any).getSurfaceHeight(Math.round(x), Math.round(z))
         : 20;
-      y = surfaceY;
+      y = Math.min(rawSurf + 1.5, rawSurf + 2); // clamp: sit on surface, don't overshoot
 
       if (surfaceY < 15 && Math.random() < 0.08) {
         // Slimes spawn in caves (low ground)
@@ -243,7 +243,7 @@ export class MobManager {
 
     // Spawn mobs in singleplayer
     if (this.singleplayer) {
-      if (Math.random() < dt * 0.3 && this.mobs.size < MAX_SP_MOBS) {
+      if (Math.random() < dt * 0.04 && this.mobs.size < MAX_SP_MOBS) {
         this.spawnRandom(playerPos.x, playerPos.z);
       }
     }
@@ -399,16 +399,16 @@ export class MobManager {
     const d     = lm.data;
     const SPEED = 2.8;
 
-    if (playerDistSq < 324) { // 18^2=324
+    if (playerDistSq < 144) { // 12^2=144
       d.state    = "chasing";
       lm.aggro   = true;
-    } else if (playerDistSq > 576 && lm.timer <= 0) { // 24^2=576
+    } else if (playerDistSq > 400 && lm.timer <= 0) { // 20^2=400
       d.state    = "idle";
       lm.aggro   = false;
     }
 
     if (d.state === "chasing") {
-      d.rotY = Math.atan2(dx, dz);
+      d.rotY = Math.atan2(dx, dz) + (Math.random() - 0.5) * 0.4;
       d.x   += Math.sin(d.rotY) * SPEED * dt;
       d.z   += Math.cos(d.rotY) * SPEED * dt;
 

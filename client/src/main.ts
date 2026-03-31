@@ -262,7 +262,7 @@ const achievements = new AchievementManager();
 // ── Inventory System ──────────────────────────────────────────────────────────
 
 let inventoryOpen = false;
-const inventory: number[] = [1, 1, 1, 3, 3, 10, 10, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+const inventory: number[] = new Array(36).fill(0); // spawn with nothing
 
 // ── Arrow System ──────────────────────────────────────────────────────────────
 
@@ -640,6 +640,38 @@ async function startGame(name: string) {
   player.onBreakBlock = (x, y, z) => {
     const b = world.getBlock(x, y, z);
     if (!b) return;
+    // Real Minecraft: add drops to inventory
+    const drops: Record<number, number> = {
+      1: 2,  // grass -> dirt
+      2: 2,  // dirt -> dirt
+      3: 11, // stone -> cobblestone
+      4: 4,  // sand -> sand
+      5: 10, // oak log -> oak planks
+      6: 5,  // leaves -> sometimes log (simplify: 30% chance)
+      8: 8,  // brick -> brick
+      10: 10, // planks -> planks
+      11: 11, // cobble -> cobble
+      12: 12, // gravel -> gravel
+      13: 63, // gold ore -> gold ingot
+      14: 62, // iron ore -> iron ingot
+      15: 64, // coal ore -> coal
+    };
+    const drop = drops[b.type];
+    const shouldDrop = drop && (b.type !== 6 || Math.random() < 0.3);
+    if (shouldDrop) {
+      const dropItem = b.type === 6 ? 5 : drop!;
+      // Try to stack in existing slot first
+      let placed = false;
+      for (let i = 0; i < inventory.length; i++) {
+        if (inventory[i] === dropItem) { placed = true; break; } // already have it, just show pickup
+      }
+      const slot = inventory.findIndex((v, i) => v === 0 && i >= 0);
+      if (slot >= 0) {
+        inventory[slot] = dropItem;
+        ui.updateHotbarFromInventory(inventory);
+        ui.addChatMessage("", `+ ${getBlockName(dropItem)}`, true);
+      }
+    }
 
     // Wave 10: Track blocks broken
     stats.increment("blocksBroken");
@@ -948,23 +980,19 @@ async function startGame(name: string) {
     }
   });
 
-  // Tab key for player list
+  // Tab key = inventory (like real Minecraft E key does inventory)
   document.addEventListener("keydown", e => {
-    if (e.key === "Tab" && document.pointerLockElement) {
+    if (e.key === "Tab" && document.pointerLockElement && !ui.isChatOpen()) {
       e.preventDefault();
-      if (mp && (mp as any).room) {
-        const players: { name: string; ping: number }[] = [];
-        (mp as any).room.state.players.forEach((p: any) => {
-          players.push({ name: p.name, ping: 0 });
-        });
-        ui.showPlayerList(players);
+      if (inventoryOpen) {
+        ui.hideInventory();
+        inventoryOpen = false;
+        document.body.requestPointerLock();
+      } else {
+        ui.showInventory(inventory);
+        inventoryOpen = true;
+        document.exitPointerLock();
       }
-    }
-  });
-
-  document.addEventListener("keyup", e => {
-    if (e.key === "Tab") {
-      ui.hidePlayerList();
     }
   });
 
@@ -1147,13 +1175,21 @@ async function startGame(name: string) {
   ui.updateHunger(hunger, maxHunger);
   ui.setGameMode(player.gameMode);
 
-  // Hotbar scroll
+  // Hotbar scroll — cycle through inventory slots 0-7
+  let hotbarSlot = 0;
+  const updateHotbarSlot = (slot: number) => {
+    hotbarSlot = ((slot % 8) + 8) % 8;
+    player.selectedBlockType = inventory[hotbarSlot] ?? 0;
+    ui.selectSlot(hotbarSlot);
+    ui.updateHotbarFromInventory(inventory);
+  };
   document.addEventListener("wheel", e => {
-    const dir  = e.deltaY > 0 ? 1 : -1;
-    const idx  = HOTBAR_BLOCKS.indexOf(player.selectedBlockType);
-    const next = ((idx + dir) + HOTBAR_BLOCKS.length) % HOTBAR_BLOCKS.length;
-    player.selectedBlockType = HOTBAR_BLOCKS[next];
-    ui.selectSlot(next);
+    updateHotbarSlot(hotbarSlot + (e.deltaY > 0 ? 1 : -1));
+  });
+  // Number keys 1-8
+  document.addEventListener("keydown", e => {
+    const n = parseInt(e.key);
+    if (n >= 1 && n <= 8) updateHotbarSlot(n - 1);
   });
 
   // Setup item pickup callback
@@ -1340,6 +1376,14 @@ function animate() {
   if (hud.style.display !== "none") {
     player.update(dt);
     mp?.updatePlayers(dt);
+    // Dynamic chunk loading — every 3s in singleplayer
+    if (isSingleplayer) {
+      minimapTimer += dt;
+      if (minimapTimer > 3) {
+        world.generateAroundPlayer(player.position.x, player.position.z);
+        minimapTimer = 0;
+      }
+    }
     updateDayNight(dt);
     if (mobManager) {
       mobManager.dayTime = dayTime;
