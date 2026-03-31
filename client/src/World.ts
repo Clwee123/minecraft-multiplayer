@@ -24,7 +24,7 @@ export class World {
   private blockData: Map<number, number> = new Map(); // intKey -> blockType
   private instancedMeshes: Map<number, THREE.InstancedMesh> = new Map(); // blockType -> InstancedMesh
   private instanceIndex: Map<number, number> = new Map(); // intKey -> instance index in its type's mesh
-  private instanceRevIndex: Map<string, number> = new Map(); // "type:idx" -> intKey
+  private instanceRevIndex: Map<number, number> = new Map(); // (type<<17)|idx -> intKey
   private instanceCount: Map<number, number> = new Map(); // blockType -> current count
   private static readonly MAX_INSTANCES = 60000;
 
@@ -399,7 +399,7 @@ export class World {
     mesh.instanceMatrix.needsUpdate = true;
 
     this.instanceIndex.set(k, idx);
-    this.instanceRevIndex.set(`${type}:${idx}`, k);
+    this.instanceRevIndex.set((type << 17) | idx, k);
     this.instanceCount.set(type, idx + 1);
 
     // Track modifications (use string key for save/load compatibility)
@@ -436,18 +436,18 @@ export class World {
       mesh.instanceMatrix.needsUpdate = true;
 
       // Find which key maps to lastIdx and update it
-      const lastKey = this.instanceRevIndex.get(`${type}:${lastIdx}`);
+      const lastKey = this.instanceRevIndex.get((type << 17) | lastIdx);
       if (lastKey !== undefined) {
         this.instanceIndex.set(lastKey, idx);
-        this.instanceRevIndex.set(`${type}:${idx}`, lastKey);
+        this.instanceRevIndex.set((type << 17) | idx, lastKey);
       }
     }
 
     // Remove the last instance
     this.instanceIndex.delete(k);
-    this.instanceRevIndex.delete(`${type}:${lastIdx}`);
+    this.instanceRevIndex.delete((type << 17) | lastIdx);
     if (idx !== lastIdx) {
-      this.instanceRevIndex.delete(`${type}:${idx}`);
+      this.instanceRevIndex.delete((type << 17) | idx);
     }
 
     const newCount = lastIdx;
@@ -479,10 +479,7 @@ export class World {
     for (let dx = -radius; dx <= radius; dx++) {
       for (let dy = -radius; dy <= radius; dy++) {
         for (let dz = -radius; dz <= radius; dz++) {
-          const b = this.getBlock(x + dx, y + dy, z + dz);
-          if (b && b.type === blockType) {
-            return true;
-          }
+          if (this.blockData.get(key(x + dx, y + dy, z + dz)) === blockType) return true;
         }
       }
     }
@@ -504,22 +501,55 @@ export class World {
   raycastBlock(origin: THREE.Vector3, direction: THREE.Vector3, maxDist = 6): {
     x: number; y: number; z: number; face: THREE.Vector3;
   } | null {
-    const step = 0.05;
-    // Use plain numbers instead of an object to avoid per-step heap allocation
-    let prevX = Math.floor(origin.x);
-    let prevY = Math.floor(origin.y);
-    let prevZ = Math.floor(origin.z);
+    // DDA voxel traversal — visits exactly the voxels the ray crosses, O(blocks) not O(dist/step)
+    let bx = Math.floor(origin.x);
+    let by = Math.floor(origin.y);
+    let bz = Math.floor(origin.z);
 
-    for (let d = 0; d < maxDist; d += step) {
-      const bx = Math.floor(origin.x + direction.x * d);
-      const by = Math.floor(origin.y + direction.y * d);
-      const bz = Math.floor(origin.z + direction.z * d);
+    const dx = direction.x, dy = direction.y, dz = direction.z;
 
-      if (this.hasBlock(bx, by, bz)) {
-        const face = World._rayFace.set(prevX - bx, prevY - by, prevZ - bz);
-        return { x: bx, y: by, z: bz, face };
+    const stepX = dx > 0 ? 1 : dx < 0 ? -1 : 0;
+    const stepY = dy > 0 ? 1 : dy < 0 ? -1 : 0;
+    const stepZ = dz > 0 ? 1 : dz < 0 ? -1 : 0;
+
+    const tDeltaX = stepX !== 0 ? Math.abs(1 / dx) : Infinity;
+    const tDeltaY = stepY !== 0 ? Math.abs(1 / dy) : Infinity;
+    const tDeltaZ = stepZ !== 0 ? Math.abs(1 / dz) : Infinity;
+
+    let tMaxX = stepX > 0 ? (bx + 1 - origin.x) * tDeltaX : stepX < 0 ? (origin.x - bx) * tDeltaX : Infinity;
+    let tMaxY = stepY > 0 ? (by + 1 - origin.y) * tDeltaY : stepY < 0 ? (origin.y - by) * tDeltaY : Infinity;
+    let tMaxZ = stepZ > 0 ? (bz + 1 - origin.z) * tDeltaZ : stepZ < 0 ? (origin.z - bz) * tDeltaZ : Infinity;
+
+    let faceX = 0, faceY = 0, faceZ = 0;
+
+    // Step through at most ~maxDist/min_block_size voxels
+    const maxSteps = Math.ceil(maxDist * 3) + 2;
+    for (let i = 0; i < maxSteps; i++) {
+      if (this.blockData.has(key(bx, by, bz))) {
+        return { x: bx, y: by, z: bz, face: World._rayFace.set(faceX, faceY, faceZ) };
       }
-      prevX = bx; prevY = by; prevZ = bz;
+
+      if (tMaxX < tMaxY) {
+        if (tMaxX < tMaxZ) {
+          if (tMaxX > maxDist) return null;
+          bx += stepX; faceX = -stepX; faceY = 0; faceZ = 0;
+          tMaxX += tDeltaX;
+        } else {
+          if (tMaxZ > maxDist) return null;
+          bz += stepZ; faceX = 0; faceY = 0; faceZ = -stepZ;
+          tMaxZ += tDeltaZ;
+        }
+      } else {
+        if (tMaxY < tMaxZ) {
+          if (tMaxY > maxDist) return null;
+          by += stepY; faceX = 0; faceY = -stepY; faceZ = 0;
+          tMaxY += tDeltaY;
+        } else {
+          if (tMaxZ > maxDist) return null;
+          bz += stepZ; faceX = 0; faceY = 0; faceZ = -stepZ;
+          tMaxZ += tDeltaZ;
+        }
+      }
     }
     return null;
   }

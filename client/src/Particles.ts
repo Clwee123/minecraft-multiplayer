@@ -2,181 +2,183 @@ import * as THREE from "three";
 import { getBlockColor } from "./blocks";
 
 interface Particle {
-  mesh:   THREE.Mesh;
+  mesh:    THREE.Mesh;
+  mat:     THREE.MeshLambertMaterial;
   vx: number; vy: number; vz: number;
   life: number;
   maxLife: number;
+  active: boolean;
 }
 
 const GEO = new THREE.BoxGeometry(0.12, 0.12, 0.12);
 
+// Pre-allocate a fixed pool of particles — zero heap allocation during gameplay
+const POOL_SIZE = 128;
+
 export class Particles {
   private scene:     THREE.Scene;
-  private particles: Particle[] = [];
+  private pool:      Particle[] = [];
+  private active:    Particle[] = []; // only live particles
 
   constructor(scene: THREE.Scene) {
     this.scene = scene;
+
+    // Build the pool up front
+    for (let i = 0; i < POOL_SIZE; i++) {
+      const mat  = new THREE.MeshLambertMaterial({ color: 0xffffff, transparent: true });
+      const mesh = new THREE.Mesh(GEO, mat);
+      mesh.visible = false;
+      scene.add(mesh);
+      this.pool.push({ mesh, mat, vx: 0, vy: 0, vz: 0, life: 0, maxLife: 1, active: false });
+    }
+  }
+
+  private acquire(
+    x: number, y: number, z: number,
+    color: number,
+    vx: number, vy: number, vz: number,
+    maxLife: number,
+    scale = 1,
+    emissive = false,
+  ): void {
+    // Find an inactive slot
+    let p: Particle | null = null;
+    for (let i = 0; i < this.pool.length; i++) {
+      if (!this.pool[i].active) { p = this.pool[i]; break; }
+    }
+    if (!p) return; // pool full — drop particle
+
+    p.active  = true;
+    p.life    = 0;
+    p.maxLife = maxLife;
+    p.vx = vx; p.vy = vy; p.vz = vz;
+    p.mesh.position.set(x, y, z);
+    p.mesh.scale.setScalar(scale);
+    p.mesh.visible = true;
+    p.mat.color.setHex(color);
+    p.mat.opacity = 1;
+    if (emissive) {
+      p.mat.emissive.setHex(color);
+      p.mat.emissiveIntensity = 0.6;
+    } else {
+      p.mat.emissiveIntensity = 0;
+    }
+    this.active.push(p);
   }
 
   /** Burst block-break particles at world position (x,y,z) for given block type. */
   burst(x: number, y: number, z: number, blockType: number, count = 6) {
     const color = getBlockColor(blockType);
     for (let i = 0; i < count; i++) {
-      const mat  = new THREE.MeshLambertMaterial({ color });
-      const mesh = new THREE.Mesh(GEO, mat);
-      mesh.position.set(
+      this.acquire(
         x + (Math.random() - 0.5),
         y + (Math.random() - 0.5),
-        z + (Math.random() - 0.5)
+        z + (Math.random() - 0.5),
+        color,
+        (Math.random() - 0.5) * 5,
+        2 + Math.random() * 4,
+        (Math.random() - 0.5) * 5,
+        0.5 + Math.random() * 0.4,
       );
-      this.scene.add(mesh);
-
-      this.particles.push({
-        mesh,
-        vx: (Math.random() - 0.5) * 5,
-        vy: 2 + Math.random() * 4,
-        vz: (Math.random() - 0.5) * 5,
-        life: 0,
-        maxLife: 0.5 + Math.random() * 0.4,
-      });
     }
   }
 
   /** Splash of blue particles (water effect). */
   splash(x: number, y: number, z: number, count = 8) {
     for (let i = 0; i < count; i++) {
-      const mat = new THREE.MeshLambertMaterial({ color: 0x4488ff + Math.random() * 0x00ff00 });
-      const mesh = new THREE.Mesh(GEO, mat);
-      mesh.position.set(
-        x + (Math.random() - 0.5) * 1.5,
-        y + Math.random() * 0.5,
-        z + (Math.random() - 0.5) * 1.5
-      );
-      this.scene.add(mesh);
-
       const angle = Math.random() * Math.PI * 2;
       const speed = 2 + Math.random() * 4;
-
-      this.particles.push({
-        mesh,
-        vx: Math.cos(angle) * speed,
-        vy: 3 + Math.random() * 2,
-        vz: Math.sin(angle) * speed,
-        life: 0,
-        maxLife: 0.6 + Math.random() * 0.4,
-      });
+      this.acquire(
+        x + (Math.random() - 0.5) * 1.5,
+        y + Math.random() * 0.5,
+        z + (Math.random() - 0.5) * 1.5,
+        0x4488ff,
+        Math.cos(angle) * speed,
+        3 + Math.random() * 2,
+        Math.sin(angle) * speed,
+        0.6 + Math.random() * 0.4,
+      );
     }
   }
 
   /** Smoke particles (for furnaces, lava, etc). */
   smoke(x: number, y: number, z: number, count = 8) {
     for (let i = 0; i < count; i++) {
-      const color = 0x444444 + Math.floor(Math.random() * 0x444444);
-      const mat = new THREE.MeshLambertMaterial({ color, transparent: true });
-      const mesh = new THREE.Mesh(GEO, mat);
-      mesh.position.set(
+      const grey = 0x444444 + Math.floor(Math.random() * 0x444444);
+      this.acquire(
         x + (Math.random() - 0.5) * 0.8,
         y + Math.random() * 0.5,
-        z + (Math.random() - 0.5) * 0.8
+        z + (Math.random() - 0.5) * 0.8,
+        grey,
+        (Math.random() - 0.5) * 0.8,
+        0.5 + Math.random() * 1.5,
+        (Math.random() - 0.5) * 0.8,
+        1.2 + Math.random() * 0.6,
       );
-      this.scene.add(mesh);
-
-      this.particles.push({
-        mesh,
-        vx: (Math.random() - 0.5) * 0.8,
-        vy: 0.5 + Math.random() * 1.5, // upward drift
-        vz: (Math.random() - 0.5) * 0.8,
-        life: 0,
-        maxLife: 1.2 + Math.random() * 0.6,
-      });
     }
   }
 
   /** Magic/enchantment particles. */
   magic(x: number, y: number, z: number, count = 12) {
     for (let i = 0; i < count; i++) {
-      const isPurple = Math.random() < 0.5;
-      const color = isPurple ? 0xaa44ff : 0xffcc00;
-      const mat = new THREE.MeshLambertMaterial({ color, emissive: color });
-      const mesh = new THREE.Mesh(GEO, mat);
-      mesh.position.set(x, y, z);
-      this.scene.add(mesh);
-
+      const color = Math.random() < 0.5 ? 0xaa44ff : 0xffcc00;
       const angle = Math.random() * Math.PI * 2;
       const speed = 4 + Math.random() * 3;
-
-      this.particles.push({
-        mesh,
-        vx: Math.cos(angle) * speed,
-        vy: 1 + Math.random() * 2,
-        vz: Math.sin(angle) * speed,
-        life: 0,
-        maxLife: 0.8 + Math.random() * 0.4,
-      });
+      this.acquire(
+        x, y, z,
+        color,
+        Math.cos(angle) * speed,
+        1 + Math.random() * 2,
+        Math.sin(angle) * speed,
+        0.8 + Math.random() * 0.4,
+        1,
+        true,
+      );
     }
   }
 
   /** Explosion particles. */
   explosion(x: number, y: number, z: number, count = 15) {
     for (let i = 0; i < count; i++) {
-      const roll = Math.random();
+      const roll  = Math.random();
       const color = roll < 0.33 ? 0xff4400 : roll < 0.66 ? 0xff8800 : roll < 0.85 ? 0xffcc00 : 0x000000;
-      const mat = new THREE.MeshLambertMaterial({ color });
-      const mesh = new THREE.Mesh(GEO, mat);
-      const size = 0.2 + Math.random() * 0.2;
-      mesh.scale.setScalar(size);
-      mesh.position.set(
+      const angle = Math.random() * Math.PI * 2;
+      const elev  = Math.random() * Math.PI;
+      const speed = 6 + Math.random() * 8;
+      this.acquire(
         x + (Math.random() - 0.5) * 1.5,
         y + (Math.random() - 0.5) * 1.5,
-        z + (Math.random() - 0.5) * 1.5
+        z + (Math.random() - 0.5) * 1.5,
+        color,
+        Math.sin(elev) * Math.cos(angle) * speed,
+        Math.cos(elev) * speed,
+        Math.sin(elev) * Math.sin(angle) * speed,
+        0.8 + Math.random() * 0.4,
+        0.2 + Math.random() * 0.2,
       );
-      this.scene.add(mesh);
-
-      const angle = Math.random() * Math.PI * 2;
-      const elevation = Math.random() * Math.PI;
-      const speed = 6 + Math.random() * 8;
-
-      this.particles.push({
-        mesh,
-        vx: Math.sin(elevation) * Math.cos(angle) * speed,
-        vy: Math.cos(elevation) * speed,
-        vz: Math.sin(elevation) * Math.sin(angle) * speed,
-        life: 0,
-        maxLife: 0.8 + Math.random() * 0.4,
-      });
     }
   }
 
   /** Red damage flash particles. */
   damage(x: number, y: number, z: number, count = 3) {
     for (let i = 0; i < count; i++) {
-      const mat  = new THREE.MeshLambertMaterial({ color: 0xff2222 });
-      const mesh = new THREE.Mesh(GEO, mat);
-      mesh.position.set(
+      this.acquire(
         x + (Math.random() - 0.5) * 0.6,
         y + 0.5 + Math.random() * 1.2,
-        z + (Math.random() - 0.5) * 0.6
+        z + (Math.random() - 0.5) * 0.6,
+        0xff2222,
+        (Math.random() - 0.5) * 3,
+        1 + Math.random() * 2,
+        (Math.random() - 0.5) * 3,
+        0.3 + Math.random() * 0.3,
       );
-      this.scene.add(mesh);
-
-      this.particles.push({
-        mesh,
-        vx: (Math.random() - 0.5) * 3,
-        vy: 1 + Math.random() * 2,
-        vz: (Math.random() - 0.5) * 3,
-        life: 0,
-        maxLife: 0.3 + Math.random() * 0.3,
-      });
     }
   }
 
   update(dt: number) {
-    const dead: number[] = [];
-
-    for (let i = 0; i < this.particles.length; i++) {
-      const p = this.particles[i];
+    for (let i = this.active.length - 1; i >= 0; i--) {
+      const p = this.active[i];
       p.life += dt;
-      const t = p.life / p.maxLife;
 
       // Gravity
       p.vy -= 14 * dt;
@@ -185,23 +187,18 @@ export class Particles {
       p.mesh.position.y += p.vy * dt;
       p.mesh.position.z += p.vz * dt;
 
-      // Fade out
-      (p.mesh.material as THREE.MeshLambertMaterial).opacity = 1 - t;
-      (p.mesh.material as THREE.MeshLambertMaterial).transparent = true;
+      const t = p.life / p.maxLife;
 
-      // Shrink
-      const s = 1 - t * 0.8;
-      p.mesh.scale.setScalar(s);
+      // Fade + shrink
+      p.mat.opacity = 1 - t;
+      p.mesh.scale.setScalar((1 - t * 0.8));
 
-      if (p.life >= p.maxLife) dead.push(i);
-    }
-
-    // Remove dead particles (back-to-front to preserve indices)
-    for (let i = dead.length - 1; i >= 0; i--) {
-      const p = this.particles[dead[i]];
-      this.scene.remove(p.mesh);
-      (p.mesh.material as THREE.MeshLambertMaterial).dispose();
-      this.particles.splice(dead[i], 1);
+      if (p.life >= p.maxLife) {
+        // Return to pool — no allocation, no scene.remove
+        p.active = false;
+        p.mesh.visible = false;
+        this.active.splice(i, 1);
+      }
     }
   }
 }
