@@ -58,6 +58,7 @@ export const BLOCK_TYPES: Record<number, {
   45: { name: "Wheat",          color: 0xffee77, solid: false },
   46: { name: "Enchanted Book", color: 0x3333ff },
   47: { name: "Lava",           color: 0xff4400, emissive: 0xff8800 },
+  48: { name: "Spawner",        color: 0x222222, emissive: 0x333333 },
 };
 
 // Hotbar presets — what shows in the 8 hotbar slots by default

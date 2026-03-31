@@ -11,6 +11,7 @@ import { ItemDropManager }    from "./ItemDrop";
 import { Minimap }            from "./Minimap";
 import { Weather }            from "./Weather";
 import { XPOrbManager }       from "./XPOrb";
+import { AchievementManager } from "./Achievements";
 
 // ── Renderer ─────────────────────────────────────────────────────────────────
 
@@ -219,11 +220,16 @@ let mp:         MultiplayerManager | null = null;
 let mobManager: MobManager | null = null;
 let isSingleplayer = true;
 let currentPlayerName = "";
+let dragonMob: any = null;
 
 // ── XP System ─────────────────────────────────────────────────────────────────
 
 let xp = 0;
 let xpLevel = 0;
+
+// ── Achievement System ────────────────────────────────────────────────────────
+
+const achievements = new AchievementManager();
 
 // ── Inventory System ──────────────────────────────────────────────────────────
 
@@ -264,6 +270,8 @@ let maxHunger   = 20;
 let regenTimer  = 0;
 let hungerTimer = 0;
 let lastMoved   = new THREE.Vector3();
+let visibilityTimer = 0;
+let caveAmbientTimer = 0;
 
 // ── Enchantments ──────────────────────────────────────────────────────────────
 
@@ -362,6 +370,20 @@ function handleCommand(cmd: string, playerName: string): boolean {
     return true;
   }
 
+  if (base === "/boss") {
+    dragonMob = mobManager?.spawnAt("enderdragon", player.position.x, player.position.y + 15, player.position.z - 20);
+    ui.addChatMessage("", "☠ The Ender Dragon awakens!", true);
+    ui.showBossBar("Ender Dragon", dragonMob?.maxHealth ?? 200, 200);
+    return true;
+  }
+
+  if (base === "/achievements") {
+    achievements.getAll().forEach(a => {
+      ui.addChatMessage("", `${a.unlocked ? "✅" : "⬜"} ${a.icon} ${a.name}: ${a.description}`, true);
+    });
+    return true;
+  }
+
   if (base === "/help") {
     [
       "/gamemode creative | survival",
@@ -371,6 +393,8 @@ function handleCommand(cmd: string, playerName: string): boolean {
       "/craft",
       "/weather clear | rain | thunder",
       "/nether enter | exit",
+      "/boss - spawn the Ender Dragon",
+      "/achievements - show achievements",
       "F5 = 3rd person · Ctrl = sprint · E = inventory",
     ].forEach(c => ui.addChatMessage("", c, true));
     return true;
@@ -406,6 +430,12 @@ async function startGame(name: string) {
     sounds.play("hurt");
   };
   player.onOpenChat  = () => { ui.openChatInput(); player.setChatOpen(true); };
+
+  // Achievement callbacks
+  achievements.onUnlock = (a) => {
+    ui.showAchievement(a.name, a.description, a.icon);
+    sounds.play("eat"); // use eat sound as achievement chime
+  };
 
   // Fishing rod right-click handler
   player.onRightClick = () => {
@@ -452,6 +482,9 @@ async function startGame(name: string) {
   player.onBreakBlock = (x, y, z) => {
     const b = world.getBlock(x, y, z);
     if (!b) return;
+
+    // Trigger first_block achievement
+    achievements.trigger("first_block");
 
     // TNT activation (type 24)
     if (b.type === 24) {
@@ -571,6 +604,7 @@ async function startGame(name: string) {
     const result = mobManager?.tryAttack(attackRaycaster, enchants);
     if (result) {
       sounds.play("hit");
+      achievements.trigger("first_mob");
       // Check if mob died and spawn drops/XP
       const mobData = mobManager?.getMob(result.mobId);
       if (mobData && !mobData.alive) {
@@ -578,11 +612,15 @@ async function startGame(name: string) {
         // Spawn XP orbs
         const xpTable: Record<string, number> = {
           "pig": 3, "chicken": 2, "cow": 5, "sheep": 3,
-          "zombie": 8, "skeleton": 10, "creeper": 5,
+          "zombie": 8, "skeleton": 10, "creeper": 5, "horse": 10, "villager": 0, "enderdragon": 100,
         };
         const mobTypeStr = mobData.type.toLowerCase();
         const xpAmount = xpTable[mobTypeStr] || 1;
         xpOrbs.spawn(mobData.targetPos.x, mobData.targetPos.y, mobData.targetPos.z, xpAmount);
+        // Trigger mob-specific achievements
+        if (mobData.type === "zombie") achievements.trigger("kill_zombie");
+        if (mobData.type === "creeper") achievements.trigger("kill_creeper");
+        if (mobData.type === "enderdragon") achievements.trigger("kill_dragon");
         // Add kill feed entry
         ui.addKillFeedDeath(mobData.type);
       }
@@ -902,6 +940,17 @@ function animate() {
     itemDrops.update(dt, player.position);
     xpOrbs.update(dt, player.position);
 
+    // Call updateVisibility every 2 seconds
+    visibilityTimer += dt;
+    if (visibilityTimer > 2) { visibilityTimer = 0; world.updateVisibility(player.position); }
+
+    // Ambient sounds
+    caveAmbientTimer += dt;
+    if (caveAmbientTimer > 30) {
+      caveAmbientTimer = 0;
+      if (player.position.y < 10) sounds.playAmbient("cave");
+    }
+
     // Update fishing bobber
     if (fishingBobber) {
       fishingBobber.vel.y -= 20 * dt; // gravity
@@ -998,6 +1047,14 @@ function animate() {
       minimap.update(dt, player.position, player.getYaw(), otherPlayers, mobs);
     }
 
+    // Update boss bar if dragon is alive
+    if (dragonMob && dragonMob.alive) {
+      ui.updateBossBar(dragonMob.health, dragonMob.maxHealth);
+    } else if (dragonMob && !dragonMob.alive) {
+      ui.hideBossBar();
+      dragonMob = null;
+    }
+
     // ── Hunger & regen ──────────────────────────────────────────────────────
     if (player.gameMode === "survival") {
       // Hunger drains when moving
@@ -1056,9 +1113,11 @@ function animate() {
     // ── Day/Night ambient events ───────────────────────────────────────────────
     if (prevDayTime < 0.22 && dayTime >= 0.22) {
       ui.addChatMessage("", "Dawn breaks...", true);
+      sounds.playAmbient("birds");
     }
     if (prevDayTime < 0.73 && dayTime >= 0.73) {
       ui.addChatMessage("", "Night falls... watch out for monsters!", true);
+      sounds.playAmbient("wind");
     }
     if (prevDayTime < 0.95 && dayTime >= 0.95) {
       // Chance to spawn extra zombies/skeletons at midnight

@@ -879,4 +879,121 @@ export class UI {
   isTradeOpen(): boolean {
     return this.tradePanel !== null;
   }
+
+  // ── Boss Bar ───────────────────────────────────────────────────────────────
+
+  private bossBarEl: HTMLElement | null = null;
+
+  showBossBar(name: string, hp: number, maxHp: number): void {
+    if (!this.bossBarEl) {
+      this.bossBarEl = document.createElement("div");
+      this.bossBarEl.id = "boss-bar";
+      this.bossBarEl.style.cssText = `
+        position: fixed;
+        top: 12px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 300px;
+        background: rgba(0, 0, 0, 0.8);
+        padding: 10px;
+        border: 2px solid #ff0000;
+        border-radius: 4px;
+        z-index: 500;
+        font-family: Arial, sans-serif;
+        color: white;
+      `;
+
+      const title = document.createElement("div");
+      title.id = "boss-name";
+      title.style.cssText = `
+        font-weight: bold;
+        font-size: 16px;
+        color: #ff4444;
+        margin-bottom: 5px;
+        text-align: center;
+      `;
+      title.textContent = name;
+      this.bossBarEl.appendChild(title);
+
+      const barContainer = document.createElement("div");
+      barContainer.style.cssText = `
+        width: 100%;
+        height: 20px;
+        background: #111;
+        border: 1px solid #666;
+        border-radius: 2px;
+        overflow: hidden;
+      `;
+
+      const barFill = document.createElement("div");
+      barFill.id = "boss-bar-fill";
+      barFill.style.cssText = `
+        width: 100%;
+        height: 100%;
+        background: #ff0000;
+        transition: width 0.1s;
+      `;
+      barContainer.appendChild(barFill);
+      this.bossBarEl.appendChild(barContainer);
+
+      document.body.appendChild(this.bossBarEl);
+    }
+
+    this.updateBossBar(hp, maxHp);
+  }
+
+  updateBossBar(hp: number, maxHp: number): void {
+    if (!this.bossBarEl) return;
+    const percent = Math.max(0, (hp / maxHp) * 100);
+    const barFill = this.bossBarEl.querySelector("#boss-bar-fill") as HTMLElement;
+    if (barFill) barFill.style.width = percent + "%";
+  }
+
+  hideBossBar(): void {
+    if (this.bossBarEl) {
+      this.bossBarEl.remove();
+      this.bossBarEl = null;
+    }
+  }
+
+  // ── Achievements ──────────────────────────────────────────────────────────
+
+  showAchievement(name: string, desc: string, icon: string): void {
+    const toast = document.createElement("div");
+    toast.style.cssText = `
+      position: fixed;
+      right: 10px;
+      top: 50%;
+      background: #f0c030;
+      color: #000;
+      padding: 12px 16px;
+      border-radius: 4px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+      font-family: Arial, sans-serif;
+      font-size: 14px;
+      z-index: 400;
+      min-width: 200px;
+      animation: slideInRight 0.3s ease-out;
+    `;
+
+    const content = document.createElement("div");
+    content.innerHTML = `
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <span style="font-size: 24px;">${icon}</span>
+        <div>
+          <div style="font-weight: bold;">${name}</div>
+          <div style="font-size: 12px; color: #333; font-style: italic;">${desc}</div>
+        </div>
+      </div>
+    `;
+    toast.appendChild(content);
+
+    document.body.appendChild(toast);
+
+    // Auto-remove after 4 seconds
+    setTimeout(() => {
+      toast.style.animation = "slideOutRight 0.3s ease-in";
+      setTimeout(() => toast.remove(), 300);
+    }, 4000);
+  }
 }

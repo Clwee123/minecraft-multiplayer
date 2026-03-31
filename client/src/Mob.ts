@@ -1,6 +1,6 @@
 import * as THREE from "three";
 
-export type MobType = "pig" | "zombie" | "chicken" | "cow" | "sheep" | "creeper" | "skeleton" | "horse" | "villager";
+export type MobType = "pig" | "zombie" | "chicken" | "cow" | "sheep" | "creeper" | "skeleton" | "horse" | "villager" | "enderdragon";
 
 export interface MobData {
   id:      string;
@@ -53,6 +53,7 @@ export class Mob {
       case "skeleton": this.buildSkeleton(); break;
       case "horse":   this.buildHorse();   break;
       case "villager": this.buildVillager(); break;
+      case "enderdragon": this.buildEnderDragon(); break;
     }
 
     this.hpSprite = this.buildHpBar();
@@ -553,6 +554,47 @@ export class Mob {
     }
   }
 
+  private buildEnderDragon() {
+    const BLACK = 0x110022;
+    const PURPLE = 0x220033;
+    const RED = 0xff4444;
+
+    // Scale up 1.5x
+    const scale = 1.5;
+
+    // Body (large black box)
+    const body = this.box(2, 1, 4, BLACK);
+    body.scale.set(scale, scale, scale);
+    body.position.set(0, 0.6 * scale, 0);
+    this.group.add(body);
+
+    // Head (glowing red eyes)
+    const head = this.box(1, 0.8, 1.2, BLACK);
+    this.headGroup.add(head);
+    // Glowing red eyes
+    const eyeL = this.box(0.18, 0.18, 0.1, RED);
+    eyeL.position.set(-0.3, 0.15, 0.65);
+    const eyeMat = new THREE.MeshLambertMaterial({ color: RED, emissive: RED, emissiveIntensity: 0.8 });
+    eyeL.material = eyeMat;
+    this.headGroup.add(eyeL);
+    const eyeR = eyeL.clone();
+    eyeR.position.x = 0.3;
+    this.headGroup.add(eyeR);
+    this.headGroup.position.set(0, 0.8 * scale, 0.9 * scale);
+    this.group.add(this.headGroup);
+
+    // Wings (dark purple on sides)
+    for (const side of [-1, 1]) {
+      const wing = this.box(3, 0.2, 2, PURPLE);
+      wing.scale.set(scale, scale, scale);
+      wing.position.set(side * 2 * scale, 0.6 * scale, 0);
+      this.group.add(wing);
+    }
+
+    // Scale group
+    this.group.scale.set(1.5, 1.5, 1.5);
+  }
+
   // ── HP bar ────────────────────────────────────────────────────────────────
 
   private buildHpBar(): THREE.Sprite {
@@ -563,7 +605,7 @@ export class Mob {
     const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false });
     const sp  = new THREE.Sprite(mat);
     sp.scale.set(1.2, 0.18, 1);
-    const hpY: Record<MobType, number> = { pig: 1.4, chicken: 1.0, zombie: 1.6, cow: 1.8, sheep: 1.7, creeper: 1.9, skeleton: 1.9, horse: 2.2, villager: 1.8 };
+    const hpY: Record<MobType, number> = { pig: 1.4, chicken: 1.0, zombie: 1.6, cow: 1.8, sheep: 1.7, creeper: 1.9, skeleton: 1.9, horse: 2.2, villager: 1.8, enderdragon: 3.5 };
     sp.position.y = hpY[this.type] ?? 1.6;
     return sp;
   }
@@ -653,12 +695,12 @@ export class Mob {
     this.renderHpCanvas(ctx, c.width, c.height, newHp / this.maxHealth);
     (this.hpSprite.material as THREE.SpriteMaterial).map!.needsUpdate = true;
 
-    // Flash (red for most, green for creeper, white for skeleton)
+    // Flash (red for most, green for creeper, white for skeleton, purple for dragon)
     const origColors: Record<MobType, number> = {
-      pig: 0xf9a8a8, zombie: 0x77bb77, chicken: 0xffffff, cow: 0x7a4a2a, sheep: 0xdddddd, creeper: 0x4a8a2a, skeleton: 0xcccccc, horse: 0xc8a46e, villager: 0xffcc99,
+      pig: 0xf9a8a8, zombie: 0x77bb77, chicken: 0xffffff, cow: 0x7a4a2a, sheep: 0xdddddd, creeper: 0x4a8a2a, skeleton: 0xcccccc, horse: 0xc8a46e, villager: 0xffcc99, enderdragon: 0x110022,
     };
     const origColor = origColors[this.type] ?? 0xffffff;
-    const damageColor = this.type === "creeper" ? 0x8aca5a : this.type === "skeleton" ? 0xffffff : 0xff4444;
+    const damageColor = this.type === "creeper" ? 0x8aca5a : this.type === "skeleton" ? 0xffffff : this.type === "enderdragon" ? 0xff8800 : 0xff4444;
     for (const m of this.bodyMeshes) {
       (m.material as THREE.MeshLambertMaterial).color.set(damageColor);
     }

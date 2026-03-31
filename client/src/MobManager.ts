@@ -54,7 +54,7 @@ export class MobManager {
 
   spawnMob(type: MobType, x: number, y: number, z: number, id?: string): Mob {
     const mobId    = id ?? uid();
-    const maxHp    = type === "zombie" ? 20 : type === "creeper" ? 20 : type === "skeleton" ? 20 : type === "chicken" ? 4 : type === "cow" ? 16 : type === "sheep" ? 12 : type === "horse" ? 30 : type === "villager" ? 20 : 10;
+    const maxHp    = type === "zombie" ? 20 : type === "creeper" ? 20 : type === "skeleton" ? 20 : type === "chicken" ? 4 : type === "cow" ? 16 : type === "sheep" ? 12 : type === "horse" ? 30 : type === "villager" ? 20 : type === "enderdragon" ? 200 : 10;
     const data: MobData = {
       id: mobId, type, x, y, z,
       rotY:      rnd(0, Math.PI * 2),
@@ -216,28 +216,33 @@ export class MobManager {
     const dz2  = playerPos.z - d.z;
     const dist = Math.sqrt(dx2 * dx2 + dz2 * dz2);
 
-    // Gravity / floor snap
-    d.y += lm.velY * dt;
-    lm.velY += MOB_GRAVITY * dt;
-    const surfY = (this.world as any).getSurfaceHeight
-      ? (this.world as any).getSurfaceHeight(Math.round(d.x), Math.round(d.z)) + 0.5
-      : 0;
-    if (d.y <= surfY) { d.y = surfY; lm.velY = 0; }
+    // Type-specific AI (enderdragon doesn't use gravity)
+    if (d.type === "enderdragon") {
+      this.enderdragonAI(lm, dt);
+    } else {
+      // Gravity / floor snap for other mobs
+      d.y += lm.velY * dt;
+      lm.velY += MOB_GRAVITY * dt;
+      const surfY = (this.world as any).getSurfaceHeight
+        ? (this.world as any).getSurfaceHeight(Math.round(d.x), Math.round(d.z)) + 0.5
+        : 0;
+      if (d.y <= surfY) { d.y = surfY; lm.velY = 0; }
 
-    // Type-specific AI
-    if (d.type === "pig" || d.type === "chicken" || d.type === "cow" || d.type === "sheep") {
-      const spd = d.type === "chicken" ? 3.5 : d.type === "cow" ? 2.0 : d.type === "sheep" ? 2.2 : 2.5;
-      this.animalAI(lm, dt, dist, dx2, dz2, spd);
-    } else if (d.type === "horse") {
-      this.horseAI(lm, dt, dist, dx2, dz2, playerPos);
-    } else if (d.type === "villager") {
-      this.villagerAI(lm, dt, playerPos);
-    } else if (d.type === "zombie") {
-      this.zombieAI(lm, dt, dist, dx2, dz2, playerPos);
-    } else if (d.type === "creeper") {
-      this.creeperAI(lm, dt, dist, playerPos);
-    } else if (d.type === "skeleton") {
-      this.skeletonAI(lm, dt, dist, dx2, dz2, playerPos);
+      // Type-specific AI
+      if (d.type === "pig" || d.type === "chicken" || d.type === "cow" || d.type === "sheep") {
+        const spd = d.type === "chicken" ? 3.5 : d.type === "cow" ? 2.0 : d.type === "sheep" ? 2.2 : 2.5;
+        this.animalAI(lm, dt, dist, dx2, dz2, spd);
+      } else if (d.type === "horse") {
+        this.horseAI(lm, dt, dist, dx2, dz2, playerPos);
+      } else if (d.type === "villager") {
+        this.villagerAI(lm, dt, playerPos);
+      } else if (d.type === "zombie") {
+        this.zombieAI(lm, dt, dist, dx2, dz2, playerPos);
+      } else if (d.type === "creeper") {
+        this.creeperAI(lm, dt, dist, playerPos);
+      } else if (d.type === "skeleton") {
+        this.skeletonAI(lm, dt, dist, dx2, dz2, playerPos);
+      }
     }
 
     // Sync back to visual
@@ -481,6 +486,63 @@ export class MobManager {
     this.arrows.push({ mesh: arrowMesh, vel, life: 3 });
   }
 
+  private enderdragonAI(lm: LocalMob, dt: number) {
+    const d = lm.data;
+    const playerPos = this.cb.getPlayerPos();
+
+    // Initialize state and timers
+    if (!d.state) d.state = "circling";
+    if (!lm.timer) lm.timer = 0;
+    if (!(lm as any).dragonTimer) (lm as any).dragonTimer = 0;
+
+    if (d.state === "circling") {
+      // Slow orbital motion around player
+      lm.timer += dt * 0.4;
+      const orbitRadius = 15;
+      const targetX = playerPos.x + Math.sin(lm.timer) * orbitRadius;
+      const targetY = 25 + Math.sin(lm.timer * 2) * 3;
+      const targetZ = playerPos.z + Math.cos(lm.timer) * orbitRadius;
+
+      // Lerp to target position
+      const lerpSpeed = 3;
+      d.x += (targetX - d.x) * lerpSpeed * dt;
+      d.y += (targetY - d.y) * lerpSpeed * dt;
+      d.z += (targetZ - d.z) * lerpSpeed * dt;
+
+      // Switch to diving every 8 seconds
+      (lm as any).dragonTimer += dt;
+      if ((lm as any).dragonTimer > 8) {
+        d.state = "diving";
+        (lm as any).dragonTimer = 0;
+      }
+    } else if (d.state === "diving") {
+      // Fast dive toward player
+      const lerpSpeed = 8;
+      d.x += (playerPos.x - d.x) * lerpSpeed * dt;
+      d.y += (playerPos.y - d.y) * lerpSpeed * dt;
+      d.z += (playerPos.z - d.z) * lerpSpeed * dt;
+
+      const distToPlayer = Math.hypot(playerPos.x - d.x, playerPos.z - d.z);
+
+      // Deal damage if close enough
+      if (distToPlayer < 4) {
+        this.cb.onPlayerDamage(5);
+        d.state = "circling";
+        (lm as any).dragonTimer = 0;
+      }
+
+      // Switch back after 4 seconds if hasn't reached
+      (lm as any).dragonTimer += dt;
+      if ((lm as any).dragonTimer > 4) {
+        d.state = "circling";
+        (lm as any).dragonTimer = 0;
+      }
+    }
+
+    // Keep dragon's y above 15 always
+    d.y = Math.max(15, d.y);
+  }
+
   private villagerAI(lm: LocalMob, dt: number, playerPos: THREE.Vector3) {
     const d = lm.data;
     // Villagers stand idle and rotate to face player when nearby
@@ -501,6 +563,16 @@ export class MobManager {
 
   getMob(id: string): Mob | undefined {
     return this.mobs.get(id)?.mob;
+  }
+
+  getMobsByType(type: MobType): Array<{ id: string; mob: Mob }> {
+    return Array.from(this.mobs.entries())
+      .filter(([, lm]) => lm.data.type === type && lm.mob.alive)
+      .map(([id, lm]) => ({ id, mob: lm.mob }));
+  }
+
+  spawnAt(type: MobType, x: number, y: number, z: number): Mob {
+    return this.spawnMob(type, x, y, z);
   }
 
   dispose() {

@@ -14,6 +14,7 @@ export class World {
   scene:  THREE.Scene;
   blocks: BlockMap = new Map();
   private chestInventory: Map<string, number[]> = new Map();
+  private visibilityTimer = 0;
 
   private noise2D  = createNoise2D();
   private noise2D2 = createNoise2D();
@@ -23,6 +24,7 @@ export class World {
     this.scene = scene;
     this.generateTerrain();
     this.placeVillages();
+    this.generateDungeons();
   }
 
   // Store village centers for mob spawning
@@ -230,6 +232,19 @@ export class World {
     return Array.from(this.blocks.values()).map(b => b.mesh);
   }
 
+  updateVisibility(playerPos: THREE.Vector3): void {
+    for (const entry of this.blocks.values()) {
+      const mesh = entry.mesh;
+      const dx = mesh.position.x - playerPos.x;
+      const dz = mesh.position.z - playerPos.z;
+      const dist = Math.sqrt(dx * dx + dz * dz);
+
+      mesh.visible = dist < 80;
+      mesh.castShadow = dist < 40;
+      mesh.receiveShadow = dist < 40;
+    }
+  }
+
   // ── Height queries ─────────────────────────────────────────────────────────
 
   /** Y of the top face of the highest non-liquid solid block at (x, z). */
@@ -356,5 +371,78 @@ export class World {
 
     // Water in center 1x1
     this.placeBlock(x, y + 1, z, 7, false);
+  }
+
+  // ── Dungeon generation ─────────────────────────────────────────────────────
+
+  private generateDungeons() {
+    this.generateDungeon(-40, -40);
+    this.generateDungeon(50, 30);
+  }
+
+  private generateDungeon(cx: number, cz: number) {
+    // Find surface height at (cx, cz)
+    const surfaceY = this.getSurfaceHeight(cx, cz);
+    const roomY = surfaceY - 8;
+
+    // Room dimensions: 9 wide × 5 tall × 9 deep
+    const roomWidth = 9;
+    const roomHeight = 5;
+    const roomDepth = 9;
+
+    // Carve out interior and set walls/floor/ceiling
+    for (let dx = -4; dx <= 4; dx++) {
+      for (let dy = 0; dy < roomHeight; dy++) {
+        for (let dz = -4; dz <= 4; dz++) {
+          const x = cx + dx;
+          const y = roomY + dy;
+          const z = cz + dz;
+
+          // Walls, floor, ceiling
+          const isWall = Math.abs(dx) === 4 || Math.abs(dz) === 4;
+          const isFloor = dy === 0;
+          const isCeiling = dy === roomHeight - 1;
+
+          if (isWall || isFloor || isCeiling) {
+            this.placeBlock(x, y, z, 17, true); // mossy stone
+          } else {
+            this.removeBlock(x, y, z); // carve out interior
+          }
+        }
+      }
+    }
+
+    // Place spawner at center
+    this.placeBlock(cx, roomY + 1, cz, 48, true);
+
+    // Place chests at 4 corners
+    const corners: [number, number][] = [
+      [cx - 4, cz - 4],
+      [cx + 4, cz - 4],
+      [cx - 4, cz + 4],
+      [cx + 4, cz + 4],
+    ];
+    for (const [x, z] of corners) {
+      const chestY = roomY + 1;
+      this.placeBlock(x, chestY, z, 31, true); // chest
+      // Fill with random loot
+      const loot = Array.from({ length: 27 }, () => Math.floor(Math.random() * 31));
+      this.setChestInventory(x, chestY, z, loot);
+    }
+
+    // Carve staircase from room top (roomY+5) up to surface
+    // Stair-step: +1 x, +1 y each step until reaching surface
+    for (let i = 0; i < 10; i++) {
+      const stairX = cx - i;
+      const stairY = roomY + 5 + i;
+      const stairZ = cz - 5;
+
+      if (stairY >= surfaceY) break; // stop when we reach surface
+
+      this.removeBlock(stairX, stairY, stairZ);
+      if (i > 0) {
+        this.removeBlock(stairX, stairY - 1, stairZ);
+      }
+    }
   }
 }
