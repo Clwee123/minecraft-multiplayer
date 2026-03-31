@@ -100,6 +100,15 @@ export class World {
     return n > -0.03 && n < 0.03;
   }
 
+  // Shared geometry for all block types (deduplication)
+  private static sharedBoxGeo: THREE.BoxGeometry | null = null;
+  private static getSharedBoxGeo(): THREE.BoxGeometry {
+    if (!World.sharedBoxGeo) {
+      World.sharedBoxGeo = new THREE.BoxGeometry(1, 1, 1);
+    }
+    return World.sharedBoxGeo;
+  }
+
   // ── InstancedMesh factory ──────────────────────────────────────────────────────
 
   private getOrCreateInstancedMesh(blockType: number): THREE.InstancedMesh {
@@ -110,7 +119,7 @@ export class World {
     const info = BLOCK_TYPES[blockType];
     if (!info) return this.getOrCreateInstancedMesh(1); // fallback to grass
 
-    const geo = new THREE.BoxGeometry(1, 1, 1);
+    const geo = World.getSharedBoxGeo();
 
     let mat: THREE.Material;
     if (info.transparent) {
@@ -144,24 +153,67 @@ export class World {
 
   // ── World generation ───────────────────────────────────────────────────────
 
+  // Transparent/non-solid block types that don't occlude neighbors
+  private static readonly TRANSPARENT_TYPES = new Set([7, 9, 21, 50, 51, 52, 56, 57, 58]);
+
+  private static isOpaque(type: number): boolean {
+    return type > 0 && !World.TRANSPARENT_TYPES.has(type);
+  }
+
   private generateTerrain() {
     const R = 3; // render distance in chunks (reduced from 4 for performance)
+
+    // Pass 1: build a raw voxel map without adding to scene
+    const rawBlocks = new Map<string, number>();
+
     for (let cx = -R; cx <= R; cx++) {
       for (let cz = -R; cz <= R; cz++) {
-        this.generateChunk(cx, cz);
+        this.generateChunkRaw(cx, cz, rawBlocks);
+      }
+    }
+
+    // Pass 2: only place blocks that have at least one exposed face
+    for (const [k, type] of rawBlocks) {
+      const [x, y, z] = k.split(",").map(Number);
+
+      // Non-opaque blocks (water, glass, flowers, etc.) always show
+      if (!World.isOpaque(type)) {
+        this.placeBlock(x, y, z, type, false);
+        continue;
+      }
+
+      // Check 6 neighbors — if any neighbor is absent or transparent, this block is visible
+      const exposed =
+        !World.isOpaque(rawBlocks.get(`${x+1},${y},${z}`) ?? 0) ||
+        !World.isOpaque(rawBlocks.get(`${x-1},${y},${z}`) ?? 0) ||
+        !World.isOpaque(rawBlocks.get(`${x},${y+1},${z}`) ?? 0) ||
+        !World.isOpaque(rawBlocks.get(`${x},${y-1},${z}`) ?? 0) ||
+        !World.isOpaque(rawBlocks.get(`${x},${y},${z+1}`) ?? 0) ||
+        !World.isOpaque(rawBlocks.get(`${x},${y},${z-1}`) ?? 0);
+
+      if (exposed) {
+        this.placeBlock(x, y, z, type, false);
+      } else {
+        // Still track hidden block in blockData (for collision, mining) but no mesh instance
+        this.blockData.set(k, type);
+      }
+    }
+
+    // Pass 3: decorations (trees, flowers, etc.) — placed on top, always exposed
+    for (let cx = -R; cx <= R; cx++) {
+      for (let cz = -R; cz <= R; cz++) {
+        this.generateChunkDecorations(cx, cz, rawBlocks);
       }
     }
   }
 
-  private generateChunk(cx: number, cz: number) {
+  private generateChunkRaw(cx: number, cz: number, rawBlocks: Map<string, number>) {
     for (let lx = 0; lx < CHUNK_SIZE; lx++) {
       for (let lz = 0; lz < CHUNK_SIZE; lz++) {
         const wx = cx * CHUNK_SIZE + lx;
         const wz = cz * CHUNK_SIZE + lz;
         const h  = this.getHeight(wx, wz);
         const biome = this.getBiome(wx, wz);
-
-        // Wave 9: Check if this column is a river
         const isRiver = this.isRiver(wx, wz);
 
         for (let y = 0; y <= h; y++) {
@@ -170,74 +222,78 @@ export class World {
 
           let type: number;
 
-          // Wave 9: River channels at y=10
           if (isRiver && y === 10 && h < SEA_LEVEL + 2) {
             type = 7; // water for rivers
           } else if (biome === 1) { // Desert
-            if (y === h) type = 4; // sand
-            else if (y >= h - 2) type = 4; // sand
-            else if (y <= 3) type = 18; // obsidian near bedrock
-            else type = 49; // sandstone
+            if (y === h) type = 4;
+            else if (y >= h - 2) type = 4;
+            else if (y <= 3) type = 18;
+            else type = 49;
           } else if (biome === 3) { // Mountains
-            if (y === h) type = (h > 28) ? 20 : 1; // snow above y=28, else grass
-            else if (y >= h - 2) type = 2; // dirt
-            else if (y <= 3) type = 18; // obsidian near bedrock
-            else type = 3; // stone
+            if (y === h) type = (h > 28) ? 20 : 1;
+            else if (y >= h - 2) type = 2;
+            else if (y <= 3) type = 18;
+            else type = 3;
           } else if (biome === 4) { // Ocean
-            if (y <= 3) type = 18; // obsidian near bedrock
-            else type = 3; // stone
+            if (y <= 3) type = 18;
+            else type = 3;
           } else { // Plains, Forest
-            if (y === h) type = 1; // grass
-            else if (y >= h - 3) type = 2; // dirt
-            else if (y <= 3) type = 18; // obsidian near bedrock
-            else type = 3; // stone
+            if (y === h) type = 1;
+            else if (y >= h - 3) type = 2;
+            else if (y <= 3) type = 18;
+            else type = 3;
           }
 
-          // Wave 9: Enhanced ore distribution
+          // Ore distribution
           if (type === 3) {
             const r = Math.random();
-            if (r < 0.001 && y < 8)     type = 61; // diamond ore (rare, deep)
-            else if (r < 0.006 && y < 12)  type = 13; // gold ore
-            else if (r < 0.02 && y < 20)   type = 14; // iron ore
-            else if (r < 0.03)             type = 15; // coal ore
-            // Wave 9: Glowstone in caves
-            else if (r < 0.008 && y <= 5 && Math.random() < 0.3) type = 19; // glowstone deep underground
+            if (r < 0.001 && y < 8)       type = 61;
+            else if (r < 0.006 && y < 12)  type = 13;
+            else if (r < 0.02 && y < 20)   type = 14;
+            else if (r < 0.03)             type = 15;
+            else if (r < 0.008 && y <= 5 && Math.random() < 0.3) type = 19;
           }
 
-          // Occasional gravel patches in stone
           if (type === 3 && y >= 3 && Math.random() < 0.008) type = 12;
 
-          this.placeBlock(wx, y, wz, type, false);
+          rawBlocks.set(`${wx},${y},${wz}`, type);
         }
 
-        // Water fill (all biomes)
+        // Water fill
         if (h < SEA_LEVEL) {
           for (let y = h + 1; y <= SEA_LEVEL; y++) {
-            this.placeBlock(wx, y, wz, 7, false);
+            rawBlocks.set(`${wx},${y},${wz}`, 7);
           }
         }
 
-        // Lava pools in deep underground
+        // Lava pools
         if (h > 5 && Math.random() < 0.003) {
           for (let dy = Math.max(0, h - 8); dy <= h - 5; dy++) {
             if (Math.random() < 0.6) {
-              this.placeBlock(wx, dy, wz, 47, false);
+              rawBlocks.set(`${wx},${dy},${wz}`, 47);
             }
           }
         }
+      }
+    }
+  }
 
-        // Decoration based on biome
+  private generateChunkDecorations(cx: number, cz: number, rawBlocks: Map<string, number>) {
+    for (let lx = 0; lx < CHUNK_SIZE; lx++) {
+      for (let lz = 0; lz < CHUNK_SIZE; lz++) {
+        const wx = cx * CHUNK_SIZE + lx;
+        const wz = cz * CHUNK_SIZE + lz;
+        const h  = this.getHeight(wx, wz);
+        const biome = this.getBiome(wx, wz);
+
         if (biome === 0) { // Plains
-          // Occasional flowers
           if (h > SEA_LEVEL && h < SEA_LEVEL + 9 && Math.random() < 0.04) {
             this.placeBlock(wx, h + 1, wz, 51, false);
           }
-          // Occasional trees
           if (h > SEA_LEVEL && h < SEA_LEVEL + 9 && Math.random() < 0.015) {
             this.placeTree(wx, h + 1, wz);
           }
         } else if (biome === 1) { // Desert
-          // Cacti and dead bushes, no water
           if (h > SEA_LEVEL && Math.random() < 0.06) {
             if (Math.random() < 0.5) {
               this.placeBlock(wx, h + 1, wz, 50, false);
@@ -246,22 +302,23 @@ export class World {
             }
           }
         } else if (biome === 2) { // Forest
-          // Higher tree density (25% vs 5%)
           if (h > SEA_LEVEL && h < SEA_LEVEL + 9 && Math.random() < 0.08) {
             this.placeTree(wx, h + 1, wz);
           }
-          // Occasional flowers
           if (h > SEA_LEVEL && h < SEA_LEVEL + 9 && Math.random() < 0.05) {
             this.placeBlock(wx, h + 1, wz, 51, false);
           }
         } else if (biome === 3) { // Mountains
-          // Rock formations
           if (h > SEA_LEVEL + 5 && Math.random() < 0.03) {
             this.placeRocks(wx, h + 1, wz);
           }
         }
       }
     }
+  }
+
+  private generateChunk(_cx: number, _cz: number) {
+    // Legacy stub — replaced by generateChunkRaw + generateChunkDecorations
   }
 
   private placeTree(x: number, y: number, z: number) {
