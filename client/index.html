@@ -425,9 +425,10 @@
     }
     window.__getSelectedMode = () => selectedMode;
     // Default server addr: VPS when on Netlify domain, localhost in dev
+    // On VPS: nginx on port 80 proxies to Colyseus:8471 (avoids blocked ports + enables WSS later)
     const _defaultAddr = (location.hostname === 'localhost' || location.hostname === '127.0.0.1')
       ? 'localhost:8471'
-      : '159.223.140.36:8471';
+      : '159.223.140.36';
     document.getElementById('serverInput').value = _defaultAddr;
     window.__getServerAddr  = () => {
       const v = document.getElementById('serverInput').value.trim();

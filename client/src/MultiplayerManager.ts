@@ -32,7 +32,11 @@ export class MultiplayerManager {
     this.scene  = scene;
     this.world  = world;
     this.cb     = cb;
-    this.client = new Colyseus.Client(`ws://${serverAddr}`);
+    // Use wss:// when page is served over HTTPS (required for mixed content policy)
+    // Use ws:// only for localhost dev
+    const isLocalhost = serverAddr.startsWith("localhost") || serverAddr.startsWith("127.");
+    const protocol = (window.location.protocol === "https:" && !isLocalhost) ? "wss" : "ws";
+    this.client = new Colyseus.Client(`${protocol}://${serverAddr}`);
   }
 
   setMobManager(m: MobManager) { this.mobs = m; }
