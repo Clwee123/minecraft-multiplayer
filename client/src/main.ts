@@ -384,6 +384,26 @@ function handleCommand(cmd: string, playerName: string): boolean {
     return true;
   }
 
+  if (base === "/save") {
+    if (isSingleplayer) {
+      world.saveToStorage();
+      ui.addChatMessage("", "World saved!", true);
+    } else {
+      ui.addChatMessage("", "Save only works in singleplayer", true);
+    }
+    return true;
+  }
+
+  if (base === "/load") {
+    if (isSingleplayer) {
+      world.loadFromStorage();
+      ui.addChatMessage("", "World loaded!", true);
+    } else {
+      ui.addChatMessage("", "Load only works in singleplayer", true);
+    }
+    return true;
+  }
+
   if (base === "/help") {
     [
       "/gamemode creative | survival",
@@ -395,6 +415,7 @@ function handleCommand(cmd: string, playerName: string): boolean {
       "/nether enter | exit",
       "/boss - spawn the Ender Dragon",
       "/achievements - show achievements",
+      "/save · /load (singleplayer only)",
       "F5 = 3rd person · Ctrl = sprint · E = inventory",
     ].forEach(c => ui.addChatMessage("", c, true));
     return true;
@@ -418,6 +439,11 @@ async function startGame(name: string) {
 
   loginScreen.style.display = "none";
   hud.style.display         = "block";
+
+  // Load saved world if singleplayer
+  if (isSingleplayer) {
+    world.loadFromStorage();
+  }
 
   player.spawnAt(0, 0);
   setTimeout(() => document.body.requestPointerLock(), 200);

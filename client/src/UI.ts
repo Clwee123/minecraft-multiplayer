@@ -363,13 +363,44 @@ export class UI {
     this.chatInput.addEventListener("keydown", e => {
       if (e.key === "Enter") {
         const text = this.chatInput.value.trim();
-        if (text) this.onChat?.(text);
+        if (text) {
+          if (text.startsWith("/")) {
+            this.onChat?.(text);
+          } else {
+            this.onChat?.(text);
+          }
+        }
         this.closeChatInput();
         e.stopPropagation();
       }
       if (e.key === "Escape") this.closeChatInput();
+      if (e.key === "Tab") {
+        e.preventDefault();
+        this.tabCompleteChat();
+      }
       e.stopPropagation();
     });
+
+    // Allow mouse wheel scroll on chat
+    this.chatMsgsEl.addEventListener("wheel", e => {
+      e.stopPropagation();
+    });
+  }
+
+  private tabCompleteChat() {
+    const text = this.chatInput.value;
+    if (!text.startsWith("/")) return;
+
+    const commands = ["/gamemode", "/time", "/weather", "/help", "/save", "/load", "/tp", "/kill", "/heal", "/feed"];
+    const partial = text.slice(1).toLowerCase();
+    const matches = commands.filter(c => c.slice(1).startsWith(partial));
+
+    if (matches.length === 1) {
+      this.chatInput.value = matches[0];
+      if (!matches[0].includes(" ")) {
+        this.chatInput.value += " ";
+      }
+    }
   }
 
   openChatInput() {
@@ -389,18 +420,40 @@ export class UI {
   addChatMessage(name: string, text: string, system = false) {
     const msg = document.createElement("div");
     msg.className = "chat-msg" + (system ? " sys-msg" : "");
+
+    // Get timestamp
+    const now = new Date();
+    const hours = now.getHours().toString().padStart(2, "0");
+    const minutes = now.getMinutes().toString().padStart(2, "0");
+    const timestamp = `[${hours}:${minutes}]`;
+
     if (system) {
-      msg.innerHTML = `<span style="color:#ffcc00">${this.esc(text)}</span>`;
+      msg.innerHTML = `<span style="color:#888">${timestamp}</span> <span style="color:#ffcc00">${this.esc(text)}</span>`;
     } else {
-      msg.innerHTML = `<span class="chat-name">${this.esc(name)}</span>: ${this.esc(text)}`;
+      const playerColor = this.getPlayerColor(name);
+      msg.innerHTML = `<span style="color:#888">${timestamp}</span> <span style="color:${playerColor}"><b>${this.esc(name)}</b></span>: ${this.esc(text)}`;
     }
     this.chatMsgsEl.appendChild(msg);
     this.chatMsgsEl.scrollTop = this.chatMsgsEl.scrollHeight;
     const msgs = this.chatMsgsEl.querySelectorAll(".chat-msg");
-    if (msgs.length > 40) msgs[0].remove();
+    if (msgs.length > 50) msgs[0].remove();
 
-    // Auto-fade after 8 seconds
-    setTimeout(() => { msg.style.opacity = "0"; }, 8000);
+    // Auto-fade after 8 seconds when chat is closed
+    const fadeTimer = setInterval(() => {
+      if (!this.isChatOpen() && msg.parentElement) {
+        msg.style.opacity = "0.3";
+        clearInterval(fadeTimer);
+      }
+    }, 8000);
+  }
+
+  private getPlayerColor(name: string): string {
+    let hash = 0;
+    for (let i = 0; i < name.length; i++) {
+      hash = name.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    const colors = ["#ff6b6b", "#ffd93d", "#6bcb77", "#4d96ff", "#ff9f40", "#c77dff", "#48cae4", "#f72585"];
+    return colors[Math.abs(hash) % colors.length];
   }
 
   private esc(s: string) {

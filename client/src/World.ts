@@ -15,9 +15,11 @@ export class World {
   blocks: BlockMap = new Map();
   private chestInventory: Map<string, number[]> = new Map();
   private visibilityTimer = 0;
+  private modifications: Map<string, number> = new Map(); // Track player-modified blocks
 
   private noise2D  = createNoise2D();
   private noise2D2 = createNoise2D();
+  private biomeNoise = createNoise2D(); // For biome generation
   private blockGeo = new THREE.BoxGeometry(1, 1, 1);
 
   constructor(scene: THREE.Scene) {
@@ -36,14 +38,35 @@ export class World {
     ];
   }
 
+  // ── Biome system ──────────────────────────────────────────────────────────
+
+  private getBiome(x: number, z: number): number {
+    const b = this.biomeNoise(x * 0.005, z * 0.005); // very low frequency noise for biomes
+    if (b < -0.4) return 4; // ocean
+    if (b < -0.1) return 0; // plains
+    if (b < 0.2)  return 2; // forest
+    if (b < 0.5)  return 1; // desert
+    return 3; // mountains
+  }
+
   // ── Terrain height ─────────────────────────────────────────────────────────
 
   private getHeight(wx: number, wz: number): number {
+    const biome = this.getBiome(wx, wz);
     const n1 = this.noise2D(wx * 0.035, wz * 0.035);
     const n2 = this.noise2D(wx * 0.09,  wz * 0.09)  * 0.35;
     const n3 = this.noise2D(wx * 0.018, wz * 0.018) * 0.65;
     const n  = (n1 + n2 + n3) / 2;
-    return Math.floor(SEA_LEVEL + n * 11);
+
+    // Adjust height range based on biome
+    let height = 0;
+    if (biome === 0) height = Math.floor(SEA_LEVEL + n * 5); // plains: 10-14
+    else if (biome === 1) height = Math.floor(SEA_LEVEL - 2 + n * 4); // desert: 8-12
+    else if (biome === 2) height = Math.floor(SEA_LEVEL + n * 8); // forest: 12-18
+    else if (biome === 3) height = Math.floor(SEA_LEVEL + 4 + n * 15); // mountains: 20-35
+    else if (biome === 4) height = Math.floor(SEA_LEVEL - 3 + n * 3); // ocean: 5-8
+
+    return height;
   }
 
   private getCaveNoise(x: number, y: number, z: number): number {
@@ -98,20 +121,34 @@ export class World {
         const wx = cx * CHUNK_SIZE + lx;
         const wz = cz * CHUNK_SIZE + lz;
         const h  = this.getHeight(wx, wz);
+        const biome = this.getBiome(wx, wz);
 
         for (let y = 0; y <= h; y++) {
           // Cave carving
           if (y > 0 && y < h - 1 && this.getCaveNoise(wx, y, wz) > 0.55) continue;
 
           let type: number;
-          if      (y === h)         type = 1;  // grass
-          else if (y >= h - 3)      type = 2;  // dirt
-          else if (y <= 3)          type = 18; // obsidian near bedrock
-          else                      type = 3;  // stone
 
-          // Biome-like variation
-          if (y === h && h <= SEA_LEVEL + 1) type = 4; // sand beach
-          if (y === h && h >= SEA_LEVEL + 9) type = 20; // snow peaks
+          // Biome-specific terrain
+          if (biome === 1) { // Desert
+            if (y === h) type = 4; // sand
+            else if (y >= h - 2) type = 4; // sand
+            else if (y <= 3) type = 18; // obsidian near bedrock
+            else type = 49; // sandstone
+          } else if (biome === 3) { // Mountains
+            if (y === h) type = (h > 28) ? 20 : 1; // snow above y=28, else grass
+            else if (y >= h - 2) type = 2; // dirt
+            else if (y <= 3) type = 18; // obsidian near bedrock
+            else type = 3; // stone
+          } else if (biome === 4) { // Ocean
+            if (y <= 3) type = 18; // obsidian near bedrock
+            else type = 3; // stone
+          } else { // Plains, Forest
+            if (y === h) type = 1; // grass
+            else if (y >= h - 3) type = 2; // dirt
+            else if (y <= 3) type = 18; // obsidian near bedrock
+            else type = 3; // stone
+          }
 
           // Ore pockets in stone
           if (type === 3) {
@@ -127,7 +164,7 @@ export class World {
           this.placeBlock(wx, y, wz, type, false);
         }
 
-        // Water fill
+        // Water fill (all biomes)
         if (h < SEA_LEVEL) {
           for (let y = h + 1; y <= SEA_LEVEL; y++) {
             this.placeBlock(wx, y, wz, 7, false);
@@ -143,18 +180,40 @@ export class World {
           }
         }
 
-        // Trees (only on regular grass, not snow)
-        if (h > SEA_LEVEL && h < SEA_LEVEL + 9 && Math.random() < 0.018) {
-          this.placeTree(wx, h + 1, wz);
+        // Decoration based on biome
+        if (biome === 0) { // Plains
+          // Occasional flowers
+          if (h > SEA_LEVEL && h < SEA_LEVEL + 9 && Math.random() < 0.04) {
+            this.placeBlock(wx, h + 1, wz, 51, false);
+          }
+          // Occasional trees
+          if (h > SEA_LEVEL && h < SEA_LEVEL + 9 && Math.random() < 0.015) {
+            this.placeTree(wx, h + 1, wz);
+          }
+        } else if (biome === 1) { // Desert
+          // Cacti and dead bushes, no water
+          if (h > SEA_LEVEL && Math.random() < 0.06) {
+            if (Math.random() < 0.5) {
+              this.placeBlock(wx, h + 1, wz, 50, false);
+            } else {
+              this.placeBlock(wx, h + 1, wz, 52, false);
+            }
+          }
+        } else if (biome === 2) { // Forest
+          // Higher tree density (25% vs 5%)
+          if (h > SEA_LEVEL && h < SEA_LEVEL + 9 && Math.random() < 0.08) {
+            this.placeTree(wx, h + 1, wz);
+          }
+          // Occasional flowers
+          if (h > SEA_LEVEL && h < SEA_LEVEL + 9 && Math.random() < 0.05) {
+            this.placeBlock(wx, h + 1, wz, 51, false);
+          }
+        } else if (biome === 3) { // Mountains
+          // Rock formations
+          if (h > SEA_LEVEL + 5 && Math.random() < 0.03) {
+            this.placeRocks(wx, h + 1, wz);
+          }
         }
-
-        // Rock formations
-        if (h > SEA_LEVEL + 2 && Math.random() < 0.02) {
-          this.placeRocks(wx, h + 1, wz);
-        }
-
-        // Tall grass / flowers (decorative, non-solid ignored in physics)
-        // (skipped for now — would need billboard geometry)
       }
     }
   }
@@ -203,6 +262,11 @@ export class World {
     mesh.receiveShadow = true;
     this.scene.add(mesh);
     this.blocks.set(k, { mesh, type });
+
+    // Track player modification (not terrain generation)
+    if (overwrite) {
+      this.modifications.set(k, type);
+    }
   }
 
   removeBlock(x: number, y: number, z: number): boolean {
@@ -212,6 +276,10 @@ export class World {
     this.scene.remove(entry.mesh);
     this.disposeMesh(entry.mesh);
     this.blocks.delete(k);
+
+    // Track removal as modification with type 0
+    this.modifications.set(k, 0);
+
     return true;
   }
 
@@ -443,6 +511,41 @@ export class World {
       if (i > 0) {
         this.removeBlock(stairX, stairY - 1, stairZ);
       }
+    }
+  }
+
+  // ── Save/Load system ──────────────────────────────────────────────────────
+
+  saveToStorage(): void {
+    // Serialize all modifications to a compact format
+    const mods: Record<string, number> = {};
+    for (const [key, type] of this.modifications.entries()) {
+      mods[key] = type;
+    }
+    const data = JSON.stringify({ version: 1, mods });
+    try {
+      localStorage.setItem("mc_world_save", data);
+    } catch (e) {
+      console.warn("Save failed:", e);
+    }
+  }
+
+  loadFromStorage(): void {
+    try {
+      const raw = localStorage.getItem("mc_world_save");
+      if (!raw) return;
+      const data = JSON.parse(raw);
+      if (data.version !== 1) return;
+      for (const [key, type] of Object.entries(data.mods as Record<string, number>)) {
+        const [x, y, z] = key.split(",").map(Number);
+        if (type === 0) {
+          this.removeBlock(x, y, z);
+        } else {
+          this.placeBlock(x, y, z, type, true);
+        }
+      }
+    } catch (e) {
+      console.warn("Load failed:", e);
     }
   }
 }

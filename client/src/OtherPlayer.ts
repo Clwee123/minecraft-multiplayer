@@ -110,19 +110,42 @@ export class OtherPlayer {
     const canvas = document.createElement("canvas");
     canvas.width = 256; canvas.height = 56;
     const ctx = canvas.getContext("2d")!;
+
+    // Get player color from name hash
+    const playerColor = this.getPlayerColor(name);
+
+    // Draw rounded background
     ctx.fillStyle = "rgba(0,0,0,0.55)";
     (ctx as any).roundRect(4, 8, 248, 42, 6);
     ctx.fill();
-    ctx.fillStyle = "#ffffff";
+
+    // Draw border in player color
+    ctx.strokeStyle = playerColor;
+    ctx.lineWidth = 3;
+    (ctx as any).roundRect(4, 8, 248, 42, 6);
+    ctx.stroke();
+
+    // Draw text in player color
+    ctx.fillStyle = playerColor;
     ctx.font = "bold 26px Arial";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillText(name.slice(0, 16), 128, 30);
+
     const tex = new THREE.CanvasTexture(canvas);
     const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false });
     const s = new THREE.Sprite(mat);
     s.scale.set(1.6, 0.35, 1);
     return s;
+  }
+
+  private getPlayerColor(name: string): string {
+    let hash = 0;
+    for (let i = 0; i < name.length; i++) {
+      hash = name.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    const colors = ["#ff6b6b", "#ffd93d", "#6bcb77", "#4d96ff", "#ff9f40", "#c77dff", "#48cae4", "#f72585"];
+    return colors[Math.abs(hash) % colors.length];
   }
 
   private makeHealthBar(): THREE.Sprite {

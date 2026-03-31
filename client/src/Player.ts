@@ -16,6 +16,7 @@ export type GameMode = "survival" | "creative";
 export class Player {
   camera: THREE.PerspectiveCamera;
   private world: World;
+  private scene: THREE.Scene;
 
   position    = new THREE.Vector3(0, 30, 0);
   velocity    = new THREE.Vector3();
@@ -47,6 +48,11 @@ export class Player {
   private raycaster = new THREE.Raycaster();
   highlightMesh: THREE.Mesh;
 
+  // Block breaking animation
+  private breakProgress = 0;
+  private breakTarget: {x: number; y: number; z: number} | null = null;
+  private breakIndicator: THREE.Mesh | null = null;
+
   // 3rd-person self model
   private selfModel: THREE.Group | null = null;
   private selfHead:  THREE.Group | null = null;
@@ -70,6 +76,7 @@ export class Player {
   constructor(camera: THREE.PerspectiveCamera, world: World, scene: THREE.Scene) {
     this.camera = camera;
     this.world  = world;
+    this.scene  = scene;
 
     const geo = new THREE.BoxGeometry(1.02, 1.02, 1.02);
     const mat = new THREE.MeshBasicMaterial({
@@ -163,8 +170,20 @@ export class Player {
     });
     document.addEventListener("mousedown", e => {
       if (!this.locked) return;
-      if (e.button === 0) this.breakBlock();
+      if (e.button === 0) {
+        if (this.gameMode === "creative") {
+          this.breakBlock();
+        } else {
+          // Survival: start breaking animation
+          this.startBreaking();
+        }
+      }
       if (e.button === 2) this.placeBlock();
+    });
+    document.addEventListener("mouseup", e => {
+      if (e.button === 0) {
+        this.stopBreaking();
+      }
     });
     document.addEventListener("contextmenu", e => e.preventDefault());
     document.addEventListener("pointerlockchange", () => {
@@ -212,6 +231,65 @@ export class Player {
     this.onBreakBlock?.(bx, by, bz);
   }
 
+  private startBreaking() {
+    const hit = this.raycast();
+    if (!hit) return;
+    const pos = hit.point.clone().sub(hit.face!.normal.clone().multiplyScalar(0.1));
+    const bx = Math.round(pos.x), by = Math.round(pos.y), bz = Math.round(pos.z);
+
+    this.breakTarget = { x: bx, y: by, z: bz };
+    this.breakProgress = 0;
+
+    // Create break indicator mesh if not exists
+    if (!this.breakIndicator) {
+      const geo = new THREE.BoxGeometry(1.02, 1.02, 1.02);
+      const mat = new THREE.MeshBasicMaterial({
+        color: 0x000000,
+        wireframe: true,
+        transparent: true,
+        opacity: 0.6,
+      });
+      this.breakIndicator = new THREE.Mesh(geo, mat);
+      this.scene.add(this.breakIndicator);
+    }
+    this.breakIndicator.position.set(bx, by, bz);
+    this.breakIndicator.visible = true;
+  }
+
+  private stopBreaking() {
+    this.breakProgress = 0;
+    this.breakTarget = null;
+    if (this.breakIndicator) {
+      this.breakIndicator.visible = false;
+    }
+  }
+
+  private updateBreaking(dt: number) {
+    if (!this.breakTarget || this.gameMode === "creative") return;
+
+    // Check if target block still exists
+    if (!this.world.hasBlock(this.breakTarget.x, this.breakTarget.y, this.breakTarget.z)) {
+      this.stopBreaking();
+      return;
+    }
+
+    // Only update while left button is held (breakProgress won't advance if we've stopped)
+    this.breakProgress += dt / 0.5; // 0.5 second to break most blocks
+
+    if (this.breakProgress >= 1.0) {
+      // Break the block
+      this.world.removeBlock(this.breakTarget.x, this.breakTarget.y, this.breakTarget.z);
+      this.onBreakBlock?.(this.breakTarget.x, this.breakTarget.y, this.breakTarget.z);
+      this.stopBreaking();
+    }
+
+    // Update indicator color based on progress
+    if (this.breakIndicator) {
+      const opacity = 0.3 + this.breakProgress * 0.4;
+      (this.breakIndicator.material as THREE.MeshBasicMaterial).opacity = opacity;
+    }
+  }
+
   private placeBlock() {
     // Call special right-click handler first (for fishing rod, etc.)
     this.onRightClick?.();
@@ -247,6 +325,7 @@ export class Player {
     this.updateCamera();
     this.updateHighlight();
     this.updateSelfModel(dt);
+    this.updateBreaking(dt);
   }
 
   // ── Physics ────────────────────────────────────────────────────────────────
