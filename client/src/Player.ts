@@ -378,8 +378,8 @@ export class Player {
     const blockX = Math.floor(this.position.x);
     const blockY = Math.floor(this.position.y - EYE_HEIGHT + PLAYER_H / 2);
     const blockZ = Math.floor(this.position.z);
-    const currentBlock = this.world.getBlock(blockX, blockY, blockZ);
-    this.inWater = currentBlock && currentBlock.type === 7;
+    // Use getBlockType (O(1), no {type} object allocation)
+    this.inWater = this.world.getBlockType(blockX, blockY, blockZ) === 7;
 
     // Swimming physics
     if (this.inWater) {
@@ -593,9 +593,11 @@ export class Player {
     this.selfModel.rotation.y = this.yaw + Math.PI;
     if (this.selfHead) this.selfHead.rotation.x = this.pitch * 0.7;
 
-    const cur  = new THREE.Vector2(this.position.x, this.position.z);
-    const spd  = cur.distanceTo(this.prevXZ) / dt;
-    this.prevXZ.copy(cur);
+    // Avoid new Vector2 per frame — compute distance with plain math
+    const _pdx = this.position.x - this.prevXZ.x;
+    const _pdz = this.position.z - this.prevXZ.y;
+    const spd  = Math.sqrt(_pdx * _pdx + _pdz * _pdz) / dt;
+    this.prevXZ.set(this.position.x, this.position.z);
 
     if (spd > 0.3) this.walkCycle += dt * Math.min(spd, 8) * 1.8;
     else            this.walkCycle *= 0.85;

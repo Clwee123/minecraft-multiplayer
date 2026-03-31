@@ -1353,9 +1353,9 @@ function animate() {
       const bx = Math.round(fishingBobber.mesh.position.x);
       const by = Math.round(fishingBobber.mesh.position.y);
       const bz = Math.round(fishingBobber.mesh.position.z);
-      const block = world.getBlock(bx, by, bz);
+      const _btype = world.getBlockType(bx, by, bz);
 
-      if (block && block.type === 7 && !fishingBobber.inWater) {
+      if (_btype === 7 && !fishingBobber.inWater) {
         // Hit water - stop and bob
         fishingBobber.inWater = true;
         fishingBobber.vel.set(0, 0, 0);
