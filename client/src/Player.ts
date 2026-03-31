@@ -34,8 +34,8 @@ export class Player {
   private _lastHitFrame = -1;
   private _frameCount   = 0;
 
-  health      = 20;
-  maxHealth   = 20;
+  health      = 40;
+  maxHealth   = 40;
   invincible  = 0;
   armor       = 0;
 
@@ -231,7 +231,7 @@ export class Player {
     if (this.invincible > 0) return;
     const reducedDamage = amount * (1 - this.armor / 20);
     this.health = Math.max(0, this.health - reducedDamage);
-    this.invincible = 1.0; // increased from 0.5s → 1.0s grace window between hits
+    this.invincible = 2.0; // 2.0s grace window between hits
     this.onHealthChanged?.(this.health);
     if (this.health <= 0) this.onDied?.();
   }

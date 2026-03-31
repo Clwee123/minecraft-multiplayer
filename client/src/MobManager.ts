@@ -231,7 +231,7 @@ export class MobManager {
 
       if (dx * dx + dy * dy + dz * dz < 0.64) { // 0.8^2 = 0.64
         // Arrow hit player
-        this.cb.onPlayerDamage(3);
+        this.cb.onPlayerDamage(1); // arrow: 3→1
         this.scene.remove(arrow.mesh);
         this.arrows.splice(i, 1);
       } else if (arrow.life <= 0) {
@@ -414,8 +414,8 @@ export class MobManager {
 
       // Attack player — use per-mob hitCooldown so multiple zombies don't stack instantly
       if (playerDistSq < 3.24 && lm.hitCooldown <= 0) { // 1.8^2=3.24
-        this.cb.onPlayerDamage(2);
-        lm.hitCooldown = 2.0; // 2s between hits per zombie
+        this.cb.onPlayerDamage(1); // zombie melee: 2→1
+        lm.hitCooldown = 2.5; // 2.5s between hits per zombie
       }
     } else {
       this.animalAI(lm, dt, playerDistSq, dx, dz, 1.5);
@@ -474,7 +474,7 @@ export class MobManager {
     const dy = playerPos.y - d.y;
     const dz = playerPos.z - d.z;
     if (dx * dx + dy * dy + dz * dz < DAMAGE_RADIUS * DAMAGE_RADIUS) {
-      this.cb.onPlayerDamage(6); // Creeper explosion: reduced from 8 → 6
+      this.cb.onPlayerDamage(4); // Creeper: 6→4
     }
 
     // Trigger explosion callback
@@ -551,7 +551,7 @@ export class MobManager {
 
       // Melee attack if close — per-mob cooldown
       if (playerDistSq < ATTACK_SQ && lm.hitCooldown <= 0) {
-        this.cb.onPlayerDamage(4); // Wither skeleton: reduced from 5 → 4
+        this.cb.onPlayerDamage(2); // Wither skeleton: 4→2
         lm.hitCooldown = 2.5;
         // Wave 9: Apply wither effect
         this.cb.onWitherEffect?.();
@@ -630,7 +630,7 @@ export class MobManager {
 
       // Deal damage if close enough
       if (_ddx*_ddx + _ddz*_ddz < 16) { // 4^2 = 16
-        this.cb.onPlayerDamage(5);
+        this.cb.onPlayerDamage(3); // Dragon: 5→3
         d.state = "circling";
         (lm as any).dragonTimer = 0;
       }
@@ -681,8 +681,8 @@ export class MobManager {
 
       // Attack player — per-mob cooldown
       if (playerDistSq < 2.25 && lm.hitCooldown <= 0) { // 1.5^2=2.25
-        this.cb.onPlayerDamage(2);
-        lm.hitCooldown = 2.0;
+        this.cb.onPlayerDamage(1); // spider/skeleton melee: 2→1
+        lm.hitCooldown = 2.5;
       }
     } else {
       // Idle/wander
@@ -833,7 +833,7 @@ export class MobManager {
 
       // Check if we hit the player — per-mob hitCooldown
       if (distSq < 1 && d.y <= playerPos.y + 1 && lm.hitCooldown <= 0) { // 1^2=1
-        this.cb.onPlayerDamage(2);
+        this.cb.onPlayerDamage(1); // phantom swoop: 2→1
         lm.hitCooldown = 3.0; // phantom can only swoop-hit every 3s
         d.state = "ascending";
         lm.timer = 5; // Go back up
@@ -891,7 +891,7 @@ export class MobManager {
 
     // Check if landing on player — per-mob hitCooldown prevents rapid-fire hits
     if (lm.velY < 0 && playerDistSq < 4 && lm.hitCooldown <= 0) { // 2^2=4
-      this.cb.onPlayerDamage(2);
+      this.cb.onPlayerDamage(1); // slime: 2→1
       lm.hitCooldown = 1.5;
     }
   }

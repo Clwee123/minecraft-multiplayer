@@ -12,7 +12,7 @@ export class PlayerState extends Schema {
   @type("float32") rotY: number = 0;
   @type("float32") rotX: number = 0;
   @type("boolean") onGround: boolean = false;
-  @type("uint8")   health: number = 20;
+  @type("uint8")   health: number = 40;
   @type("string")  gameMode: string = "survival";
 }
 
@@ -123,7 +123,7 @@ export class GameRoom extends Room<GameState> {
     this.onMessage("playerRespawn", (client) => {
       const p = this.state.players.get(client.sessionId);
       if (!p) return;
-      p.health = 20;
+      p.health = 40;
       // Spawn high enough so client physics lands player on surface safely
       p.x = (Math.random() - 0.5) * 6;
       p.y = 42;  // client will fall to ground naturally

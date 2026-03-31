@@ -1012,6 +1012,26 @@ async function startGame(name: string) {
     }
   });
 
+  // F4 key to toggle spectator mode
+  document.addEventListener("keydown", e => {
+    if (e.key === "F4" || e.key === "f4") {
+      e.preventDefault();
+      if (player.gameMode === "spectator") {
+        player.setGameMode("survival");
+        ui.setGameMode("survival");
+        hunger = maxHunger;
+        ui.updateHunger(hunger, maxHunger);
+        ui.addChatMessage("", "Returned to Survival mode", true);
+        mp?.sendGameMode("survival");
+      } else {
+        player.setGameMode("spectator");
+        ui.setGameMode("spectator");
+        ui.addChatMessage("", "Spectator mode — fly freely, no collisions, no damage (F4 to exit)", true);
+        mp?.sendGameMode("spectator");
+      }
+    }
+  });
+
   // Wave 9/10: E key for lever and furnace interaction
   document.addEventListener("keydown", e => {
     if ((e.key === "e" || e.key === "E") && hud.style.display !== "none") {
