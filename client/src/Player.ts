@@ -28,6 +28,7 @@ export class Player {
   private _right    = new THREE.Vector3();
   private _move     = new THREE.Vector3();
   private _rayDir   = new THREE.Vector3();
+  private _highlightVec = new THREE.Vector3(); // reused in updateHighlight
   // Cache last raycast result so updateHighlight doesn't re-raycast
   private _lastHit: ReturnType<World["raycastBlock"]> = null;
   private _lastHitFrame = -1;
@@ -329,15 +330,15 @@ export class Player {
     this.onPlaceBlock?.(bx, by, bz, this.selectedBlockType);
   }
 
+  // Reusable intersection object to avoid per-frame allocation
+  private _hitPoint  = new THREE.Vector3();
+  private _hitNormal = new THREE.Vector3();
+  private _hitResult = { point: null as any, face: { normal: null as any } } as any;
+
   private raycast(): THREE.Intersection | null {
     // Cache result per frame — avoid re-raycasting multiple times per update tick
     if (this._lastHitFrame === this._frameCount) {
-      if (!this._lastHit) return null;
-      const h = this._lastHit;
-      return {
-        point: new THREE.Vector3(h.x + 0.5, h.y + 0.5, h.z + 0.5),
-        face: { normal: h.face.clone().normalize() },
-      } as any;
+      return this._lastHit ? this._hitResult : null;
     }
 
     // Reuse pre-allocated ray direction vector
@@ -347,10 +348,13 @@ export class Player {
     this._lastHitFrame = this._frameCount;
 
     if (!hit) return null;
-    return {
-      point: new THREE.Vector3(hit.x + 0.5, hit.y + 0.5, hit.z + 0.5),
-      face: { normal: hit.face.clone().normalize() },
-    } as any;
+
+    // Fill reusable result — zero allocation
+    this._hitPoint.set(hit.x + 0.5, hit.y + 0.5, hit.z + 0.5);
+    this._hitNormal.copy(hit.face).normalize();
+    this._hitResult.point = this._hitPoint;
+    this._hitResult.face.normal = this._hitNormal;
+    return this._hitResult;
   }
 
   // ── Main update ────────────────────────────────────────────────────────────
@@ -609,8 +613,13 @@ export class Player {
   private updateHighlight() {
     const hit = this.raycast();
     if (hit) {
-      const pos = hit.point.clone().sub(hit.face!.normal.clone().multiplyScalar(0.1));
-      this.highlightMesh.position.set(Math.round(pos.x), Math.round(pos.y), Math.round(pos.z));
+      // Use pre-allocated vec — no heap allocation
+      this._highlightVec.copy(hit.point).addScaledVector(hit.face!.normal, -0.1);
+      this.highlightMesh.position.set(
+        Math.round(this._highlightVec.x),
+        Math.round(this._highlightVec.y),
+        Math.round(this._highlightVec.z),
+      );
       this.highlightMesh.visible = true;
     } else {
       this.highlightMesh.visible = false;
