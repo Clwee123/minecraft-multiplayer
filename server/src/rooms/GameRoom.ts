@@ -97,7 +97,7 @@ export class GameRoom extends Room<GameState> {
     this.onMessage("setGameMode", (client, data: any) => {
       const p = this.state.players.get(client.sessionId);
       if (!p) return;
-      if (data.mode === "creative" || data.mode === "survival") {
+      if (data.mode === "creative" || data.mode === "survival" || data.mode === "spectator") {
         p.gameMode = data.mode;
         this.broadcast("chat", {
           name: "Server",
@@ -240,8 +240,8 @@ export class GameRoom extends Room<GameState> {
         mob.x   += Math.sin(angle) * speed * dt;
         mob.z   += Math.cos(angle) * speed * dt;
 
-        // Attack
-        if (nearestDist < 1.8 && nearestPlayer.gameMode !== "creative") {
+        // Attack — skip creative and spectator players
+        if (nearestDist < 1.8 && nearestPlayer.gameMode !== "creative" && nearestPlayer.gameMode !== "spectator") {
           nearestPlayer.health = Math.max(0, nearestPlayer.health - 1) as any;
           if (nearestPlayer.health <= 0) {
             this.broadcast("playerDied", { id: nearestPlayer.id, name: nearestPlayer.name });
