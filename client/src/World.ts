@@ -22,6 +22,14 @@ export class World {
   private biomeNoise = createNoise2D(); // For biome generation
   private blockGeo = new THREE.BoxGeometry(1, 1, 1);
 
+  // Wave 9: Torch lights system
+  torchLights: Map<string, THREE.PointLight> = new Map();
+  private torchLightQueue: string[] = []; // Queue for LRU eviction
+
+  // Wave 9: Redstone system
+  redstoneState: Map<string, boolean> = new Map();
+  redstoneLoights: Map<string, THREE.PointLight> = new Map(); // Lights for redstone lamps
+
   constructor(scene: THREE.Scene) {
     this.scene = scene;
     this.generateTerrain();
@@ -76,6 +84,17 @@ export class World {
     return (n1 + n2) / 2;
   }
 
+  private getRiverNoise(x: number, z: number): number {
+    // Low frequency noise for rivers
+    return this.noise2D(x * 0.02, z * 0.02);
+  }
+
+  private isRiver(x: number, z: number): boolean {
+    // Rivers are thin channels where noise is near 0
+    const n = this.getRiverNoise(x, z);
+    return n > -0.03 && n < 0.03;
+  }
+
   // ── Mesh factory ───────────────────────────────────────────────────────────
 
   private makeFacedMesh(type: number): THREE.Mesh {
@@ -123,14 +142,19 @@ export class World {
         const h  = this.getHeight(wx, wz);
         const biome = this.getBiome(wx, wz);
 
+        // Wave 9: Check if this column is a river
+        const isRiver = this.isRiver(wx, wz);
+
         for (let y = 0; y <= h; y++) {
           // Cave carving
           if (y > 0 && y < h - 1 && this.getCaveNoise(wx, y, wz) > 0.55) continue;
 
           let type: number;
 
-          // Biome-specific terrain
-          if (biome === 1) { // Desert
+          // Wave 9: River channels at y=10
+          if (isRiver && y === 10 && h < SEA_LEVEL + 2) {
+            type = 7; // water for rivers
+          } else if (biome === 1) { // Desert
             if (y === h) type = 4; // sand
             else if (y >= h - 2) type = 4; // sand
             else if (y <= 3) type = 18; // obsidian near bedrock
@@ -150,12 +174,15 @@ export class World {
             else type = 3; // stone
           }
 
-          // Ore pockets in stone
+          // Wave 9: Enhanced ore distribution
           if (type === 3) {
             const r = Math.random();
-            if (r < 0.005 && y < 20)  type = 13; // gold ore
-            else if (r < 0.015)        type = 14; // iron ore
-            else if (r < 0.025)        type = 15; // coal ore
+            if (r < 0.001 && y < 8)     type = 61; // diamond ore (rare, deep)
+            else if (r < 0.006 && y < 12)  type = 13; // gold ore
+            else if (r < 0.02 && y < 20)   type = 14; // iron ore
+            else if (r < 0.03)             type = 15; // coal ore
+            // Wave 9: Glowstone in caves
+            else if (r < 0.008 && y <= 5 && Math.random() < 0.3) type = 19; // glowstone deep underground
           }
 
           // Occasional gravel patches in stone
@@ -560,6 +587,164 @@ export class World {
       }
     } catch (e) {
       console.warn("Load failed:", e);
+    }
+  }
+
+  // ── Wave 9: Torch Lights ──────────────────────────────────────────────────
+
+  addTorchLight(x: number, y: number, z: number) {
+    const MAX_TORCH_LIGHTS = 50;
+    const key = `${x},${y},${z}`;
+
+    // Avoid duplicates
+    if (this.torchLights.has(key)) return;
+
+    // Create light
+    const light = new THREE.PointLight(0xffaa44, 1.5, 8);
+    light.position.set(x, y, z);
+    light.castShadow = false;
+    this.scene.add(light);
+
+    this.torchLights.set(key, light);
+    this.torchLightQueue.push(key);
+
+    // Enforce max lights (LRU eviction)
+    while (this.torchLightQueue.length > MAX_TORCH_LIGHTS) {
+      const oldestKey = this.torchLightQueue.shift();
+      if (oldestKey) {
+        const oldLight = this.torchLights.get(oldestKey);
+        if (oldLight) {
+          this.scene.remove(oldLight);
+          this.torchLights.delete(oldestKey);
+        }
+      }
+    }
+  }
+
+  removeTorchLight(x: number, y: number, z: number) {
+    const key = `${x},${y},${z}`;
+    const light = this.torchLights.get(key);
+    if (light) {
+      this.scene.remove(light);
+      this.torchLights.delete(key);
+      const idx = this.torchLightQueue.indexOf(key);
+      if (idx >= 0) this.torchLightQueue.splice(idx, 1);
+    }
+  }
+
+  // ── Wave 9: Redstone System ───────────────────────────────────────────────
+
+  checkPressurePlate(playerPos: THREE.Vector3): void {
+    // Check if player is on a pressure plate (within 0.7 blocks)
+    const px = Math.floor(playerPos.x);
+    const py = Math.floor(playerPos.y - 0.1);
+    const pz = Math.floor(playerPos.z);
+
+    const block = this.getBlock(px, py, pz);
+    if (block && block.type === 57) {
+      // Pressure plate activated
+      this.activateLamp(px, py, pz);
+      // Also open nearby doors (future feature)
+    }
+  }
+
+  toggleLever(x: number, y: number, z: number): void {
+    const key = `${x},${y},${z}`;
+    const currentState = this.redstoneState.get(key) ?? false;
+    const newState = !currentState;
+    this.redstoneState.set(key, newState);
+
+    if (newState) {
+      // Activate nearby lamps
+      for (let dx = -4; dx <= 4; dx++) {
+        for (let dy = -4; dy <= 4; dy++) {
+          for (let dz = -4; dz <= 4; dz++) {
+            const block = this.getBlock(x + dx, y + dy, z + dz);
+            if (block && block.type === 59) {
+              this.activateLamp(x + dx, y + dy, z + dz);
+            }
+          }
+        }
+      }
+    } else {
+      // Deactivate nearby lamps
+      for (let dx = -4; dx <= 4; dx++) {
+        for (let dy = -4; dy <= 4; dy++) {
+          for (let dz = -4; dz <= 4; dz++) {
+            const block = this.getBlock(x + dx, y + dy, z + dz);
+            if (block && block.type === 59) {
+              this.deactivateLamp(x + dx, y + dy, z + dz);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  activateLamp(x: number, y: number, z: number): void {
+    const key = `${x},${y},${z}`;
+    const block = this.getBlock(x, y, z);
+    if (!block || block.type !== 59) return;
+
+    const lampState = this.redstoneState.get(key) ?? false;
+    if (lampState) return; // Already on
+
+    this.redstoneState.set(key, true);
+
+    // Update mesh color and add light
+    const mesh = block.mesh;
+    if (mesh.material instanceof THREE.Material) {
+      const mat = mesh.material as THREE.MeshLambertMaterial;
+      mat.color.setHex(0xff8800);
+      mat.emissive.setHex(0xff6600);
+      mat.emissiveIntensity = 0.8;
+    }
+
+    // Create light if not already there
+    if (!this.redstoneLoights.has(key)) {
+      const light = new THREE.PointLight(0xff6600, 1.2, 6);
+      light.position.set(x, y, z);
+      this.scene.add(light);
+      this.redstoneLoights.set(key, light);
+    }
+  }
+
+  deactivateLamp(x: number, y: number, z: number): void {
+    const key = `${x},${y},${z}`;
+    const block = this.getBlock(x, y, z);
+    if (!block || block.type !== 59) return;
+
+    const lampState = this.redstoneState.get(key) ?? false;
+    if (!lampState) return; // Already off
+
+    this.redstoneState.set(key, false);
+
+    // Update mesh color
+    const mesh = block.mesh;
+    if (mesh.material instanceof THREE.Material) {
+      const mat = mesh.material as THREE.MeshLambertMaterial;
+      mat.color.setHex(0xff2200);
+      mat.emissive.setHex(0x000000);
+      mat.emissiveIntensity = 0;
+    }
+
+    // Remove light
+    const light = this.redstoneLoights.get(key);
+    if (light) {
+      this.scene.remove(light);
+      this.redstoneLoights.delete(key);
+    }
+  }
+
+  // ── Wave 9: Enhanced World Generation ──────────────────────────────────
+
+  // Scan for torch blocks and create lights (called after loading)
+  initializeTorchLights() {
+    for (const [key, blockData] of this.blocks.entries()) {
+      if (blockData.type === 56) {
+        const [x, y, z] = key.split(",").map(Number);
+        this.addTorchLight(x, y + 0.5, z);
+      }
     }
   }
 }

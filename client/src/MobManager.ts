@@ -30,6 +30,7 @@ export interface MobCallbacks {
   onPlayerDamage: (amount: number) => void;
   getPlayerPos:   () => THREE.Vector3;
   onExplosion:    (x: number, y: number, z: number, radius: number) => void;
+  onWitherEffect?: () => void; // Wave 9: Apply wither effect
 }
 
 export class MobManager {
@@ -54,7 +55,7 @@ export class MobManager {
 
   spawnMob(type: MobType, x: number, y: number, z: number, id?: string): Mob {
     const mobId    = id ?? uid();
-    const maxHp    = type === "zombie" ? 20 : type === "creeper" ? 20 : type === "skeleton" ? 20 : type === "chicken" ? 4 : type === "cow" ? 16 : type === "sheep" ? 12 : type === "horse" ? 30 : type === "villager" ? 20 : type === "enderdragon" ? 200 : type === "spider" ? 16 : 10;
+    const maxHp    = type === "zombie" ? 20 : type === "creeper" ? 20 : type === "skeleton" ? 20 : type === "witherskeleton" ? 40 : type === "chicken" ? 4 : type === "cow" ? 16 : type === "sheep" ? 12 : type === "horse" ? 30 : type === "villager" ? 20 : type === "enderdragon" ? 200 : type === "spider" ? 16 : 10;
     const data: MobData = {
       id: mobId, type, x, y, z,
       rotY:      rnd(0, Math.PI * 2),
@@ -78,7 +79,7 @@ export class MobManager {
                    ? (this.world as any).getSurfaceHeight(Math.floor(x), Math.floor(z)) + 1.5
                    : 20;
     const roll   = Math.random();
-    const type: MobType = roll < 0.22 ? "pig" : roll < 0.35 ? "chicken" : roll < 0.48 ? "cow" : roll < 0.60 ? "sheep" : roll < 0.70 ? "horse" : roll < 0.78 ? "zombie" : roll < 0.86 ? "creeper" : roll < 0.94 ? "spider" : "skeleton";
+    const type: MobType = roll < 0.22 ? "pig" : roll < 0.35 ? "chicken" : roll < 0.48 ? "cow" : roll < 0.60 ? "sheep" : roll < 0.70 ? "horse" : roll < 0.78 ? "zombie" : roll < 0.86 ? "creeper" : roll < 0.94 ? "spider" : roll < 0.99 ? "skeleton" : "witherskeleton";
     this.spawnMob(type, x, y, z);
   }
 
@@ -242,6 +243,8 @@ export class MobManager {
         this.creeperAI(lm, dt, dist, playerPos);
       } else if (d.type === "skeleton") {
         this.skeletonAI(lm, dt, dist, dx2, dz2, playerPos);
+      } else if (d.type === "witherskeleton") {
+        this.witherskeletonAI(lm, dt, dist, dx2, dz2, playerPos);
       } else if (d.type === "spider") {
         this.spiderAI(lm, dt, dist, dx2, dz2, playerPos);
       }
@@ -464,6 +467,50 @@ export class MobManager {
       if (d.state === "walking") {
         d.x += Math.sin(d.rotY) * SPEED * dt;
         d.z += Math.cos(d.rotY) * SPEED * dt;
+      }
+    }
+  }
+
+  private witherskeletonAI(lm: LocalMob, dt: number, playerDist: number, dx: number, dz: number, playerPos: THREE.Vector3) {
+    const d = lm.data;
+    const SPEED = 4; // Fast melee attack
+    const ATTACK_RANGE = 2;
+    const DETECTION_RANGE = 20;
+    const ATTACK_COOLDOWN = 1;
+
+    lm.shootTimer = (lm.shootTimer ?? 0) - dt;
+
+    if (playerDist < DETECTION_RANGE) {
+      d.state = "chasing";
+      lm.aggro = true;
+
+      // Chase player
+      d.rotY = Math.atan2(dx, dz);
+      d.x += Math.sin(d.rotY) * SPEED * dt;
+      d.z += Math.cos(d.rotY) * SPEED * dt;
+
+      // Melee attack if close
+      if (playerDist < ATTACK_RANGE && lm.shootTimer <= 0) {
+        this.cb.onPlayerDamage(5); // More damage than skeleton
+        lm.shootTimer = ATTACK_COOLDOWN;
+        // Wave 9: Apply wither effect
+        this.cb.onWitherEffect?.();
+      }
+    } else if (playerDist > 25 && lm.timer <= 0) {
+      d.state = "idle";
+      lm.aggro = false;
+    }
+
+    if (d.state !== "chasing") {
+      // Idle/wander
+      if (lm.timer <= 0) {
+        d.state = Math.random() < 0.5 ? "walking" : "idle";
+        d.rotY = Math.random() * Math.PI * 2;
+        lm.timer = rnd(1.5, 4);
+      }
+      if (d.state === "walking") {
+        d.x += Math.sin(d.rotY) * SPEED * 0.5 * dt;
+        d.z += Math.cos(d.rotY) * SPEED * 0.5 * dt;
       }
     }
   }

@@ -66,10 +66,16 @@ export const BLOCK_TYPES: Record<number, {
   53: { name: "Packed Ice",     color: 0x9bcdff, transparent: true },
   54: { name: "Terracotta",     color: 0xaa6644 },
   55: { name: "Campfire",       color: 0xff6600, emissive: 0xff4400 },
+  56: { name: "Torch",          color: 0xffdd44, emissive: 0xff9900 },
+  57: { name: "Pressure Plate", color: 0xaaaaaa },
+  58: { name: "Lever",          color: 0x555555 },
+  59: { name: "Redstone Lamp",  color: 0xff2200, emissive: 0x000000 },
+  60: { name: "Map",            color: 0xddcc88 },
+  61: { name: "Diamond Ore",    color: 0x55ffee },
 };
 
 // Hotbar presets — what shows in the 8 hotbar slots by default
-export const HOTBAR_BLOCKS = [1, 3, 11, 4, 5, 10, 8, 9, 19, 18, 32, 33, 34, 39];
+export const HOTBAR_BLOCKS = [1, 3, 11, 4, 5, 10, 8, 9, 19, 18, 32, 33, 34, 39, 56, 60];
 
 export function getBlockName(type: number): string {
   return BLOCK_TYPES[type]?.name ?? "Unknown";

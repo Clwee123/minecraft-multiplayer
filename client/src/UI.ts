@@ -103,7 +103,7 @@ export class UI {
 
   // ── Hearts / health ───────────────────────────────────────────────────────
 
-  updateHearts(hp: number, maxHp: number) {
+  updateHearts(hp: number, maxHp: number, wither = false) {
     this.heartsEl.innerHTML = "";
     const total   = Math.ceil(maxHp / 2);
     const filled  = Math.floor(hp / 2);
@@ -112,9 +112,17 @@ export class UI {
     for (let i = 0; i < total; i++) {
       const h = document.createElement("div");
       h.className = "heart";
-      if (i < filled)          h.classList.add("full");
-      else if (i === filled && half) h.classList.add("half");
-      else                      h.classList.add("empty");
+      if (wither) {
+        // Wave 9: Gray hearts when withered
+        h.classList.add("wither");
+        if (i < filled)          h.classList.add("full");
+        else if (i === filled && half) h.classList.add("half");
+        else                      h.classList.add("empty");
+      } else {
+        if (i < filled)          h.classList.add("full");
+        else if (i === filled && half) h.classList.add("half");
+        else                      h.classList.add("empty");
+      }
       this.heartsEl.appendChild(h);
     }
 

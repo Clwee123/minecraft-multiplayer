@@ -281,6 +281,11 @@ const enchants = { sharpness: 0, protection: 0, speed: 0 };
 
 const potionEffects = { strength: 0, speed: 0 };
 
+// ── Wave 9: Wither Effect ─────────────────────────────────────────────────────
+
+let witherTimer = 0;
+const WITHER_DURATION = 5; // 5 seconds
+
 // ── Day/Night cycle tracking ──────────────────────────────────────────────────
 
 let prevDayTime = 0;
@@ -460,6 +465,8 @@ async function startGame(name: string) {
   // Load saved world if singleplayer
   if (isSingleplayer) {
     world.loadFromStorage();
+    // Wave 9: Initialize torch lights after loading
+    world.initializeTorchLights();
   }
 
   player.spawnAt(0, 0);
@@ -577,11 +584,25 @@ async function startGame(name: string) {
       return;
     }
 
+    // Wave 9: Remove torch lights
+    if (b.type === 56) {
+      world.removeTorchLight(x, y, z);
+    }
+    // Wave 9: Remove redstone lamp lights
+    if (b.type === 59) {
+      world.deactivateLamp(x, y, z);
+    }
+
     particles.burst(x, y, z, b.type);
     sounds.play("break");
     mp?.sendRemoveBlock(x, y, z);
   };
   player.onPlaceBlock = (x, y, z, t) => {
+    // Wave 9: Add torch lights
+    if (t === 56) {
+      world.addTorchLight(x, y + 0.5, z);
+    }
+
     sounds.play("place");
     mp?.sendAddBlock(x, y, z, t);
   };
@@ -808,6 +829,45 @@ async function startGame(name: string) {
     }
   });
 
+  // Wave 9: E key for lever interaction
+  document.addEventListener("keydown", e => {
+    if ((e.key === "e" || e.key === "E") && hud.style.display !== "none") {
+      // Check if looking at a lever within 2 blocks
+      const rayDir = new THREE.Vector3(0, 0, -1)
+        .applyAxisAngle(new THREE.Vector3(1, 0, 0), player.camera.rotation.x)
+        .applyAxisAngle(new THREE.Vector3(0, 1, 0), player.camera.rotation.y);
+
+      const raycaster = new THREE.Raycaster(player.position, rayDir);
+      raycaster.far = 2;
+
+      let leverPos: [number, number, number] | null = null;
+      for (let x = -2; x <= 2; x++) {
+        for (let y = -2; y <= 2; y++) {
+          for (let z = -2; z <= 2; z++) {
+            const bx = Math.floor(player.position.x) + x;
+            const by = Math.floor(player.position.y) + y;
+            const bz = Math.floor(player.position.z) + z;
+            const block = world.getBlock(bx, by, bz);
+            if (block && block.type === 58) {
+              const dist = player.position.distanceTo(new THREE.Vector3(bx + 0.5, by + 0.5, bz + 0.5));
+              if (dist <= 2) {
+                leverPos = [bx, by, bz];
+                break;
+              }
+            }
+          }
+          if (leverPos) break;
+        }
+        if (leverPos) break;
+      }
+
+      if (leverPos) {
+        world.toggleLever(leverPos[0], leverPos[1], leverPos[2]);
+        sounds.play("place"); // Use place sound for lever
+      }
+    }
+  });
+
   // Chat
   ui.onChat = (text) => {
     if (text.startsWith("/")) {
@@ -907,6 +967,10 @@ async function startGame(name: string) {
           renderer.domElement.style.filter = origFilter;
         }, 80);
       },
+      // Wave 9: Wither effect callback
+      onWitherEffect: () => {
+        witherTimer = WITHER_DURATION;
+      },
     }, true);
 
     for (let i = 0; i < 16; i++) mobManager.spawnRandom(0, 0);
@@ -963,6 +1027,10 @@ async function startGame(name: string) {
           renderer.domElement.style.filter = origFilter;
         }, 80);
       },
+      // Wave 9: Wither effect callback
+      onWitherEffect: () => {
+        witherTimer = WITHER_DURATION;
+      },
     }, false);
 
     mp.setMobManager(mobManager);
@@ -1006,6 +1074,14 @@ function animate() {
     weather.update(dt, player.position, (scene.fog as THREE.Fog).color);
     itemDrops.update(dt, player.position);
     xpOrbs.update(dt, player.position);
+
+    // Wave 9: Update wither effect
+    if (witherTimer > 0) {
+      witherTimer -= dt;
+    }
+
+    // Wave 9: Check pressure plates
+    world.checkPressurePlate(player.position);
 
     // Call updateVisibility every 2 seconds
     visibilityTimer += dt;
@@ -1120,6 +1196,13 @@ function animate() {
     } else if (dragonMob && !dragonMob.alive) {
       ui.hideBossBar();
       dragonMob = null;
+    }
+
+    // ── Wave 9: Wither effect rendering ─────────────────────────────────────
+    if (witherTimer > 0) {
+      ui.updateHearts(player.health, player.maxHealth, true);
+    } else {
+      ui.updateHearts(player.health, player.maxHealth, false);
     }
 
     // ── Hunger & regen ──────────────────────────────────────────────────────
