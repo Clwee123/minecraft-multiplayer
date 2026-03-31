@@ -515,7 +515,7 @@ function handleCommand(cmd: string, playerName: string): boolean {
 
   if (base === "/help") {
     [
-      "/gamemode creative | survival",
+      "/gamemode creative | survival | spectator  (/spec)",
       "/kill  /heal  /feed",
       "/time day | night | sunrise | sunset",
       "/tp <x> <z>",
