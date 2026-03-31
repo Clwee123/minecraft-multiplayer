@@ -10,12 +10,11 @@ const SEA_LEVEL    = 8;
 // Integer key packing using safe JS integers (no bitwise overflow)
 // Supports x,z in [-2048, 2047], y in [0, 127]
 // Uses multiplication not bitwise OR to avoid 32-bit overflow issues
-const KEY_X_OFFSET = 2048;
-const KEY_Z_OFFSET = 2048;
-const KEY_Y_MULT   = 4096;       // x+2048 fits in 0-4095 (12 bits)
-const KEY_Z_MULT   = 4096 * 128; // y fits in 0-127 (7 bits)
+const KEY_X_OFFSET = 8192;  // supports x in [-8192, 8191]
+const KEY_Z_OFFSET = 8192;  // supports z in [-8192, 8191]
+const KEY_Y_MULT   = 16384; // x+8192 fits in [0, 16383] (14 bits)
+const KEY_Z_MULT   = 16384 * 128; // y in [0, 127] (7 bits)
 function key(x: number, y: number, z: number): number {
-  // Use safe integer arithmetic: x range [0,4095], y range [0,127], z range [0,4095]
   return (x + KEY_X_OFFSET) + y * KEY_Y_MULT + (z + KEY_Z_OFFSET) * KEY_Z_MULT;
 }
 // String key for maps that need string keys (instanceRevIndex)
@@ -976,13 +975,14 @@ export class World {
 
   // Scan for torch blocks and create lights (called after loading)
   initializeTorchLights() {
-    for (const [k, type] of this.blockData.entries()) {
-      if (type === 56) {
-        // Decode integer key: x in bits 0-9, y in bits 10-15, z in bits 16-25
-        const x = (k & 0x3FF) - KEY_X_OFFSET;
-        const y = (k >> 10) & 0x3F;
-        const z = ((k >> 16) & 0x3FF) - KEY_Z_OFFSET;
-        this.addTorchLight(x, y + 0.5, z);
+    // Torch positions are tracked in torchPositions map (added during placeBlock)
+    for (const [strK] of this.modifications.entries()) {
+      if (this.modifications.get(strK) === 56) {
+        const [xs, ys, zs] = strK.split(",");
+        const x = Number(xs), y = Number(ys), z = Number(zs);
+        if (!isNaN(x) && !isNaN(y) && !isNaN(z)) {
+          this.addTorchLight(x, y + 0.5, z);
+        }
       }
     }
   }
