@@ -2,13 +2,14 @@ import * as THREE from "three";
 import { World } from "./World";
 import { BLOCK_TYPES } from "./blocks";
 
-// Pre-compute CSS hex color strings for all block types — eliminates toString(16)+padStart per pixel
-const _BLOCK_CSS_COLORS: Record<number, string> = {};
+
+// Pre-compute RGBA byte arrays for all block types — eliminates fillStyle string + fillRect per pixel
+const _BLOCK_RGBA: Record<number, [number, number, number]> = {};
 for (const [idStr, info] of Object.entries(BLOCK_TYPES)) {
   const id = Number(idStr);
   if (info && (info as any).color != null) {
-    const hex = ((info as any).color as number).toString(16).padStart(6, "0");
-    _BLOCK_CSS_COLORS[id] = `#${hex}`;
+    const c = (info as any).color as number;
+    _BLOCK_RGBA[id] = [(c >> 16) & 0xff, (c >> 8) & 0xff, c & 0xff];
   }
 }
 
@@ -21,6 +22,8 @@ export class Minimap {
   private readonly RADIUS = 32;
   private readonly CANVAS_SIZE = 128;
   private readonly UPDATE_INTERVAL = 0.3;
+  // Pre-allocated ImageData buffer — single putImageData replaces 4096 fillRect calls per update
+  private imgData: ImageData;
 
   constructor(world: World) {
     this.world = world;
@@ -42,6 +45,9 @@ export class Minimap {
     this.canvas.style.width = "100%";
     this.canvas.style.height = "100%";
     this.container.appendChild(this.canvas);
+
+    // Pre-allocate ImageData — single putImageData replaces N fillRect calls
+    this.imgData = this.ctx.createImageData(this.CANVAS_SIZE, this.CANVAS_SIZE);
 
     // Draw initial empty map
     this.drawEmptyMap();
@@ -72,14 +78,20 @@ export class Minimap {
     otherPlayers: Array<{ x: number; z: number }>,
     mobs: Array<{ x: number; z: number; alive: boolean }>
   ) {
-    // Clear
-    this.drawEmptyMap();
-
     const centerX = this.CANVAS_SIZE / 2;
     const centerY = this.CANVAS_SIZE / 2;
     const scale = this.CANVAS_SIZE / (this.RADIUS * 2);
 
-    // Draw blocks around player
+    // Fill ImageData buffer directly — single putImageData replaces 4096 fillStyle+fillRect calls
+    const data = this.imgData.data;
+    const SIZE = this.CANVAS_SIZE;
+
+    // Background: fill all pixels to #1a1a1a
+    for (let i = 0; i < data.length; i += 4) {
+      data[i] = 0x1a; data[i+1] = 0x1a; data[i+2] = 0x1a; data[i+3] = 255;
+    }
+
+    // Draw blocks
     const minBlockX = Math.floor(playerPos.x) - this.RADIUS;
     const maxBlockX = Math.floor(playerPos.x) + this.RADIUS;
     const minBlockZ = Math.floor(playerPos.z) - this.RADIUS;
@@ -87,26 +99,32 @@ export class Minimap {
 
     for (let bx = minBlockX; bx <= maxBlockX; bx++) {
       for (let bz = minBlockZ; bz <= maxBlockZ; bz++) {
-        // Use getBlockType — O(1) integer-key lookup, no string allocation
+        // Scan down from y=40 to find top block
         let blockType = 0;
         for (let by = 40; by >= 0; by--) {
           const t = this.world.getBlockType(bx, by, bz);
           if (t !== undefined) { blockType = t; break; }
         }
-
         if (blockType === 0) continue;
 
-        // Use pre-computed CSS color string — no toString/padStart allocation per pixel
-        const cssColor = _BLOCK_CSS_COLORS[blockType] ?? "#ffffff";
+        // Convert to canvas pixel coords
+        const px = Math.round(centerX + (bx - playerPos.x) * scale);
+        const py = Math.round(centerY + (bz - playerPos.z) * scale);
+        if (px < 0 || px >= SIZE || py < 0 || py >= SIZE) continue;
 
-        // Convert to canvas coordinates
-        const px = centerX + (bx - playerPos.x) * scale;
-        const py = centerY + (bz - playerPos.z) * scale;
-
-        this.ctx.fillStyle = cssColor;
-        this.ctx.fillRect(px - scale / 2, py - scale / 2, scale, scale);
+        // Write pixel directly into ImageData (avoid fillStyle string + fillRect)
+        const rgb = _BLOCK_RGBA[blockType];
+        const idx = (py * SIZE + px) * 4;
+        if (rgb) {
+          data[idx] = rgb[0]; data[idx+1] = rgb[1]; data[idx+2] = rgb[2]; data[idx+3] = 255;
+        } else {
+          data[idx] = 255; data[idx+1] = 255; data[idx+2] = 255; data[idx+3] = 255;
+        }
       }
     }
+
+    // Blit the terrain layer in one call
+    this.ctx.putImageData(this.imgData, 0, 0);
 
     // Draw mobs (red dots)
     for (const mob of mobs) {
