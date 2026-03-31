@@ -347,8 +347,11 @@ let prevDayTime = 0;
 
 let debugVisible = false;
 let fpsFrames = 0;
-let fpsSamples: number[] = [];
+// Circular FPS buffer — avoids .push() heap growth and O(n) .shift() each frame
 const FPS_SAMPLE_SIZE = 60;
+const _fpsBuf = new Float32Array(FPS_SAMPLE_SIZE);
+let _fpsBufIdx = 0;
+let _fpsBufCount = 0;
 
 // ── Death tracking ──────────────────────────────────────────────────────────────
 
@@ -1305,11 +1308,11 @@ function animate() {
   const dt  = Math.min((now - lastTime) / 1000, 0.05);
   lastTime  = now;
 
-  // Track FPS
+  // Track FPS — circular Float32Array buffer, no GC pressure
   if (dt > 0) {
-    const fps = 1 / dt;
-    fpsSamples.push(fps);
-    if (fpsSamples.length > FPS_SAMPLE_SIZE) fpsSamples.shift();
+    _fpsBuf[_fpsBufIdx] = 1 / dt;
+    _fpsBufIdx = (_fpsBufIdx + 1) % FPS_SAMPLE_SIZE;
+    if (_fpsBufCount < FPS_SAMPLE_SIZE) _fpsBufCount++;
   }
 
   if (hud.style.display !== "none") {
@@ -1589,8 +1592,10 @@ function animate() {
 
     // Update debug screen
     if (debugVisible) {
-      // Calculate average FPS
-      const avgFps = fpsSamples.length > 0 ? fpsSamples.reduce((a, b) => a + b, 0) / fpsSamples.length : 0;
+      // Calculate average FPS from circular buffer
+      let _fpsSum = 0;
+      for (let _fi = 0; _fi < _fpsBufCount; _fi++) _fpsSum += _fpsBuf[_fi];
+      const avgFps = _fpsBufCount > 0 ? _fpsSum / _fpsBufCount : 0;
 
       // Calculate facing direction
       const yaw = player.getYaw();
