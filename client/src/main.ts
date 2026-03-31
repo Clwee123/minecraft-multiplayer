@@ -599,9 +599,9 @@ async function startGame(name: string) {
         fishingBobber = null;
       } else {
         // Cast bobber
-        const rayDir = new THREE.Vector3(0, 0, -1)
-          .applyAxisAngle(new THREE.Vector3(1, 0, 0), player.camera.rotation.x)
-          .applyAxisAngle(new THREE.Vector3(0, 1, 0), player.camera.rotation.y);
+        const rayDir = _inputRayDir.set(0, 0, -1)
+          .applyAxisAngle(_X_AXIS, player.camera.rotation.x)
+          .applyAxisAngle(_Y_AXIS, player.camera.rotation.y);
 
         const bobberGeo = new THREE.SphereGeometry(0.15, 8, 8);
         const bobberMat = new THREE.MeshBasicMaterial({ color: 0x0066cc });
@@ -767,7 +767,7 @@ async function startGame(name: string) {
     // Check for arrow fire
     if (player.selectedBlockType === 32) { // Bow
       // Fire arrow
-      const arrowDir = new THREE.Vector3(0, 0, -1).applyAxisAngle(new THREE.Vector3(1, 0, 0), player.camera.rotation.x).applyAxisAngle(new THREE.Vector3(0, 1, 0), player.camera.rotation.y);
+      const arrowDir = _inputRayDir.set(0, 0, -1).applyAxisAngle(_X_AXIS, player.camera.rotation.x).applyAxisAngle(_Y_AXIS, player.camera.rotation.y);
       const arrowGeo = new THREE.BoxGeometry(0.05, 0.05, 0.4);
       const arrowMat = new THREE.MeshBasicMaterial({ color: 0xffdd44 });
       const arrowMesh = new THREE.Mesh(arrowGeo, arrowMat);
@@ -844,9 +844,9 @@ async function startGame(name: string) {
       e.preventDefault();
 
       // Check for enchanting table and bed interaction using DDA raycast
-      const rayDir = new THREE.Vector3(0, 0, -1)
-        .applyAxisAngle(new THREE.Vector3(1, 0, 0), player.camera.rotation.x)
-        .applyAxisAngle(new THREE.Vector3(0, 1, 0), player.camera.rotation.y)
+      const rayDir = _inputRayDir.set(0, 0, -1)
+        .applyAxisAngle(_X_AXIS, player.camera.rotation.x)
+        .applyAxisAngle(_Y_AXIS, player.camera.rotation.y)
         .normalize();
       const enchantHit = world.raycastBlock(player.position, rayDir, 5);
 
@@ -1012,7 +1012,7 @@ async function startGame(name: string) {
             const bz = Math.floor(player.position.z) + z;
             const block = world.getBlock(bx, by, bz);
             if (block && block.type === 23) { // Furnace
-              const dist = player.position.distanceTo(new THREE.Vector3(bx + 0.5, by + 0.5, bz + 0.5));
+              const dist = player.position.distanceTo(_blockDistVec.set(bx + 0.5, by + 0.5, bz + 0.5));
               if (dist <= 5) {
                 furnacePos = [bx, by, bz];
                 break;
@@ -1030,9 +1030,9 @@ async function startGame(name: string) {
       }
 
       // Check if looking at a lever within 2 blocks
-      const rayDir = new THREE.Vector3(0, 0, -1)
-        .applyAxisAngle(new THREE.Vector3(1, 0, 0), player.camera.rotation.x)
-        .applyAxisAngle(new THREE.Vector3(0, 1, 0), player.camera.rotation.y);
+      const rayDir = _inputRayDir.set(0, 0, -1)
+        .applyAxisAngle(_X_AXIS, player.camera.rotation.x)
+        .applyAxisAngle(_Y_AXIS, player.camera.rotation.y);
 
       const raycaster = new THREE.Raycaster(player.position, rayDir);
       raycaster.far = 2;
@@ -1046,7 +1046,7 @@ async function startGame(name: string) {
             const bz = Math.floor(player.position.z) + z;
             const block = world.getBlock(bx, by, bz);
             if (block && block.type === 58) {
-              const dist = player.position.distanceTo(new THREE.Vector3(bx + 0.5, by + 0.5, bz + 0.5));
+              const dist = player.position.distanceTo(_blockDistVec.set(bx + 0.5, by + 0.5, bz + 0.5));
               if (dist <= 2) {
                 leverPos = [bx, by, bz];
                 break;
@@ -1275,6 +1275,11 @@ let lastTime = performance.now();
 // Pre-allocated reusable vectors to avoid per-frame allocations in the animate loop
 const _animVec3 = new THREE.Vector3();
 const _thunderColor = new THREE.Color(0xffffff);
+// Reusable vectors for input handlers (raycast, block distance checks)
+const _inputRayDir = new THREE.Vector3();
+const _blockDistVec = new THREE.Vector3();
+const _X_AXIS = new THREE.Vector3(1, 0, 0);
+const _Y_AXIS = new THREE.Vector3(0, 1, 0);
 
 function animate() {
   requestAnimationFrame(animate);

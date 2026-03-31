@@ -111,6 +111,8 @@ export class World {
 
   // Reusable Matrix4 for block placement — avoids per-block heap allocation
   private static _mat4 = new THREE.Matrix4();
+  // Reused face vector for raycastBlock — avoids allocation on every raycast hit
+  private static _rayFace = new THREE.Vector3();
 
   // Shared geometry for all block types (deduplication)
   private static sharedBoxGeo: THREE.BoxGeometry | null = null;
@@ -503,25 +505,21 @@ export class World {
     x: number; y: number; z: number; face: THREE.Vector3;
   } | null {
     const step = 0.05;
-    let prev = {
-      x: Math.floor(origin.x),
-      y: Math.floor(origin.y),
-      z: Math.floor(origin.z),
-    };
+    // Use plain numbers instead of an object to avoid per-step heap allocation
+    let prevX = Math.floor(origin.x);
+    let prevY = Math.floor(origin.y);
+    let prevZ = Math.floor(origin.z);
 
     for (let d = 0; d < maxDist; d += step) {
-      const px = origin.x + direction.x * d;
-      const py = origin.y + direction.y * d;
-      const pz = origin.z + direction.z * d;
-      const bx = Math.floor(px);
-      const by = Math.floor(py);
-      const bz = Math.floor(pz);
+      const bx = Math.floor(origin.x + direction.x * d);
+      const by = Math.floor(origin.y + direction.y * d);
+      const bz = Math.floor(origin.z + direction.z * d);
 
       if (this.hasBlock(bx, by, bz)) {
-        const face = new THREE.Vector3(prev.x - bx, prev.y - by, prev.z - bz);
+        const face = World._rayFace.set(prevX - bx, prevY - by, prevZ - bz);
         return { x: bx, y: by, z: bz, face };
       }
-      prev = { x: bx, y: by, z: bz };
+      prevX = bx; prevY = by; prevZ = bz;
     }
     return null;
   }
