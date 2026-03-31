@@ -251,8 +251,7 @@ export class Player {
   private breakBlock() {
     const hit = this.raycast();
     if (!hit) return;
-    const pos = hit.point.clone().sub(hit.face!.normal.clone().multiplyScalar(0.1));
-    const bx = Math.round(pos.x), by = Math.round(pos.y), bz = Math.round(pos.z);
+    const bx = hit.blockX, by = hit.blockY, bz = hit.blockZ;
     this.world.removeBlock(bx, by, bz);
     this.onBreakBlock?.(bx, by, bz);
   }
@@ -260,8 +259,7 @@ export class Player {
   private startBreaking() {
     const hit = this.raycast();
     if (!hit) return;
-    const pos = hit.point.clone().sub(hit.face!.normal.clone().multiplyScalar(0.1));
-    const bx = Math.round(pos.x), by = Math.round(pos.y), bz = Math.round(pos.z);
+    const bx = hit.blockX, by = hit.blockY, bz = hit.blockZ;
 
     this.breakTarget = { x: bx, y: by, z: bz };
     this.breakProgress = 0;
@@ -278,7 +276,8 @@ export class Player {
       this.breakIndicator = new THREE.Mesh(geo, mat);
       this.scene.add(this.breakIndicator);
     }
-    this.breakIndicator.position.set(bx, by, bz);
+    // Visual center of block
+    this.breakIndicator.position.set(bx + 0.5, by + 0.5, bz + 0.5);
     this.breakIndicator.visible = true;
   }
 
@@ -322,8 +321,11 @@ export class Player {
 
     const hit = this.raycast();
     if (!hit) return;
-    const pos = hit.point.clone().add(hit.face!.normal.clone().multiplyScalar(0.5));
-    const bx = Math.round(pos.x), by = Math.round(pos.y), bz = Math.round(pos.z);
+    // Place in the block adjacent to hit face
+    const n = hit.face!.normal;
+    const bx = hit.blockX + Math.round(n.x);
+    const by = hit.blockY + Math.round(n.y);
+    const bz = hit.blockZ + Math.round(n.z);
     const footY = this.position.y - EYE_HEIGHT;
     if (
       Math.abs(bx - this.position.x) < PLAYER_W + 0.3 &&
@@ -337,7 +339,7 @@ export class Player {
   // Reusable intersection object to avoid per-frame allocation
   private _hitPoint  = new THREE.Vector3();
   private _hitNormal = new THREE.Vector3();
-  private _hitResult = { point: null as any, face: { normal: null as any } } as any;
+  private _hitResult = { point: null as any, face: { normal: null as any }, blockX: 0, blockY: 0, blockZ: 0 } as any;
 
   private raycast(): THREE.Intersection | null {
     // Cache result per frame — avoid re-raycasting multiple times per update tick
@@ -353,7 +355,10 @@ export class Player {
 
     if (!hit) return null;
 
-    // Fill reusable result — zero allocation
+    // Store exact block coords — use center for highlight/place math
+    this._hitResult.blockX = hit.x;
+    this._hitResult.blockY = hit.y;
+    this._hitResult.blockZ = hit.z;
     this._hitPoint.set(hit.x + 0.5, hit.y + 0.5, hit.z + 0.5);
     this._hitNormal.copy(hit.face).normalize();
     this._hitResult.point = this._hitPoint;
@@ -621,11 +626,10 @@ export class Player {
     const hit = this.raycast();
     if (hit) {
       // Use pre-allocated vec — no heap allocation
-      this._highlightVec.copy(hit.point).addScaledVector(hit.face!.normal, -0.1);
       this.highlightMesh.position.set(
-        Math.round(this._highlightVec.x),
-        Math.round(this._highlightVec.y),
-        Math.round(this._highlightVec.z),
+        hit.blockX + 0.5,
+        hit.blockY + 0.5,
+        hit.blockZ + 0.5,
       );
       this.highlightMesh.visible = true;
     } else {

@@ -119,7 +119,7 @@ export class MultiplayerManager {
       this.updateCount();
 
       // Colyseus 0.15 API: assign onChange as a property, not a method call
-      player.onChange = (_changes: any) => {
+      player.onChange(() => {
         const o = this.players.get(sessionId);
         if (!o) return;
         o.targetPos.set(player.x, player.y, player.z);
@@ -131,7 +131,7 @@ export class MultiplayerManager {
           o.setHealth(player.health);
           if (player.health <= 0 && !o["dead"]) o.die();
         }
-      };
+      });
     });
 
     this.room.state.players.onRemove((_p: any, sessionId: string) => {
