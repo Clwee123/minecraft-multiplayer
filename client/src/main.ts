@@ -131,11 +131,16 @@ scene.add(hemi);
 
 // ── Update day/night ──────────────────────────────────────────────────────────
 
+// Pre-allocated color buffers — zero Color heap allocations per frame
+const _skyColorBuf = new THREE.Color();
+const _fogColorBuf = new THREE.Color();
+let _dayNightSkipCounter = 0;
+
 function updateDayNight(dt: number) {
   dayTime = (dayTime + dt / DAY_DURATION) % 1;
 
-  // Sun/moon orbit
-  const sunAngle  = (dayTime - 0.25) * Math.PI * 2;  // noon = top
+  // Sun/moon orbit — update every frame for smooth movement
+  const sunAngle  = (dayTime - 0.25) * Math.PI * 2;
   const moonAngle = sunAngle + Math.PI;
   const R = 150;
 
@@ -145,67 +150,66 @@ function updateDayNight(dt: number) {
   sun.position.copy(sunMesh.position).normalize().multiplyScalar(100);
   moonLight.position.copy(moonMesh.position).normalize().multiplyScalar(100);
 
-  // Sky color lerp
-  let skyColor: THREE.Color, fogColor: THREE.Color, sunIntensity: number, ambientIntensity: number;
+  // Cloud drift every frame
+  for (const c of clouds) {
+    c.position.x = ((c.position.x + 0.015 * dt * 20) % 200) - 100;
+  }
 
+  // Sky/lighting updates — throttle to every 3 frames (imperceptible at 60fps)
+  _dayNightSkipCounter++;
+  if (_dayNightSkipCounter < 3) return;
+  _dayNightSkipCounter = 0;
+
+  let sunIntensity: number, ambientIntensity: number;
   const t = dayTime;
   if (t < 0.2) {
-    // Night → dawn (0 → 0.2)
     const p = t / 0.2;
-    skyColor = SKY_COLORS.night.clone().lerp(SKY_COLORS.dawn, p);
-    fogColor = FOG_COLORS.night.clone().lerp(FOG_COLORS.dawn, p);
+    _skyColorBuf.copy(SKY_COLORS.night).lerp(SKY_COLORS.dawn, p);
+    _fogColorBuf.copy(FOG_COLORS.night).lerp(FOG_COLORS.dawn, p);
     sunIntensity     = 0.05 + p * 0.8;
     ambientIntensity = 0.05 + p * 0.45;
   } else if (t < 0.3) {
-    // Dawn → day (0.2 → 0.3)
     const p = (t - 0.2) / 0.1;
-    skyColor = SKY_COLORS.dawn.clone().lerp(SKY_COLORS.day, p);
-    fogColor = FOG_COLORS.dawn.clone().lerp(FOG_COLORS.day, p);
+    _skyColorBuf.copy(SKY_COLORS.dawn).lerp(SKY_COLORS.day, p);
+    _fogColorBuf.copy(FOG_COLORS.dawn).lerp(FOG_COLORS.day, p);
     sunIntensity     = 0.85 + p * 0.55;
     ambientIntensity = 0.5 + p * 0.1;
   } else if (t < 0.7) {
-    // Full day (0.3 → 0.7)
-    skyColor = SKY_COLORS.day.clone();
-    fogColor = FOG_COLORS.day.clone();
+    _skyColorBuf.copy(SKY_COLORS.day);
+    _fogColorBuf.copy(FOG_COLORS.day);
     sunIntensity     = 1.4;
     ambientIntensity = 0.6;
   } else if (t < 0.8) {
-    // Day → dusk (0.7 → 0.8)
     const p = (t - 0.7) / 0.1;
-    skyColor = SKY_COLORS.day.clone().lerp(SKY_COLORS.dusk, p);
-    fogColor = FOG_COLORS.day.clone().lerp(FOG_COLORS.dusk, p);
+    _skyColorBuf.copy(SKY_COLORS.day).lerp(SKY_COLORS.dusk, p);
+    _fogColorBuf.copy(FOG_COLORS.day).lerp(FOG_COLORS.dusk, p);
     sunIntensity     = 1.4 - p * 1.35;
     ambientIntensity = 0.6 - p * 0.55;
   } else {
-    // Dusk → night (0.8 → 1)
     const p = (t - 0.8) / 0.2;
-    skyColor = SKY_COLORS.dusk.clone().lerp(SKY_COLORS.night, p);
-    fogColor = FOG_COLORS.dusk.clone().lerp(FOG_COLORS.night, p);
+    _skyColorBuf.copy(SKY_COLORS.dusk).lerp(SKY_COLORS.night, p);
+    _fogColorBuf.copy(FOG_COLORS.dusk).lerp(FOG_COLORS.night, p);
     sunIntensity     = 0.05;
     ambientIntensity = 0.05;
   }
 
-  renderer.setClearColor(skyColor);
-  scene.background = skyColor;
-  (scene.fog as THREE.Fog).color.copy(fogColor);
+  renderer.setClearColor(_skyColorBuf);
+  scene.background = _skyColorBuf;
+  (scene.fog as THREE.Fog).color.copy(_fogColorBuf);
 
   sun.intensity       = sunIntensity;
   ambient.intensity   = Math.max(ambientIntensity, 0.04);
   moonLight.intensity = Math.max(0.35 - sunIntensity * 0.2, 0);
   hemi.intensity      = ambientIntensity * 0.5;
 
-  // Stars appear at night
   starMat.opacity = Math.max(0, 1 - sunIntensity * 1.5);
   starMat.transparent = true;
 
-  // Sun/moon color
   const isSunUp = Math.sin(sunAngle) > 0;
   sunMesh.visible  =  isSunUp;
   moonMesh.visible = !isSunUp;
 
-  // Cloud drift
   for (const c of clouds) {
-    c.position.x = ((c.position.x + 0.015 * dt * 20) % 200) - 100;
     (c.material as THREE.MeshLambertMaterial).opacity = ambientIntensity > 0.2 ? 0.82 : 0;
   }
 }
