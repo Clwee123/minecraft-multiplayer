@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { createNoise2D } from "simplex-noise";
 import { BLOCK_TYPES } from "./blocks";
+import { getBlockMaterials } from "./BlockTextures";
 
 const CHUNK_SIZE   = 16;
 const WORLD_HEIGHT = 40;
@@ -135,24 +136,10 @@ export class World {
 
     const geo = World.getSharedBoxGeo();
 
-    let mat: THREE.Material;
-    if (info.transparent) {
-      mat = new THREE.MeshLambertMaterial({
-        color: info.color,
-        transparent: true,
-        opacity: blockType === 7 ? 0.68 : 0.55,
-      });
-    } else if (info.emissive) {
-      mat = new THREE.MeshLambertMaterial({
-        color: info.color,
-        emissive: new THREE.Color(info.emissive),
-        emissiveIntensity: 0.6,
-      });
-    } else {
-      mat = new THREE.MeshLambertMaterial({ color: info.color });
-    }
+    // Use per-face textured materials
+    const mats = getBlockMaterials(blockType, info);
 
-    const mesh = new THREE.InstancedMesh(geo, mat, World.MAX_INSTANCES);
+    const mesh = new THREE.InstancedMesh(geo, mats, World.MAX_INSTANCES);
     mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     mesh.count = 0; // start with 0 visible instances
     mesh.castShadow = false; // disable per-block shadows for performance

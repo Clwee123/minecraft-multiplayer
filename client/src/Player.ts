@@ -64,6 +64,7 @@ export class Player {
   private breakProgress = 0;
   private breakTarget: {x: number; y: number; z: number} | null = null;
   private breakIndicator: THREE.Mesh | null = null;
+  private isBreakingHeld = false; // mouse held down
 
   // 3rd-person self model
   private selfModel: THREE.Group | null = null;
@@ -75,6 +76,13 @@ export class Player {
   private walkCycle   = 0;
   private prevXZ      = new THREE.Vector2();
   thirdPerson         = false;
+
+  // First-person arm
+  private fpArm: THREE.Group | null = null;
+  private fpArmGroup: THREE.Group | null = null; // attached to camera
+  _armSwing = 0;       // 0..1 progress (set by breaking)
+  private _armSwingDir = 1;
+  private _armBob  = 0; // walk bob
 
   onPlaceBlock?: (x: number, y: number, z: number, type: number) => void;
   onBreakBlock?: (x: number, y: number, z: number) => void;
@@ -110,7 +118,46 @@ export class Player {
 
     this.selfModel = this.buildModel(scene);
     this.selfModel.visible = false;
+    this.buildFPArm();
     this.setupInput();
+  }
+
+  private buildFPArm() {
+    // Group attached to camera space
+    this.fpArmGroup = new THREE.Group();
+    this.camera.add(this.fpArmGroup);
+
+    // Upper arm
+    const upperGeo = new THREE.BoxGeometry(0.12, 0.35, 0.12);
+    const skinMat  = new THREE.MeshLambertMaterial({ color: 0xffcc99 });
+    const upper    = new THREE.Mesh(upperGeo, skinMat);
+    upper.position.y = -0.175; // pivot at shoulder top
+
+    // Lower arm / hand
+    const lowerGeo = new THREE.BoxGeometry(0.11, 0.25, 0.11);
+    const lower    = new THREE.Mesh(lowerGeo, skinMat);
+    lower.position.y = -0.3;
+    upper.add(lower);
+
+    // Sleeve overlay
+    const sleeveGeo = new THREE.BoxGeometry(0.135, 0.355, 0.135);
+    const sleeveMat = new THREE.MeshLambertMaterial({ color: 0x3355cc, transparent: true, opacity: 0.9 });
+    const sleeve    = new THREE.Mesh(sleeveGeo, sleeveMat);
+    sleeve.position.y = -0.175;
+
+    this.fpArm = new THREE.Group();
+    this.fpArm.add(upper, sleeve);
+
+    // Resting position: lower-right of camera view
+    this.fpArm.position.set(0.32, -0.28, -0.45);
+    this.fpArm.rotation.set(0.2, -0.15, 0.05);
+    this.fpArmGroup.add(this.fpArm);
+
+    // Make sure arm renders on top of world (no depth fighting)
+    upper.renderOrder = 999;
+    sleeve.renderOrder = 999;
+    lower.renderOrder = 999;
+    upper.onBeforeRender = r => r.clearDepth();
   }
 
   // ── Self model ─────────────────────────────────────────────────────────────
@@ -196,7 +243,7 @@ export class Player {
         if (this.gameMode === "creative") {
           this.breakBlock();
         } else {
-          // Survival: start breaking animation
+          this.isBreakingHeld = true;
           this.startBreaking();
         }
       }
@@ -204,6 +251,7 @@ export class Player {
     });
     document.addEventListener("mouseup", e => {
       if (e.button === 0) {
+        this.isBreakingHeld = false;
         this.stopBreaking();
       }
     });
@@ -290,7 +338,14 @@ export class Player {
   }
 
   private updateBreaking(dt: number) {
-    if (!this.breakTarget || this.gameMode === "creative") return;
+    if (this.gameMode === "creative") return;
+
+    // If mouse held but no target yet, try to acquire one
+    if (this.isBreakingHeld && !this.breakTarget) {
+      this.startBreaking();
+    }
+
+    if (!this.breakTarget) return;
 
     // Check if target block still exists
     if (!this.world.hasBlock(this.breakTarget.x, this.breakTarget.y, this.breakTarget.z)) {
@@ -298,20 +353,37 @@ export class Player {
       return;
     }
 
-    // Only update while left button is held (breakProgress won't advance if we've stopped)
-    this.breakProgress += dt / 0.5; // 0.5 second to break most blocks
-
-    if (this.breakProgress >= 1.0) {
-      // Break the block
-      this.world.removeBlock(this.breakTarget.x, this.breakTarget.y, this.breakTarget.z);
-      this.onBreakBlock?.(this.breakTarget.x, this.breakTarget.y, this.breakTarget.z);
-      this.stopBreaking();
+    // Check if player is now looking at a different block — switch target
+    const hit = this.raycast();
+    if (hit && (hit.blockX !== this.breakTarget.x || hit.blockY !== this.breakTarget.y || hit.blockZ !== this.breakTarget.z)) {
+      this.breakTarget = { x: hit.blockX, y: hit.blockY, z: hit.blockZ };
+      this.breakProgress = 0;
+      if (this.breakIndicator) this.breakIndicator.position.set(hit.blockX + 0.5, hit.blockY + 0.5, hit.blockZ + 0.5);
     }
 
-    // Update indicator color based on progress
+    this.breakProgress += dt / 0.5; // 0.5s per block
+
+    // Animate the arm swing
+    this._armSwing = Math.min(1, this.breakProgress);
+
+    if (this.breakProgress >= 1.0) {
+      this.world.removeBlock(this.breakTarget.x, this.breakTarget.y, this.breakTarget.z);
+      this.onBreakBlock?.(this.breakTarget.x, this.breakTarget.y, this.breakTarget.z);
+      // Auto-continue to next block if still held
+      this.breakTarget = null;
+      this.breakProgress = 0;
+      if (this.isBreakingHeld) this.startBreaking();
+      else this.stopBreaking();
+      return;
+    }
+
+    // Update indicator opacity
     if (this.breakIndicator) {
-      const opacity = 0.3 + this.breakProgress * 0.4;
+      const opacity = 0.2 + this.breakProgress * 0.6;
       (this.breakIndicator.material as THREE.MeshBasicMaterial).opacity = opacity;
+      // Scale to show cracking
+      const s = 1 + this.breakProgress * 0.05;
+      this.breakIndicator.scale.setScalar(s);
     }
   }
 
@@ -379,6 +451,7 @@ export class Player {
     this.updateHighlight();
     this.updateSelfModel(dt);
     this.updateBreaking(dt);
+    this.updateFPArm(dt);
   }
 
   // ── Physics ────────────────────────────────────────────────────────────────
@@ -634,6 +707,42 @@ export class Player {
       this.highlightMesh.visible = true;
     } else {
       this.highlightMesh.visible = false;
+    }
+  }
+
+  private updateFPArm(dt: number) {
+    if (!this.fpArm || this.thirdPerson) {
+      if (this.fpArmGroup) this.fpArmGroup.visible = false;
+      return;
+    }
+    if (this.fpArmGroup) this.fpArmGroup.visible = true;
+
+    // Walk bob
+    const dx = this.position.x - this.prevXZ.x;
+    const dz = this.position.z - this.prevXZ.y;
+    const speed = Math.sqrt(dx * dx + dz * dz) / dt;
+    if (speed > 0.3) this._armBob += dt * Math.min(speed, 8) * 1.5;
+    else              this._armBob *= 0.85;
+
+    const bob = Math.sin(this._armBob) * 0.02;
+
+    // Breaking swing: punch forward and back
+    let swingRot = 0;
+    if (this._armSwing > 0) {
+      // Swing: rotate down 70deg then back
+      swingRot = Math.sin(this._armSwing * Math.PI) * 1.2;
+    }
+
+    // Idle sway
+    const sway = Math.sin(Date.now() * 0.0008) * 0.01;
+
+    this.fpArm.rotation.x = 0.2 - swingRot + bob * 0.5;
+    this.fpArm.rotation.z = 0.05 + sway;
+    this.fpArm.position.y = -0.28 + bob;
+
+    // Decay swing if not breaking
+    if (!this.isBreakingHeld || !this.breakTarget) {
+      this._armSwing = Math.max(0, this._armSwing - dt * 4);
     }
   }
 
