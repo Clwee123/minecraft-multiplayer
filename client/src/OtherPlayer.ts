@@ -26,11 +26,21 @@ export class OtherPlayer {
     this.group = new THREE.Group();
     this.prevPos.copy(this.group.position);
 
-    // ── skin & clothes colours ────────────────────────────────────────────
-    const SKIN  = 0xffcc99;
-    const SHIRT = 0x3355cc;
-    const PANTS = 0x224499;
+    // ── skin & clothes colours — unique per player name ───────────────────
+    // Hash the name to get deterministic but varied appearances
+    let h = 0;
+    for (let i = 0; i < name.length; i++) { h = (h * 31 + name.charCodeAt(i)) >>> 0; }
+
+    const SKIN_TONES  = [0xffcc99, 0xf0c080, 0xd4956a, 0x8d5524, 0xc68642, 0xffe0bd];
+    const SHIRT_COLORS = [0x3355cc, 0xcc3333, 0x33aa33, 0xcc7700, 0x9933cc, 0x00aacc, 0x888800, 0xcc3388];
+    const PANTS_COLORS = [0x224499, 0x993333, 0x225522, 0x774400, 0x552288, 0x005577, 0x555500, 0x772244];
+
+    const SKIN  = SKIN_TONES[h % SKIN_TONES.length];
+    const SHIRT = SHIRT_COLORS[(h >> 3) % SHIRT_COLORS.length];
+    const PANTS = PANTS_COLORS[(h >> 6) % PANTS_COLORS.length];
     const SHOE  = 0x332211;
+    // Helmet tint based on name
+    const HELM_COLOR = SHIRT_COLORS[(h >> 9) % SHIRT_COLORS.length];
 
     const skin  = () => new THREE.MeshLambertMaterial({ color: SKIN  });
     const shirt = () => new THREE.MeshLambertMaterial({ color: SHIRT });
@@ -51,9 +61,9 @@ export class OtherPlayer {
     const headGeo = new THREE.BoxGeometry(0.5, 0.5, 0.5);
     this.head = new THREE.Mesh(headGeo, skin());
     this.head.position.y = 0.25;
-    // slight outer layer for helmet look
+    // slight outer layer for helmet look — tinted per player
     const helmGeo = new THREE.BoxGeometry(0.52, 0.52, 0.52);
-    const helmMat = new THREE.MeshLambertMaterial({ color: 0x2244aa, transparent: true, opacity: 0.3 });
+    const helmMat = new THREE.MeshLambertMaterial({ color: HELM_COLOR, transparent: true, opacity: 0.35 });
     const helm = new THREE.Mesh(helmGeo, helmMat);
     this.head.add(helm);
 
@@ -174,9 +184,14 @@ export class OtherPlayer {
     if (this.dead) return;
 
     // Smooth position (target is eye-level; offset down to feet centre)
-    const targetFeet = this.targetPos.clone();
-    targetFeet.y -= 1.6 - 0.8; // eye→body-centre offset
-    this.group.position.lerp(targetFeet, Math.min(1, dt * 14));
+    // Avoid .clone() — mutate prevPos temporarily then restore, or use direct lerp
+    const tpx = this.targetPos.x;
+    const tpy = this.targetPos.y - (1.6 - 0.8); // eye→body-centre offset
+    const tpz = this.targetPos.z;
+    const lf = Math.min(1, dt * 14);
+    this.group.position.x += (tpx - this.group.position.x) * lf;
+    this.group.position.y += (tpy - this.group.position.y) * lf;
+    this.group.position.z += (tpz - this.group.position.z) * lf;
 
     // Rotation
     const dy = ((this.targetRotY - this.group.rotation.y) + Math.PI * 3) % (Math.PI * 2) - Math.PI;
@@ -185,12 +200,10 @@ export class OtherPlayer {
     // Head pitch
     this.head.rotation.x = this.targetRotX * 0.7;
 
-    // Walk animation based on XZ movement speed
-    const moved = new THREE.Vector3(
-      this.group.position.x - this.prevPos.x,
-      0,
-      this.group.position.z - this.prevPos.z,
-    ).length();
+    // Walk animation based on XZ movement speed — avoid Vector3 allocation
+    const mdx = this.group.position.x - this.prevPos.x;
+    const mdz = this.group.position.z - this.prevPos.z;
+    const moved = Math.sqrt(mdx * mdx + mdz * mdz);
     this.prevPos.copy(this.group.position);
 
     const walkSpeed = moved / dt;
