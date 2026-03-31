@@ -14,6 +14,8 @@ export type SoundName =
 
 export class SoundManager {
   private ctx: AudioContext | null = null;
+  private musicActive = false;
+  private musicTimeout: ReturnType<typeof setTimeout> | null = null;
 
   private getCtx(): AudioContext {
     if (!this.ctx) this.ctx = new AudioContext();
@@ -220,5 +222,53 @@ export class SoundManager {
     const data   = buf.getChannelData(0);
     for (let i = 0; i < frames; i++) data[i] = Math.random() * 2 - 1;
     return buf;
+  }
+
+  // ── Music disc system ────────────────────────────────────────────────────────
+
+  playMusic(track: "disc_green" | "disc_red" | "disc_blue"): void {
+    this.stopMusic();
+    const ctx = this.getCtx();
+    if (!ctx) return;
+
+    const tracks: Record<string, number[]> = {
+      disc_green: [261, 329, 392, 523, 392, 329, 261, 196, 220, 261, 329, 392],
+      disc_red:   [220, 196, 175, 165, 175, 196, 220, 175, 165, 156, 165, 175],
+      disc_blue:  [523, 659, 784, 523, 659, 784, 987, 784, 659, 523, 440, 523],
+    };
+
+    const notes = tracks[track] || tracks.disc_green;
+    let idx = 0;
+
+    const playNote = () => {
+      if (!this.musicActive) return;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = track === "disc_blue" ? "square" : "sine";
+      osc.frequency.value = notes[idx % notes.length];
+      gain.gain.setValueAtTime(0.15, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.45);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.5);
+      idx++;
+      this.musicTimeout = setTimeout(playNote, 500);
+    };
+
+    this.musicActive = true;
+    playNote();
+  }
+
+  stopMusic(): void {
+    this.musicActive = false;
+    if (this.musicTimeout) {
+      clearTimeout(this.musicTimeout);
+      this.musicTimeout = null;
+    }
+  }
+
+  isMusicPlaying(): boolean {
+    return this.musicActive;
   }
 }

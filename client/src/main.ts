@@ -39,6 +39,11 @@ scene.fog        = new THREE.Fog(0x87ceeb, 55, 160);
 
 const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.05, 300);
 
+// ── Shield system ─────────────────────────────────────────────────────────────
+let shieldActive = false;
+let shieldDurability = 50;
+const MAX_SHIELD_DURABILITY = 50;
+
 // ── Day/Night cycle ───────────────────────────────────────────────────────────
 
 const DAY_DURATION   = 240; // seconds for a full day/night cycle
@@ -492,6 +497,7 @@ function handleCommand(cmd: string, playerName: string): boolean {
       "/stats - show statistics",
       "/save · /load (singleplayer only)",
       "F1 = Toggle HUD · F2 = Screenshot · F5 = 3rd person · Ctrl = sprint · E = furnace/inventory",
+      "Right-click disc to play/stop music · Hold shield (block 72) to reduce damage",
     ].forEach(c => ui.addChatMessage("", c, true));
     return true;
   }
@@ -705,7 +711,27 @@ async function startGame(name: string) {
 
   // Attack
   document.addEventListener("mousedown", e => {
-    if (e.button !== 0 || !document.pointerLockElement) return;
+    if (!document.pointerLockElement) return;
+
+    // Right-click for music discs
+    if (e.button === 2) {
+      const discMap: Record<number, "disc_green" | "disc_red" | "disc_blue"> = {
+        69: "disc_green",
+        70: "disc_red",
+        71: "disc_blue",
+      };
+      const track = discMap[player.selectedBlockType];
+      if (track) {
+        if (sounds.isMusicPlaying()) {
+          sounds.stopMusic();
+        } else {
+          sounds.playMusic(track);
+        }
+      }
+      return;
+    }
+
+    if (e.button !== 0) return;
 
     // Check for arrow fire
     if (player.selectedBlockType === 32) { // Bow
@@ -739,6 +765,7 @@ async function startGame(name: string) {
         const xpTable: Record<string, number> = {
           "pig": 3, "chicken": 2, "cow": 5, "sheep": 3,
           "zombie": 8, "skeleton": 10, "creeper": 5, "horse": 10, "villager": 0, "enderdragon": 100,
+          "phantom": 6, "slime": 4, "witherskeleton": 8, "spider": 5, "wolf": 4, "cat": 0,
         };
         const mobTypeStr = mobData.type.toLowerCase();
         const xpAmount = xpTable[mobTypeStr] || 1;
@@ -751,6 +778,31 @@ async function startGame(name: string) {
         ui.addKillFeedDeath(mobData.type);
       }
       if (!isSingleplayer) mp?.sendAttackMob(result.mobId, result.damage);
+    }
+  });
+
+  // Shield handling (mouse down/up)
+  document.addEventListener("mousedown", e => {
+    if (e.button === 2 && player.selectedBlockType === 72) { // Shield block
+      e.preventDefault();
+      shieldActive = true;
+      camera.fov = 65;
+      camera.updateProjectionMatrix();
+    }
+  });
+
+  document.addEventListener("mouseup", e => {
+    if (e.button === 2) {
+      shieldActive = false;
+      camera.fov = 75;
+      camera.updateProjectionMatrix();
+    }
+  });
+
+  // Prevent right-click context menu
+  document.addEventListener("contextmenu", e => {
+    if (document.pointerLockElement) {
+      e.preventDefault();
     }
   });
 
@@ -1063,7 +1115,13 @@ async function startGame(name: string) {
       onPlayerDamage: (amount) => {
         lastDeathCause = "You were killed by a mob";
         if (player.gameMode === "survival") {
-          player.takeDamage(amount);
+          let actualDamage = amount;
+          if (shieldActive && shieldDurability > 0) {
+            // Shield reduces damage by 80%
+            actualDamage = Math.ceil(amount * 0.2);
+            shieldDurability--;
+          }
+          player.takeDamage(actualDamage);
           sounds.play("hurt");
           ui.updateHearts(player.health, player.maxHealth);
           if (player.health <= 0) ui.showDeath();
@@ -1198,9 +1256,12 @@ function animate() {
   if (hud.style.display !== "none") {
     player.update(dt);
     mp?.updatePlayers(dt);
-    mobManager?.update(dt);
-    particles.update(dt);
     updateDayNight(dt);
+    if (mobManager) {
+      mobManager.dayTime = dayTime;
+      mobManager.update(dt);
+    }
+    particles.update(dt);
     weather.update(dt, player.position, (scene.fog as THREE.Fog).color);
     itemDrops.update(dt, player.position);
     xpOrbs.update(dt, player.position);

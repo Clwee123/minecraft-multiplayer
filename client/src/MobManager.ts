@@ -40,6 +40,7 @@ export class MobManager {
   private cb:     MobCallbacks;
   private singleplayer: boolean;
   private arrows: Arrow[] = [];
+  dayTime: number = 0.5; // 0 = midnight, 0.25 = sunrise, 0.5 = noon, 0.75 = sunset, 1.0 = midnight
 
   // Raycaster for mob-player attack detection
   private attackCooldown = 0;
@@ -55,7 +56,7 @@ export class MobManager {
 
   spawnMob(type: MobType, x: number, y: number, z: number, id?: string): Mob {
     const mobId    = id ?? uid();
-    const maxHp    = type === "zombie" ? 20 : type === "creeper" ? 20 : type === "skeleton" ? 20 : type === "witherskeleton" ? 40 : type === "chicken" ? 4 : type === "cow" ? 16 : type === "sheep" ? 12 : type === "horse" ? 30 : type === "villager" ? 20 : type === "enderdragon" ? 200 : type === "spider" ? 16 : type === "wolf" ? 20 : type === "cat" ? 10 : 10;
+    const maxHp    = type === "zombie" ? 20 : type === "creeper" ? 20 : type === "skeleton" ? 20 : type === "witherskeleton" ? 40 : type === "chicken" ? 4 : type === "cow" ? 16 : type === "sheep" ? 12 : type === "horse" ? 30 : type === "villager" ? 20 : type === "enderdragon" ? 200 : type === "spider" ? 16 : type === "wolf" ? 20 : type === "cat" ? 10 : type === "phantom" ? 20 : type === "slime" ? 16 : 10;
     const data: MobData = {
       id: mobId, type, x, y, z,
       rotY:      rnd(0, Math.PI * 2),
@@ -75,11 +76,34 @@ export class MobManager {
     const dist   = rnd(12, SPAWN_RADIUS);
     const x      = cx + Math.cos(angle) * dist;
     const z      = cz + Math.sin(angle) * dist;
-    const y      = (this.world as any).getSurfaceHeight
-                   ? (this.world as any).getSurfaceHeight(Math.floor(x), Math.floor(z)) + 1.5
-                   : 20;
-    const roll   = Math.random();
-    const type: MobType = roll < 0.18 ? "pig" : roll < 0.28 ? "chicken" : roll < 0.38 ? "cow" : roll < 0.48 ? "sheep" : roll < 0.55 ? "horse" : roll < 0.60 ? "wolf" : roll < 0.65 ? "cat" : roll < 0.72 ? "zombie" : roll < 0.79 ? "creeper" : roll < 0.86 ? "spider" : roll < 0.94 ? "skeleton" : "witherskeleton";
+
+    // Check if it's night (dark between 0.73 and 0.25 next day)
+    const isNight = this.dayTime < 0.25 || this.dayTime > 0.73;
+
+    let y: number;
+    let type: MobType;
+
+    if (isNight && Math.random() < 0.15) {
+      // Phantom spawns at night at high altitude
+      y = 20 + rnd(0, 10);
+      type = "phantom";
+    } else {
+      // Check for slime in caves (low y positions)
+      const surfaceY = (this.world as any).getSurfaceHeight
+        ? (this.world as any).getSurfaceHeight(Math.floor(x), Math.floor(z)) + 1.5
+        : 20;
+      y = surfaceY;
+
+      if (surfaceY < 15 && Math.random() < 0.08) {
+        // Slimes spawn in caves (low ground)
+        type = "slime";
+      } else {
+        // Normal mob spawn
+        const roll = Math.random();
+        type = roll < 0.18 ? "pig" : roll < 0.28 ? "chicken" : roll < 0.38 ? "cow" : roll < 0.48 ? "sheep" : roll < 0.55 ? "horse" : roll < 0.60 ? "wolf" : roll < 0.65 ? "cat" : roll < 0.72 ? "zombie" : roll < 0.79 ? "creeper" : roll < 0.86 ? "spider" : roll < 0.94 ? "skeleton" : "witherskeleton";
+      }
+    }
+
     this.spawnMob(type, x, y, z);
   }
 
@@ -217,9 +241,11 @@ export class MobManager {
     const dz2  = playerPos.z - d.z;
     const dist = Math.sqrt(dx2 * dx2 + dz2 * dz2);
 
-    // Type-specific AI (enderdragon doesn't use gravity)
+    // Type-specific AI (enderdragon and phantom don't use gravity)
     if (d.type === "enderdragon") {
       this.enderdragonAI(lm, dt);
+    } else if (d.type === "phantom") {
+      this.phantomAI(lm, dt, playerPos);
     } else {
       // Gravity / floor snap for other mobs
       d.y += lm.velY * dt;
@@ -251,6 +277,8 @@ export class MobManager {
         this.wolfAI(lm, dt, dist, dx2, dz2, playerPos);
       } else if (d.type === "cat") {
         this.catAI(lm, dt, dist, dx2, dz2, playerPos);
+      } else if (d.type === "slime") {
+        this.slimeAI(lm, dt, dist, dx2, dz2, playerPos);
       }
     }
 
@@ -732,6 +760,114 @@ export class MobManager {
       } else {
         d.state = "sitting";
       }
+    }
+  }
+
+  private phantomAI(lm: LocalMob, dt: number, playerPos: THREE.Vector3) {
+    const d = lm.data;
+    const isNight = this.dayTime < 0.25 || this.dayTime > 0.73;
+
+    // During day: fly away and despawn
+    if (!isNight) {
+      d.y = Math.min(d.y + 5 * dt, 255); // Fly up and away
+      return;
+    }
+
+    // At night: patrol and dive
+    const dx = playerPos.x - d.x;
+    const dz = playerPos.z - d.z;
+    const dist = Math.sqrt(dx * dx + dz * dz);
+
+    // Keep altitude at 20-30
+    if (d.y < 20) d.y += 3 * dt;
+    if (d.y > 30) d.y -= 3 * dt;
+
+    // Check for tamed cats nearby (should flee)
+    const catsNearby = Array.from(this.mobs.values()).some(m =>
+      m.data.type === "cat" && m.data.state === "tamed" &&
+      Math.hypot(m.data.x - d.x, m.data.z - d.z, m.data.y - d.y) < 10
+    );
+
+    if (catsNearby) {
+      // Flee from cat
+      const fleeAngle = Math.atan2(d.x - playerPos.x, d.z - playerPos.z);
+      d.x += Math.sin(fleeAngle) * 8 * dt;
+      d.z += Math.cos(fleeAngle) * 8 * dt;
+      d.state = "fleeing";
+      return;
+    }
+
+    if (d.state === "diving") {
+      // Dive attack
+      lm.timer -= dt;
+      const diveAngle = Math.atan2(dx, dz);
+      d.rotY = diveAngle;
+
+      // Fast descent toward player
+      d.x += Math.sin(diveAngle) * 12 * dt;
+      d.z += Math.cos(diveAngle) * 12 * dt;
+      d.y -= 8 * dt; // Swoop down
+
+      // Check if we hit the player
+      if (dist < 1 && d.y <= playerPos.y + 1) {
+        this.cb.onPlayerDamage(3);
+        d.state = "ascending";
+        lm.timer = 5; // Go back up
+      }
+
+      // After dive or timeout, go back up
+      if (lm.timer <= 0 || d.y < 10) {
+        d.state = "ascending";
+        lm.timer = 3;
+      }
+    } else if (d.state === "ascending") {
+      // Go back up
+      lm.timer -= dt;
+      d.y += 5 * dt;
+      if (lm.timer <= 0 || d.y > 30) {
+        d.state = "patrolling";
+        lm.timer = rnd(8, 12);
+      }
+    } else {
+      // Patrolling
+      lm.timer -= dt;
+      if (dist < 20 && lm.timer <= 0) {
+        // Start dive
+        d.state = "diving";
+        lm.timer = 3; // Dive duration
+      }
+      // Slow patrol movement
+      d.x += Math.sin(d.rotY) * 3 * dt;
+      d.z += Math.cos(d.rotY) * 3 * dt;
+    }
+  }
+
+  private slimeAI(lm: LocalMob, dt: number, playerDist: number, dx: number, dz: number, playerPos: THREE.Vector3) {
+    const d = lm.data;
+    const speed = 4.5;
+
+    if (playerDist > 12) {
+      // Too far, idle
+      d.state = "idle";
+      return;
+    }
+
+    // Hop toward player
+    lm.timer -= dt;
+    if (lm.timer <= 0) {
+      // Jump towards player
+      const angleToPlayer = Math.atan2(dx, dz);
+      d.rotY = angleToPlayer;
+      d.x += Math.sin(angleToPlayer) * speed * dt;
+      d.z += Math.cos(angleToPlayer) * speed * dt;
+      lm.velY = 6; // Jump
+      d.state = "hopping";
+      lm.timer = 0.8; // Hop every 0.8 seconds
+    }
+
+    // Check if landing on player with upward velocity
+    if (lm.velY < 0 && playerDist < 2) {
+      this.cb.onPlayerDamage(3);
     }
   }
 

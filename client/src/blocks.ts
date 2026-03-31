@@ -79,6 +79,10 @@ export const BLOCK_TYPES: Record<number, {
   66: { name: "Rail",           color: 0x888866 },
   67: { name: "Powered Rail",   color: 0xff8800 },
   68: { name: "Minecart",       color: 0x888888 },
+  69: { name: "Music Disc (Green)", color: 0x44aa44 },
+  70: { name: "Music Disc (Red)",   color: 0xaa4444 },
+  71: { name: "Music Disc (Blue)",  color: 0x4444aa },
+  72: { name: "Shield",         color: 0xcccccc },
 };
 
 // Hotbar presets — what shows in the 8 hotbar slots by default

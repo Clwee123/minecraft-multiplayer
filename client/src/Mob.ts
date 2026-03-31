@@ -1,6 +1,6 @@
 import * as THREE from "three";
 
-export type MobType = "pig" | "zombie" | "chicken" | "cow" | "sheep" | "creeper" | "skeleton" | "horse" | "villager" | "enderdragon" | "spider" | "witherskeleton" | "wolf" | "cat";
+export type MobType = "pig" | "zombie" | "chicken" | "cow" | "sheep" | "creeper" | "skeleton" | "horse" | "villager" | "enderdragon" | "spider" | "witherskeleton" | "wolf" | "cat" | "phantom" | "slime";
 
 export interface MobData {
   id:      string;
@@ -58,6 +58,8 @@ export class Mob {
       case "spider":  this.buildSpider();  break;
       case "wolf":    this.buildWolf();    break;
       case "cat":     this.buildCat();     break;
+      case "phantom": this.buildPhantom(); break;
+      case "slime":   this.buildSlime();   break;
     }
 
     this.hpSprite = this.buildHpBar();
@@ -835,6 +837,89 @@ export class Mob {
     this.group.add(tail);
   }
 
+  private buildPhantom() {
+    const BODY_COLOR = 0x1a4455;
+    const WING_COLOR = 0x1a3344;
+    const EYE_COLOR = 0x44ff44;
+
+    // Body: thin horizontal box
+    const body = this.box(1.2, 0.3, 2.0, BODY_COLOR);
+    body.position.y = 0;
+    this.group.add(body);
+
+    // Wings: two boxes on sides
+    const wingL = this.box(2.0, 0.1, 0.8, WING_COLOR);
+    wingL.position.set(-1.0, -0.05, 0);
+    this.group.add(wingL);
+
+    const wingR = this.box(2.0, 0.1, 0.8, WING_COLOR);
+    wingR.position.set(1.0, -0.05, 0);
+    this.group.add(wingR);
+
+    // Eyes: two small glowing spheres (emissive)
+    const eyeL = new THREE.Mesh(
+      new THREE.SphereGeometry(0.1, 8, 8),
+      new THREE.MeshLambertMaterial({ color: EYE_COLOR, emissive: EYE_COLOR })
+    );
+    eyeL.position.set(-0.3, 0.1, 0.8);
+    this.bodyMeshes.push(eyeL);
+    this.group.add(eyeL);
+
+    const eyeR = eyeL.clone();
+    eyeR.position.x = 0.3;
+    this.bodyMeshes.push(eyeR);
+    this.group.add(eyeR);
+  }
+
+  private buildSlime() {
+    const OUTER_COLOR = 0x44aa44;
+    const INNER_COLOR = 0x66cc66;
+    const EYE_COLOR = 0xffffff;
+    const PUPIL_COLOR = 0x000000;
+
+    // Outer body (translucent green)
+    const outer = new THREE.Mesh(
+      new THREE.BoxGeometry(1.2, 1.2, 1.2),
+      new THREE.MeshLambertMaterial({ color: OUTER_COLOR, transparent: true, opacity: 0.8 })
+    );
+    outer.position.y = 0;
+    this.bodyMeshes.push(outer);
+    this.group.add(outer);
+
+    // Inner core (brighter)
+    const inner = this.box(0.7, 0.7, 0.7, INNER_COLOR);
+    inner.position.y = 0;
+    this.group.add(inner);
+
+    // Eyes: two white spheres with black pupils
+    const eyeL = new THREE.Mesh(
+      new THREE.SphereGeometry(0.15, 8, 8),
+      new THREE.MeshLambertMaterial({ color: EYE_COLOR })
+    );
+    eyeL.position.set(-0.25, 0.25, 0.5);
+    this.bodyMeshes.push(eyeL);
+    this.group.add(eyeL);
+
+    const eyeR = eyeL.clone();
+    eyeR.position.x = 0.25;
+    this.bodyMeshes.push(eyeR);
+    this.group.add(eyeR);
+
+    // Black pupils on eyes
+    const pupilL = new THREE.Mesh(
+      new THREE.SphereGeometry(0.06, 8, 8),
+      new THREE.MeshLambertMaterial({ color: PUPIL_COLOR })
+    );
+    pupilL.position.set(-0.25, 0.25, 0.62);
+    this.bodyMeshes.push(pupilL);
+    this.group.add(pupilL);
+
+    const pupilR = pupilL.clone();
+    pupilR.position.x = 0.25;
+    this.bodyMeshes.push(pupilR);
+    this.group.add(pupilR);
+  }
+
   // ── HP bar ────────────────────────────────────────────────────────────────
 
   private buildHpBar(): THREE.Sprite {
@@ -845,7 +930,7 @@ export class Mob {
     const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false });
     const sp  = new THREE.Sprite(mat);
     sp.scale.set(1.2, 0.18, 1);
-    const hpY: Record<MobType, number> = { pig: 1.4, chicken: 1.0, zombie: 1.6, cow: 1.8, sheep: 1.7, creeper: 1.9, skeleton: 1.9, witherskeleton: 2.5, horse: 2.2, villager: 1.8, enderdragon: 3.5, spider: 0.8, wolf: 1.5, cat: 1.2 };
+    const hpY: Record<MobType, number> = { pig: 1.4, chicken: 1.0, zombie: 1.6, cow: 1.8, sheep: 1.7, creeper: 1.9, skeleton: 1.9, witherskeleton: 2.5, horse: 2.2, villager: 1.8, enderdragon: 3.5, spider: 0.8, wolf: 1.5, cat: 1.2, phantom: 1.5, slime: 1.5 };
     sp.position.y = hpY[this.type] ?? 1.6;
     return sp;
   }
@@ -936,6 +1021,11 @@ export class Mob {
       }
       // Head bobs
       this.headGroup.rotation.x = Math.abs(sw) * 0.05;
+    } else if (this.type === "slime") {
+      // Slime bounces up and down sinusoidally
+      const bounceTime = this.walkCycle / 2.5; // Sync with speed
+      const bounceAmount = 0.3 * Math.abs(Math.sin(bounceTime * Math.PI / 0.5)); // Oscillates every 0.5s
+      this.group.position.y = this.targetPos.y + bounceAmount;
     }
   }
 
@@ -951,7 +1041,7 @@ export class Mob {
 
     // Flash (red for most, green for creeper, white for skeleton, purple for dragon, dark for spider)
     const origColors: Record<MobType, number> = {
-      pig: 0xf9a8a8, zombie: 0x77bb77, chicken: 0xffffff, cow: 0x7a4a2a, sheep: 0xdddddd, creeper: 0x4a8a2a, skeleton: 0xcccccc, witherskeleton: 0x111111, horse: 0xc8a46e, villager: 0xffcc99, enderdragon: 0x110022, spider: 0x333333, wolf: 0x888888, cat: 0xdd8833,
+      pig: 0xf9a8a8, zombie: 0x77bb77, chicken: 0xffffff, cow: 0x7a4a2a, sheep: 0xdddddd, creeper: 0x4a8a2a, skeleton: 0xcccccc, witherskeleton: 0x111111, horse: 0xc8a46e, villager: 0xffcc99, enderdragon: 0x110022, spider: 0x333333, wolf: 0x888888, cat: 0xdd8833, phantom: 0x1a4455, slime: 0x44aa44,
     };
     const origColor = origColors[this.type] ?? 0xffffff;
     const damageColor = this.type === "creeper" ? 0x8aca5a : this.type === "skeleton" ? 0xffffff : this.type === "witherskeleton" ? 0xffffff : this.type === "enderdragon" ? 0xff8800 : 0xff4444;
