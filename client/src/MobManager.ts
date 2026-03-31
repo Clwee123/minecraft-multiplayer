@@ -196,10 +196,10 @@ export class MobManager {
         }
       }
 
-      // Despawn if too far
+      // Despawn if too far — use squared distance to avoid sqrt
       const dx = lm.data.x - playerPos.x;
       const dz = lm.data.z - playerPos.z;
-      if (Math.sqrt(dx * dx + dz * dz) > DESPAWN_RADIUS) {
+      if (dx * dx + dz * dz > DESPAWN_RADIUS * DESPAWN_RADIUS) {
         lm.mob.dispose(this.scene);
         this.mobs.delete(id);
       }
@@ -215,9 +215,8 @@ export class MobManager {
       const dx = arrow.mesh.position.x - playerPos.x;
       const dy = arrow.mesh.position.y - playerPos.y;
       const dz = arrow.mesh.position.z - playerPos.z;
-      const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
 
-      if (dist < 0.8) {
+      if (dx * dx + dy * dy + dz * dz < 0.64) { // 0.8^2 = 0.64
         // Arrow hit player
         this.cb.onPlayerDamage(3);
         this.scene.remove(arrow.mesh);
@@ -328,11 +327,14 @@ export class MobManager {
     const d = lm.data;
     const SPEED = 5.0; // Horses move faster
 
-    // Flee from zombies/skeletons
-    const shouldFlee = Array.from(this.mobs.values()).some(m =>
-      (m.data.type === "zombie" || m.data.type === "skeleton") &&
-      Math.hypot(m.data.x - d.x, m.data.z - d.z) < 15
-    );
+    // Flee from zombies/skeletons — avoid Array.from allocation, use direct map iteration
+    let shouldFlee = false;
+    for (const m of this.mobs.values()) {
+      if (m.data.type === "zombie" || m.data.type === "skeleton") {
+        const fdx = m.data.x - d.x, fdz = m.data.z - d.z;
+        if (fdx * fdx + fdz * fdz < 225) { shouldFlee = true; break; } // 15^2
+      }
+    }
 
     if (shouldFlee) {
       d.state = "fleeing";
@@ -450,8 +452,7 @@ export class MobManager {
     const dx = playerPos.x - d.x;
     const dy = playerPos.y - d.y;
     const dz = playerPos.z - d.z;
-    const distToPlayer = Math.sqrt(dx * dx + dy * dy + dz * dz);
-    if (distToPlayer < DAMAGE_RADIUS) {
+    if (dx * dx + dy * dy + dz * dz < DAMAGE_RADIUS * DAMAGE_RADIUS) {
       this.cb.onPlayerDamage(8);
     }
 
