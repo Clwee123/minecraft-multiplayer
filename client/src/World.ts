@@ -149,9 +149,7 @@ export class World {
     mesh.receiveShadow = false;
     mesh.frustumCulled = false;
     // Transparent blocks render after opaque to avoid depth sorting issues
-    if (info.transparent) {
-      mesh.renderOrder = blockType === 7 ? 2 : 1; // water last, glass/leaves before water
-    }
+    // No special renderOrder — depthWrite:true on all materials handles sorting correctly
     this.scene.add(mesh);
 
     this.instancedMeshes.set(blockType, mesh);

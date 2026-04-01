@@ -225,7 +225,6 @@ const world     = new World(scene);
 const player    = new Player(camera, world, scene);
 scene.add(camera); // needed so fp arm (camera child) renders
 const ui        = new UI();
-ui.updateDayCounter(dayCount);
 
 // ── Mobile controls (touch joystick + look + buttons) ────────────────────────
 let mobileControls: MobileControls | null = null;
@@ -263,6 +262,7 @@ let xpLevel = 0;
 
 // ── Day Counter ──────────────────────────────────────────────────────────────
 let dayCount = 1;
+ui.updateDayCounter(dayCount);
 
 // ── Achievement System ────────────────────────────────────────────────────────
 
