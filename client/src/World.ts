@@ -1,536 +1,361 @@
 import * as THREE from "three";
 import { createNoise2D } from "simplex-noise";
 import { BLOCK_TYPES } from "./blocks";
-import { getBlockMaterial, getBlockMaterials } from "./BlockTextures";
+import { getBlockMaterials } from "./BlockTextures";
 
+// ── Constants ────────────────────────────────────────────────────────────────
 const CHUNK_SIZE   = 16;
-const WORLD_HEIGHT = 256; // MC 1.8: 0-255
-const SEA_LEVEL    = 62;  // MC 1.8: sea level at y=62
+const SEA_LEVEL    = 62;
 
-// Integer key packing — supports x,z in [-4096, 4095], y in [0, 255]
-const KEY_X_OFFSET = 4096;
-const KEY_Z_OFFSET = 4096;
-const KEY_Y_MULT   = 8192;        // x+4096 in [0,8191] = 13 bits
-const KEY_Z_MULT   = 8192 * 256;  // y in [0,255] = 8 bits
+// Key packing: x,z in [-4096,4095], y in [0,255]
+const KX = 4096;
+const KZ = 4096;
+const KYM = 8192;       // (x+4096) fits in 13 bits
+const KZM = 8192 * 256; // y in 8 bits
 function key(x: number, y: number, z: number): number {
-  return (x + KEY_X_OFFSET) + y * KEY_Y_MULT + (z + KEY_Z_OFFSET) * KEY_Z_MULT;
+  return (x + KX) + y * KYM + (z + KZ) * KZM;
 }
-// String key for maps that need string keys (instanceRevIndex)
 function strKey(x: number, y: number, z: number): string { return `${x},${y},${z}`; }
 
 export class World {
-  scene:  THREE.Scene;
+  scene: THREE.Scene;
 
-  // NEW: Data structures for InstancedMesh
-  private blockData: Map<number, number> = new Map(); // intKey -> blockType
-  private instancedMeshes: Map<number, THREE.InstancedMesh> = new Map(); // blockType -> InstancedMesh
-  private instanceIndex: Map<number, number> = new Map(); // intKey -> instance index in its type's mesh
-  private instanceRevIndex: Map<string, number> = new Map(); // "type:idx" -> intKey
-  private instanceCount: Map<number, number> = new Map(); // blockType -> current count
-  private static readonly MAX_INSTANCES = 30000; // R=3 perf-safe
+  // ── Instance mesh system ────────────────────────────────────────────────
+  private instancedMeshes: Map<number, THREE.InstancedMesh> = new Map();
+  private instanceCount:   Map<number, number>              = new Map();
+  private instanceIndex:   Map<number, number>              = new Map(); // intKey -> meshIdx
+  private instanceRevIndex: Map<string, number>             = new Map(); // "type:idx" -> intKey
+  private blockData:       Map<number, number>              = new Map(); // intKey -> blockType
+  private generatedChunks: Set<string>                      = new Set();
+  private modifications:   Map<string, number>              = new Map();
+  private chestContents:   Map<string, number[]>            = new Map();
 
-  private chestInventory: Map<string, number[]> = new Map();
-  private visibilityTimer = 0;
-  private generatedChunks = new Set<string>();
-  private modifications: Map<string, number> = new Map(); // Track player-modified blocks
+  private static readonly MAX_INSTANCES = 32000;
+  private static _mat4 = new THREE.Matrix4();
+  private static _rayFace = new THREE.Vector3();
 
-  // Dedicated seeded noise functions — each uses a unique alea seed so they never interfere
-  private nHeight1   = createNoise2D(() => 0.5182763); // continental base
-  private nHeight2   = createNoise2D(() => 0.8374621); // mid-detail
-  private nHeight3   = createNoise2D(() => 0.2938174); // fine detail
-  private nBiome     = createNoise2D(() => 0.6174829); // biome selection
-  private nCave1     = createNoise2D(() => 0.1823947); // cave spaghetti A
-  private nCave2     = createNoise2D(() => 0.9274618); // cave spaghetti B
-  private nOre       = createNoise2D(() => 0.4729183); // ore cluster noise
-  // Legacy aliases kept for anything else that references them
-  private noise2D    = createNoise2D(() => 0.7362819);
-  private noise2D2   = createNoise2D(() => 0.3619274);
-  private biomeNoise = createNoise2D(() => 0.6174829); // same seed as nBiome
+  // ── Noise ────────────────────────────────────────────────────────────────
+  // Each noise function has a fixed deterministic seed via alea-style lambda
+  private nH1 = createNoise2D(() => 0.31415);  // continental base
+  private nH2 = createNoise2D(() => 0.62831);  // hill detail
+  private nH3 = createNoise2D(() => 0.94247);  // micro bumps
+  private nH4 = createNoise2D(() => 0.12566);  // very fine
+  private nBio= createNoise2D(() => 0.78539);  // biome
+  private nCv1= createNoise2D(() => 0.52359);  // cave A
+  private nCv2= createNoise2D(() => 0.20943);  // cave B
+  private nOre= createNoise2D(() => 0.41887);  // ore clusters
+  // Legacy aliases (used by dungeon/structure code)
+  private noise2D  = createNoise2D(() => 0.69813);
+  private noise2D2 = createNoise2D(() => 0.87964);
+  private biomeNoise = createNoise2D(() => 0.78539); // same seed as nBio
 
-  // Wave 9: Torch lights system
+  // Wave 9 torch system
   torchLights: Map<string, THREE.PointLight> = new Map();
-  private torchLightQueue: string[] = []; // Queue for LRU eviction
+  private torchLightQueue: string[] = [];
 
-  // Wave 9: Redstone system
-  redstoneState: Map<string, boolean> = new Map();
-  redstoneLoights: Map<string, THREE.PointLight> = new Map(); // Lights for redstone lamps
+  // Wave 9 redstone
+  private leverStates: Map<string, boolean> = new Map();
 
   constructor(scene: THREE.Scene) {
     this.scene = scene;
     this.generateTerrain();
-    this.placeVillages();
     this.generateDungeons();
   }
 
-  // Store village centers for mob spawning
-  getVillageCenters(): Array<[number, number, number]> {
-    return [
-      [-60, 0, -60],
-      [60, 0, 20],
-      [-20, 0, 80],
-    ];
+  getDungeonSpawns(): [number, number, number][] {
+    return [[-40,0,-40],[50,0,30],[-20,0,80]];
   }
 
-  // ── Biome system ──────────────────────────────────────────────────────────
-
+  // ── Biome ────────────────────────────────────────────────────────────────
   getBiome(x: number, z: number): number {
-    // Very low frequency — large biome regions like MC 1.8
-    const b = this.nBiome(x * 0.0015, z * 0.0015);
-    if (b < -0.4)  return 4; // ocean  (~20% of world)
-    if (b < -0.05) return 0; // plains (~17%)
-    if (b < 0.25)  return 2; // forest (~15%)
-    if (b < 0.5)   return 1; // desert (~13%)
-    return 3;                 // mountains (~15%)
+    const b = this.nBio(x * 0.0012, z * 0.0012);
+    if (b < -0.45)  return 4; // ocean
+    if (b < -0.05)  return 0; // plains
+    if (b < 0.25)   return 2; // forest
+    if (b < 0.52)   return 1; // desert
+    return 3;                  // mountains
   }
 
-  // ── Terrain height — MC 1.8 style ─────────────────────────────────────────
-  // True multi-octave fbm: 4 octaves at 1x, 2x, 4x, 8x frequency
-  // Output mapped to biome-appropriate height range
-
+  // ── Terrain height — 4-octave fBm ──────────────────────────────────────
   private getHeight(wx: number, wz: number): number {
     const biome = this.getBiome(wx, wz);
 
-    // 4-octave fractional Brownian motion — exactly like MC's Perlin terrain
-    const o1 = this.nHeight1(wx * 0.004,  wz * 0.004);          // large hills
-    const o2 = this.nHeight2(wx * 0.008,  wz * 0.008)  * 0.50;  // medium detail
-    const o3 = this.nHeight3(wx * 0.016,  wz * 0.016)  * 0.25;  // small bumps
-    const o4 = this.nHeight1(wx * 0.032,  wz * 0.032)  * 0.125; // micro detail
-    // Normalised to ~[-1, 1]
-    const n = (o1 + o2 + o3 + o4) / 1.875;
-    const t = (n + 1) * 0.5; // remap to [0, 1]
+    // 4-octave fbm, frequencies tuned to MC 1.8 feel
+    const o1 = this.nH1(wx * 0.003,  wz * 0.003);
+    const o2 = this.nH2(wx * 0.006,  wz * 0.006) * 0.5;
+    const o3 = this.nH3(wx * 0.012,  wz * 0.012) * 0.25;
+    const o4 = this.nH4(wx * 0.024,  wz * 0.024) * 0.125;
+    const n = (o1 + o2 + o3 + o4) / 1.875; // range ~[-1,1]
+    const t = (n + 1) * 0.5;                // range [0,1]
 
-    let height: number;
     switch (biome) {
-      case 4: // Ocean — always below sea level
-        height = Math.round(40 + t * 20); // 40-60
-        height = Math.min(height, 60);
-        break;
-      case 0: // Plains — nearly flat, just above sea
-        height = Math.round(63 + t * 6);  // 63-69
-        break;
-      case 1: // Desert — slightly rolling sand dunes
-        height = Math.round(63 + t * 10); // 63-73
-        break;
-      case 2: // Forest — rolling hills
-        height = Math.round(63 + t * 20); // 63-83
-        break;
-      case 3: // Mountains — dramatic peaks
-        height = Math.round(68 + t * 70); // 68-138
-        break;
-      default:
-        height = Math.round(63 + t * 8);
+      case 4: return Math.min(Math.round(40 + t * 20), 59); // ocean: 40-59
+      case 0: return Math.round(63 + t * 5);                // plains: 63-68
+      case 1: return Math.round(63 + t * 9);                // desert: 63-72
+      case 2: return Math.round(63 + t * 18);               // forest: 63-81
+      case 3: return Math.round(68 + t * 65);               // mountains: 68-133
+      default: return 64;
+    }
+  }
+
+  // ── Cave ─────────────────────────────────────────────────────────────────
+  private isCave(x: number, y: number, z: number): boolean {
+    const n1 = this.nCv1(x * 0.04 + y * 0.035, z * 0.04);
+    const n2 = this.nCv2(x * 0.04, z * 0.04 + y * 0.035);
+    return (Math.abs(n1) + Math.abs(n2)) < 0.10;
+  }
+
+  // ── Chunk raw gen ────────────────────────────────────────────────────────
+  private generateChunkRaw(
+    cx: number, cz: number,
+    rawBlocks: Map<number, number>,
+    rawCoords: Array<[number,number,number]>
+  ) {
+    for (let lx = 0; lx < CHUNK_SIZE; lx++) {
+      for (let lz = 0; lz < CHUNK_SIZE; lz++) {
+        const wx = cx * CHUNK_SIZE + lx;
+        const wz = cz * CHUNK_SIZE + lz;
+        const h   = this.getHeight(wx, wz);
+        const bio = this.getBiome(wx, wz);
+        const beach = bio !== 4 && h >= SEA_LEVEL - 2 && h <= SEA_LEVEL + 2;
+
+        const set = (y: number, t: number) => {
+          rawBlocks.set(key(wx, y, wz), t);
+          rawCoords.push([wx, y, wz]);
+        };
+
+        for (let y = 0; y <= h; y++) {
+          // Cave carving (skip bedrock band and top 2 layers)
+          if (y > 4 && y < h - 1 && this.isCave(wx, y, wz)) continue;
+
+          let t: number;
+          if (y <= 4) {
+            t = 3; // bedrock zone = stone
+          } else if (bio === 1 || beach) {
+            // Desert / beach
+            t = (y >= h - 3) ? 4 : 3;  // sand top, stone below
+          } else if (bio === 4) {
+            // Ocean floor
+            t = (y === h) ? 12 : (y === h-1 ? 4 : 3); // gravel, sand, stone
+          } else {
+            // Standard biomes
+            if      (y === h)       t = (bio === 3 && h > 100) ? 20 : 1; // grass or snow
+            else if (y >= h - 4)   t = 2;  // dirt
+            else                   t = 3;  // stone
+          }
+
+          // Ores (stone only, below surface)
+          if (t === 3 && y < h - 4) {
+            const ov = this.nOre(wx * 0.16 + y * 0.11, wz * 0.16);
+            if      (y <= 16  && ov > 0.76) t = 61; // diamond
+            else if (y <= 32  && ov > 0.68) t = 13; // gold
+            else if (y <= 64  && ov > 0.60) t = 14; // iron
+            else if (y <= 128 && ov > 0.54) t = 15; // coal
+          }
+
+          set(y, t);
+        }
+
+        // Water fill
+        if (h < SEA_LEVEL) {
+          for (let y = h + 1; y <= SEA_LEVEL; y++) set(y, 7);
+        }
+      }
+    }
+  }
+
+  // ── Chunk decorations ─────────────────────────────────────────────────────
+  private generateChunkDecorations(cx: number, cz: number, _raw: Map<number, number>) {
+    for (let lx = 0; lx < CHUNK_SIZE; lx++) {
+      for (let lz = 0; lz < CHUNK_SIZE; lz++) {
+        const wx = cx * CHUNK_SIZE + lx;
+        const wz = cz * CHUNK_SIZE + lz;
+        const h   = this.getHeight(wx, wz);
+        const bio = this.getBiome(wx, wz);
+        if (h <= SEA_LEVEL) continue;
+
+        const r = Math.random();
+        if (bio === 0) { // Plains
+          if (r < 0.02)  this.placeBlock(wx, h+1, wz, 51, false);
+          else if (r < 0.03) this.placeTree(wx, h+1, wz);
+        } else if (bio === 1) { // Desert
+          if (r < 0.03) this.placeBlock(wx, h+1, wz, 50, false);
+          else if (r < 0.05) this.placeBlock(wx, h+1, wz, 52, false);
+        } else if (bio === 2) { // Forest
+          if (r < 0.09)  this.placeTree(wx, h+1, wz);
+          else if (r < 0.12) this.placeBlock(wx, h+1, wz, 51, false);
+        } else if (bio === 3) { // Mountains
+          if (h < 100 && r < 0.03) this.placeTree(wx, h+1, wz);
+        }
+      }
+    }
+  }
+
+  // ── Oak tree ──────────────────────────────────────────────────────────────
+  private placeTree(x: number, y: number, z: number) {
+    const trunkH = 4 + Math.floor(Math.random() * 3);
+    for (let i = 0; i < trunkH; i++) this.placeBlock(x, y+i, z, 5, false);
+    const top = y + trunkH;
+    for (let dx = -2; dx <= 2; dx++) {
+      for (let dz = -2; dz <= 2; dz++) {
+        for (let dy = -1; dy <= 2; dy++) {
+          if (Math.abs(dx) === 2 && Math.abs(dz) === 2 && dy < 1) continue;
+          if (dx === 0 && dz === 0 && dy < 2) continue; // trunk slot
+          this.placeBlock(x+dx, top+dy, z+dz, 6, false);
+        }
+      }
+    }
+  }
+
+  // ── Main terrain generation ───────────────────────────────────────────────
+  private generateTerrain() {
+    const R = 3;
+    const rawBlocks = new Map<number, number>();
+    const rawCoords: Array<[number,number,number]> = [];
+
+    for (let cx = -R; cx <= R; cx++) {
+      for (let cz = -R; cz <= R; cz++) {
+        const ck = `${cx},${cz}`;
+        if (this.generatedChunks.has(ck)) continue;
+        this.generatedChunks.add(ck);
+        this.generateChunkRaw(cx, cz, rawBlocks, rawCoords);
+      }
     }
 
-    return Math.max(1, Math.min(height, 250));
+    // Face-cull pass
+    for (const [x, y, z] of rawCoords) {
+      const k    = key(x, y, z);
+      const type = rawBlocks.get(k)!;
+      if (!World.isOpaque(type)) {
+        this.placeBlock(x, y, z, type, false);
+        continue;
+      }
+      const exposed =
+        !World.isOpaque(rawBlocks.get(key(x+1,y,z)) ?? 0) ||
+        !World.isOpaque(rawBlocks.get(key(x-1,y,z)) ?? 0) ||
+        !World.isOpaque(rawBlocks.get(key(x,y+1,z)) ?? 0) ||
+        !World.isOpaque(rawBlocks.get(key(x,y-1,z)) ?? 0) ||
+        !World.isOpaque(rawBlocks.get(key(x,y,z+1)) ?? 0) ||
+        !World.isOpaque(rawBlocks.get(key(x,y,z-1)) ?? 0);
+      if (exposed) {
+        this.placeBlock(x, y, z, type, false);
+      } else {
+        this.blockData.set(k, type);
+      }
+    }
+
+    // Decorations
+    for (let cx = -R; cx <= R; cx++) {
+      for (let cz = -R; cz <= R; cz++) {
+        const dk = `${cx},${cz}_dec`;
+        if (this.generatedChunks.has(dk)) continue;
+        this.generatedChunks.add(dk);
+        this.generateChunkDecorations(cx, cz, rawBlocks);
+      }
+    }
   }
 
-  private getCaveNoise(x: number, y: number, z: number): number {
-    // Classic MC spaghetti caves: carve where both 2D noise slices near 0
-    const n1 = this.nCave1(x * 0.05 + y * 0.04, z * 0.05);
-    const n2 = this.nCave2(x * 0.05, z * 0.05 + y * 0.04);
-    const spaghetti = Math.abs(n1) + Math.abs(n2);
-    if (spaghetti < 0.12) return 1.0;
-    return 0.0;
+  // ── Dynamic chunk loading ─────────────────────────────────────────────────
+  generateAroundPlayer(px: number, pz: number) {
+    const R   = 3;
+    const cx0 = Math.floor(px / CHUNK_SIZE);
+    const cz0 = Math.floor(pz / CHUNK_SIZE);
+
+    const rawBlocks = new Map<number, number>();
+    const rawCoords: Array<[number,number,number]> = [];
+
+    for (let cx = cx0-R; cx <= cx0+R; cx++) {
+      for (let cz = cz0-R; cz <= cz0+R; cz++) {
+        const ck = `${cx},${cz}`;
+        if (this.generatedChunks.has(ck)) continue;
+        this.generatedChunks.add(ck);
+        this.generateChunkRaw(cx, cz, rawBlocks, rawCoords);
+      }
+    }
+
+    for (const [x, y, z] of rawCoords) {
+      const k    = key(x, y, z);
+      const type = rawBlocks.get(k)!;
+      if (!World.isOpaque(type)) {
+        this.placeBlock(x, y, z, type, false); continue;
+      }
+      const getT = (nx: number, ny: number, nz: number) =>
+        rawBlocks.get(key(nx,ny,nz)) ?? (this.blockData.get(key(nx,ny,nz)) ?? 0);
+      const exposed =
+        !World.isOpaque(getT(x+1,y,z)) || !World.isOpaque(getT(x-1,y,z)) ||
+        !World.isOpaque(getT(x,y+1,z)) || !World.isOpaque(getT(x,y-1,z)) ||
+        !World.isOpaque(getT(x,y,z+1)) || !World.isOpaque(getT(x,y,z-1));
+      if (exposed) this.placeBlock(x, y, z, type, false);
+      else this.blockData.set(k, type);
+    }
+
+    for (let cx = cx0-R; cx <= cx0+R; cx++) {
+      for (let cz = cz0-R; cz <= cz0+R; cz++) {
+        const dk = `${cx},${cz}_dec`;
+        if (this.generatedChunks.has(dk)) continue;
+        this.generatedChunks.add(dk);
+        this.generateChunkDecorations(cx, cz, rawBlocks);
+      }
+    }
   }
 
-  private getRiverNoise(x: number, z: number): number {
-    // Low frequency noise for rivers
-    return this.noise2D(x * 0.02, z * 0.02);
+  // ── Opaque check ──────────────────────────────────────────────────────────
+  private static readonly TRANSPARENT_TYPES = new Set([
+    7,9,21,50,51,52,56,57,58,83,84,85,86,87,88
+  ]);
+  static isOpaque(type: number): boolean {
+    return type > 0 && !World.TRANSPARENT_TYPES.has(type);
   }
 
-  private isRiver(x: number, z: number): boolean {
-    // Rivers are thin channels where noise is near 0
-    const n = this.getRiverNoise(x, z);
-    return n > -0.03 && n < 0.03;
-  }
-
-  // Reusable Matrix4 for block placement — avoids per-block heap allocation
-  private static _mat4 = new THREE.Matrix4();
-  // Reused face vector for raycastBlock — avoids allocation on every raycast hit
-  private static _rayFace = new THREE.Vector3();
-
-  // Shared geometry for all block types (deduplication)
+  // ── InstancedMesh factory ─────────────────────────────────────────────────
   private static sharedBoxGeo: THREE.BoxGeometry | null = null;
-  private static getSharedBoxGeo(): THREE.BoxGeometry {
-    if (!World.sharedBoxGeo) {
-      World.sharedBoxGeo = new THREE.BoxGeometry(1, 1, 1);
-    }
+  private static getBoxGeo(): THREE.BoxGeometry {
+    if (!World.sharedBoxGeo) World.sharedBoxGeo = new THREE.BoxGeometry(1,1,1);
     return World.sharedBoxGeo;
   }
 
-  // ── InstancedMesh factory ──────────────────────────────────────────────────────
-
   private getOrCreateInstancedMesh(blockType: number): THREE.InstancedMesh {
-    if (this.instancedMeshes.has(blockType)) {
-      return this.instancedMeshes.get(blockType)!;
-    }
-
+    if (this.instancedMeshes.has(blockType)) return this.instancedMeshes.get(blockType)!;
     const info = BLOCK_TYPES[blockType];
-    if (!info) return this.getOrCreateInstancedMesh(1); // fallback to grass
-
-    const geo = World.getSharedBoxGeo();
-
-    // Use per-face materials for blocks with top/side/bottom differentiation (grass, log, etc.)
-    const mats = getBlockMaterials(blockType, info);
-    const mat = mats.length === 1 ? mats[0] : mats;
-    const mesh = new THREE.InstancedMesh(geo, mat as any, World.MAX_INSTANCES);
+    const mats = getBlockMaterials(blockType, info ?? {});
+    const mat  = mats.length === 1 ? mats[0] : mats as any;
+    const mesh = new THREE.InstancedMesh(World.getBoxGeo(), mat, World.MAX_INSTANCES);
     mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-    mesh.count = 0; // start with 0 visible instances
-    mesh.castShadow = false;
-    mesh.receiveShadow = false;
-    mesh.frustumCulled = false;
-    // Transparent blocks render after opaque to avoid depth sorting issues
-    // Water renders last (after all opaque) so depth test works correctly with depthWrite:false
-    if (blockType === 7) mesh.renderOrder = 1;
+    mesh.count          = 0;
+    mesh.castShadow     = false;
+    mesh.receiveShadow  = false;
+    mesh.frustumCulled  = false;
+    if (blockType === 7) mesh.renderOrder = 1; // water last
     this.scene.add(mesh);
-
     this.instancedMeshes.set(blockType, mesh);
     this.instanceCount.set(blockType, 0);
     return mesh;
   }
 
-  // ── World generation ───────────────────────────────────────────────────────
-
-  // Transparent/non-solid block types that don't occlude neighbors
-  private static readonly TRANSPARENT_TYPES = new Set([7, 9, 21, 50, 51, 52, 56, 57, 58, 78, 79, 80]);
-
-  private static isOpaque(type: number): boolean {
-    return type > 0 && !World.TRANSPARENT_TYPES.has(type);
+  // ── Dungeon gen (preserved) ───────────────────────────────────────────────
+  private generateDungeons() {
+    this.generateDungeon(-40, -40);
+    this.generateDungeon(50, 30);
   }
-
-  private generateTerrain() {
-    const R = 3; // R=3=7x7 chunks, perf balance
-
-    // Pass 1: build a raw voxel map without adding to scene (integer keys)
-    const rawBlocks = new Map<number, number>();
-    // Also store coords for pass 2 iteration (avoid decoding integer keys)
-    const rawCoords: Array<[number, number, number]> = [];
-
-    for (let cx = -R; cx <= R; cx++) {
-      for (let cz = -R; cz <= R; cz++) {
-        this.generateChunkRaw(cx, cz, rawBlocks, rawCoords);
-      }
-    }
-
-    // Pass 2: only place blocks that have at least one exposed face
-    for (const [x, y, z] of rawCoords) {
-      const k = key(x, y, z);
-      const type = rawBlocks.get(k);
-      if (type === undefined) continue;
-
-      // Non-opaque blocks (water, glass, flowers, etc.) always show
-      if (!World.isOpaque(type)) {
-        this.placeBlock(x, y, z, type, false);
-        continue;
-      }
-
-      // Check 6 neighbors with integer key arithmetic — zero string allocation
-      const exposed =
-        !World.isOpaque(rawBlocks.get(key(x+1, y, z)) ?? 0) ||
-        !World.isOpaque(rawBlocks.get(key(x-1, y, z)) ?? 0) ||
-        !World.isOpaque(rawBlocks.get(key(x, y+1, z)) ?? 0) ||
-        !World.isOpaque(rawBlocks.get(key(x, y-1, z)) ?? 0) ||
-        !World.isOpaque(rawBlocks.get(key(x, y, z+1)) ?? 0) ||
-        !World.isOpaque(rawBlocks.get(key(x, y, z-1)) ?? 0);
-
-      if (exposed) {
-        this.placeBlock(x, y, z, type, false);
-      } else {
-        // Still track hidden block in blockData (for collision, mining) but no mesh instance
-        this.blockData.set(k, type);
-      }
-    }
-
-    // Pass 3: decorations (trees, flowers, etc.) — placed on top, always exposed
-    for (let cx = -R; cx <= R; cx++) {
-      for (let cz = -R; cz <= R; cz++) {
-        this.generateChunkDecorations(cx, cz, rawBlocks);
-        this.generatedChunks.add(`${cx},${cz}`);
-      }
-    }
-  }
-
-  /** Generate new chunks around player position (call periodically) */
-  generateAroundPlayer(px: number, pz: number) {
-    const R = 3;
-    const cx0 = Math.floor(px / 16);
-    const cz0 = Math.floor(pz / 16);
-    const rawBlocks = new Map<number, number>();
-    const rawCoords: Array<[number, number, number]> = [];
-    let generated = 0;
-
-    for (let cx = cx0 - R; cx <= cx0 + R; cx++) {
-      for (let cz = cz0 - R; cz <= cz0 + R; cz++) {
-        const chunkKey = `${cx},${cz}`;
-        if (this.generatedChunks.has(chunkKey)) continue;
-        this.generatedChunks.add(chunkKey);
-        this.generateChunkRaw(cx, cz, rawBlocks, rawCoords);
-        generated++;
-      }
-    }
-
-    if (generated === 0) return;
-
-    // Place raw blocks with visibility culling
-    for (const [x, y, z] of rawCoords) {
-      const k = key(x, y, z);
-      const type = rawBlocks.get(k);
-      if (type === undefined) continue;
-
-      if (!World.isOpaque(type)) {
-        this.placeBlock(x, y, z, type, false);
-        continue;
-      }
-
-      const exposed =
-        !World.isOpaque(rawBlocks.get(key(x+1, y, z)) ?? (this.blockData.get(key(x+1,y,z)) ?? 0)) ||
-        !World.isOpaque(rawBlocks.get(key(x-1, y, z)) ?? (this.blockData.get(key(x-1,y,z)) ?? 0)) ||
-        !World.isOpaque(rawBlocks.get(key(x, y+1, z)) ?? (this.blockData.get(key(x,y+1,z)) ?? 0)) ||
-        !World.isOpaque(rawBlocks.get(key(x, y-1, z)) ?? (this.blockData.get(key(x,y-1,z)) ?? 0)) ||
-        !World.isOpaque(rawBlocks.get(key(x, y, z+1)) ?? (this.blockData.get(key(x,y,z+1)) ?? 0)) ||
-        !World.isOpaque(rawBlocks.get(key(x, y, z-1)) ?? (this.blockData.get(key(x,y,z-1)) ?? 0));
-
-      if (exposed) {
-        this.placeBlock(x, y, z, type, false);
-      } else {
-        this.blockData.set(k, type);
-      }
-    }
-
-    // Decorations for new chunks
-    for (let cx = cx0 - R; cx <= cx0 + R; cx++) {
-      for (let cz = cz0 - R; cz <= cz0 + R; cz++) {
-        const decKey = `${cx},${cz}_dec`;
-        if (this.generatedChunks.has(decKey)) continue;
-        this.generatedChunks.add(decKey);
-        this.generateChunkDecorations(cx, cz, rawBlocks);
-      }
-    }
-  }
-
-  private generateChunkRaw(cx: number, cz: number, rawBlocks: Map<number, number>, rawCoords: Array<[number, number, number]>) {
-    for (let lx = 0; lx < CHUNK_SIZE; lx++) {
-      for (let lz = 0; lz < CHUNK_SIZE; lz++) {
-        const wx = cx * CHUNK_SIZE + lx;
-        const wz = cz * CHUNK_SIZE + lz;
-        const h  = this.getHeight(wx, wz);
-        const biome = this.getBiome(wx, wz);
-        // Beach: within 2 of sea level on non-ocean biomes
-        const isBeach = biome !== 4 && h >= SEA_LEVEL - 2 && h <= SEA_LEVEL + 2;
-        // Snow cap: mountains above y=100
-        const isSnow = biome === 3 && h > 100;
-
-        const setBlock = (y: number, type: number) => {
-          rawBlocks.set(key(wx, y, wz), type);
-          rawCoords.push([wx, y, wz]);
-        };
-
-        // Bedrock y=0-4, then stone to surface with biome layers
-        for (let y = 0; y <= h; y++) {
-          // Cave carving
-          if (y > 4 && y < h - 1 && this.getCaveNoise(wx, y, wz) > 0.5) continue;
-
-          let type: number;
-
-          if (y <= 4) {
-            type = 3; // bedrock/stone base
-          } else if (biome === 1 || isBeach) {
-            // Desert / beach: all sand on top
-            if (y === h)         type = 4; // sand top
-            else if (y >= h - 3) type = 4; // sand layers
-            else                 type = 3; // stone
-          } else if (biome === 4) {
-            // Ocean floor: gravel/sand
-            if (y === h)         type = 12; // gravel
-            else if (y >= h - 1) type = 4;  // sand
-            else                 type = 3;
+  private generateDungeon(cx: number, cz: number) {
+    const surfaceY = this.getSurfaceHeight(cx, cz);
+    const roomY    = surfaceY - 8;
+    if (roomY < 10) return;
+    const w = 9, th = 5, d = 9;
+    for (let x = cx; x < cx+w; x++) {
+      for (let y = roomY; y < roomY+th; y++) {
+        for (let z = cz; z < cz+d; z++) {
+          if (x === cx || x === cx+w-1 || y === roomY || y === roomY+th-1 || z === cz || z === cz+d-1) {
+            this.placeBlock(x, y, z, y === roomY ? 11 : 3, false);
           } else {
-            // Plains / Forest / Mountains
-            if (y === h) {
-              type = isSnow ? 20 : 1; // grass or snow
-            } else if (y >= h - 4) {
-              type = 2; // dirt
-            } else {
-              type = 3; // stone
-            }
-          }
-
-          // Ore veins — dedicated noise, no interference with height/caves
-          if (type === 3 && y < h - 4) {
-            const ov = this.nOre(wx * 0.15 + y * 0.13, wz * 0.15);
-            if      (y <= 16  && ov > 0.74) type = 61; // Diamond   rare,  y≤16
-            else if (y <= 32  && ov > 0.68) type = 13; // Gold      uncommon, y≤32
-            else if (y <= 64  && ov > 0.60) type = 14; // Iron      common, y≤64
-            else if (y <= 128 && ov > 0.55) type = 15; // Coal      very common
-          }
-
-          setBlock(y, type);
-        }
-
-        // Water fill for ocean / underwater land
-        if (h < SEA_LEVEL) {
-          for (let y = h + 1; y <= SEA_LEVEL; y++) {
-            setBlock(y, 7);
-          }
-        }
-
-        // Lava pools
-        if (h > 5 && Math.random() < 0.003) {
-          for (let dy = Math.max(0, h - 8); dy <= h - 5; dy++) {
-            if (Math.random() < 0.6) {
-              setBlock(dy, 47);
-            }
+            this.removeBlock(x, y, z);
           }
         }
       }
     }
+    // Spawner
+    this.placeBlock(cx + Math.floor(w/2), roomY+1, cz + Math.floor(d/2), 48, false);
   }
-
-  private generateChunkDecorations(cx: number, cz: number, _rawBlocks: Map<number, number>) {
-    for (let lx = 0; lx < CHUNK_SIZE; lx++) {
-      for (let lz = 0; lz < CHUNK_SIZE; lz++) {
-        const wx = cx * CHUNK_SIZE + lx;
-        const wz = cz * CHUNK_SIZE + lz;
-        const h  = this.getHeight(wx, wz);
-        const biome = this.getBiome(wx, wz);
-        if (h <= SEA_LEVEL) continue; // no decorations underwater
-
-        if (biome === 0) { // Plains
-          if (Math.random() < 0.025) this.placeBlock(wx, h + 1, wz, 51, false); // flowers
-          if (Math.random() < 0.008) this.placeTree(wx, h + 1, wz); // sparse trees
-        } else if (biome === 1) { // Desert
-          if (Math.random() < 0.04) this.placeBlock(wx, h + 1, wz, 50, false); // cactus
-          if (Math.random() < 0.03) this.placeBlock(wx, h + 1, wz, 52, false); // dead bush
-        } else if (biome === 2) { // Forest — dense trees
-          if (Math.random() < 0.10) this.placeTree(wx, h + 1, wz);
-          if (Math.random() < 0.03) this.placeBlock(wx, h + 1, wz, 51, false);
-        } else if (biome === 3) { // Mountains
-          if (h < 100 && Math.random() < 0.04) this.placePineTree(wx, h + 1, wz);
-          if (Math.random() < 0.02) this.placeRocks(wx, h + 1, wz);
-        }
-      }
-    }
-  }
-
-  private generateChunk(_cx: number, _cz: number) {
-    // Legacy stub — replaced by generateChunkRaw + generateChunkDecorations
-  }
-
-  private placeTree(x: number, y: number, z: number) {
-    const trunkH = 4 + Math.floor(Math.random() * 3);
-    for (let i = 0; i < trunkH; i++) this.placeBlock(x, y + i, z, 5, false);
-
-    const top = y + trunkH;
-    for (let dx = -2; dx <= 2; dx++) {
-      for (let dz = -2; dz <= 2; dz++) {
-        for (let dy = -1; dy <= 1; dy++) {
-          if (Math.abs(dx) === 2 && Math.abs(dz) === 2) continue;
-          this.placeBlock(x + dx, top + dy, z + dz, 6, false);
-        }
-      }
-    }
-    this.placeBlock(x, top + 2, z, 6, false);
-  }
-
-  private placePineTree(x: number, y: number, z: number) {
-    const trunkH = 6 + Math.floor(Math.random() * 3); // 6-8 tall
-    for (let i = 0; i < trunkH; i++) this.placeBlock(x, y + i, z, 83, false); // Spruce Log
-
-    // Triangular canopy - wider at bottom, narrow at top
-    const top = y + trunkH;
-    // Layer 1 (bottom) - radius 2
-    for (let dx = -2; dx <= 2; dx++) {
-      for (let dz = -2; dz <= 2; dz++) {
-        if (Math.abs(dx) === 2 && Math.abs(dz) === 2) continue;
-        this.placeBlock(x + dx, top - 3, z + dz, 84, false);
-      }
-    }
-    // Layer 2 - radius 2
-    for (let dx = -2; dx <= 2; dx++) {
-      for (let dz = -2; dz <= 2; dz++) {
-        if (Math.abs(dx) === 2 && Math.abs(dz) === 2) continue;
-        this.placeBlock(x + dx, top - 2, z + dz, 84, false);
-      }
-    }
-    // Layer 3 - radius 1
-    for (let dx = -1; dx <= 1; dx++) {
-      for (let dz = -1; dz <= 1; dz++) {
-        this.placeBlock(x + dx, top - 1, z + dz, 84, false);
-      }
-    }
-    // Layer 4 - radius 1
-    for (let dx = -1; dx <= 1; dx++) {
-      for (let dz = -1; dz <= 1; dz++) {
-        this.placeBlock(x + dx, top, z + dz, 84, false);
-      }
-    }
-    // Top point
-    this.placeBlock(x, top + 1, z, 84, false);
-  }
-
-  private placePalmTree(x: number, y: number, z: number) {
-    const trunkH = 5 + Math.floor(Math.random() * 3); // 5-7 tall
-    // Slight lean - trunk curves by 1 block in a random direction
-    const leanDx = Math.random() < 0.5 ? (Math.random() < 0.5 ? 1 : -1) : 0;
-    const leanDz = leanDx === 0 ? (Math.random() < 0.5 ? 1 : -1) : 0;
-    let tx = x, tz = z;
-    for (let i = 0; i < trunkH; i++) {
-      this.placeBlock(tx, y + i, tz, 85, false); // Palm Log
-      if (i === Math.floor(trunkH / 2)) { tx += leanDx; tz += leanDz; }
-    }
-
-    // Fan-shaped leaf crown - cross pattern
-    const top = y + trunkH;
-    this.placeBlock(tx, top, tz, 86, false); // center leaf
-    for (let r = 1; r <= 3; r++) {
-      this.placeBlock(tx + r, top, tz, 86, false);
-      this.placeBlock(tx - r, top, tz, 86, false);
-      this.placeBlock(tx, top, tz + r, 86, false);
-      this.placeBlock(tx, top, tz - r, 86, false);
-      // Diagonal fronds
-      if (r <= 2) {
-        this.placeBlock(tx + r, top, tz + r, 86, false);
-        this.placeBlock(tx - r, top, tz - r, 86, false);
-        this.placeBlock(tx + r, top, tz - r, 86, false);
-        this.placeBlock(tx - r, top, tz + r, 86, false);
-      }
-    }
-    // Drooping tips
-    this.placeBlock(tx + 3, top - 1, tz, 86, false);
-    this.placeBlock(tx - 3, top - 1, tz, 86, false);
-    this.placeBlock(tx, top - 1, tz + 3, 86, false);
-    this.placeBlock(tx, top - 1, tz - 3, 86, false);
-  }
-
-  private placeBirchTree(x: number, y: number, z: number) {
-    const trunkH = 5 + Math.floor(Math.random() * 2); // 5-6 tall
-    for (let i = 0; i < trunkH; i++) this.placeBlock(x, y + i, z, 87, false); // Birch Log
-
-    const top = y + trunkH;
-    // Rounder, slightly smaller canopy than oak
-    for (let dx = -2; dx <= 2; dx++) {
-      for (let dz = -2; dz <= 2; dz++) {
-        for (let dy = -1; dy <= 1; dy++) {
-          if (Math.abs(dx) === 2 && Math.abs(dz) === 2) continue;
-          if (dy === 1 && (Math.abs(dx) === 2 || Math.abs(dz) === 2)) continue;
-          this.placeBlock(x + dx, top + dy, z + dz, 88, false);
-        }
-      }
-    }
-    this.placeBlock(x, top + 2, z, 88, false);
-  }
-
-  private placeRocks(x: number, y: number, z: number) {
-    const count = 2 + Math.floor(Math.random() * 4);
-    for (let i = 0; i < count; i++) {
-      const dx = Math.floor((Math.random() - 0.5) * 4);
-      const dz = Math.floor((Math.random() - 0.5) * 4);
-      const dy = i === 0 ? 0 : Math.floor(Math.random() * 2);
-      this.placeBlock(x + dx, y + dy, z + dz, 3, false);
-    }
-  }
-
-  // ── Block CRUD ─────────────────────────────────────────────────────────────
 
   placeBlock(x: number, y: number, z: number, type: number, overwrite = true) {
     const k = key(x, y, z);
@@ -779,15 +604,15 @@ export class World {
 
   getChestInventory(x: number, y: number, z: number): number[] {
     const k = `${x},${y},${z}`;
-    if (!this.chestInventory.has(k)) {
-      this.chestInventory.set(k, new Array(27).fill(0));
+    if (!this.chestContents.has(k)) {
+      this.chestContents.set(k, new Array(27).fill(0));
     }
-    return this.chestInventory.get(k)!;
+    return this.chestContents.get(k)!;
   }
 
   setChestInventory(x: number, y: number, z: number, items: number[]) {
     const k = `${x},${y},${z}`;
-    this.chestInventory.set(k, items);
+    this.chestContents.set(k, items);
   }
 
   // ── Village generation ─────────────────────────────────────────────────────
@@ -966,7 +791,7 @@ export class World {
     }
     // Serialize chest inventories (only non-empty)
     const chests: Record<string, number[]> = {};
-    for (const [key, items] of this.chestInventory.entries()) {
+    for (const [key, items] of this.chestContents.entries()) {
       if (items.some(v => v !== 0)) chests[key] = items;
     }
     const data = JSON.stringify({ version: 2, mods, chests, player: playerState ?? null });
@@ -998,7 +823,7 @@ export class World {
       // Load chest inventories (version 2+)
       if (data.version >= 2 && data.chests) {
         for (const [key, items] of Object.entries(data.chests as Record<string, number[]>)) {
-          this.chestInventory.set(key, items);
+          this.chestContents.set(key, items);
         }
       }
       return data.version >= 2 ? data.player : null;
