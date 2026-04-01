@@ -81,6 +81,10 @@ export class Player {
   private headBobPhase = 0;
   private headBobIntensity = 0;
   private cameraRoll = 0;
+  private currentFov = 75;
+  private static readonly BASE_FOV = 75;
+  private static readonly SPRINT_FOV = 85;
+  private static readonly LANDING_FOV = 70;
 
   // First-person arm
   private fpArm: THREE.Group | null = null;
@@ -751,6 +755,22 @@ export class Player {
       this.camera.rotation.y = this.yaw;
       this.camera.rotation.x = this.pitch;
       this.camera.rotation.z = this.cameraRoll;
+
+      // FOV effects: sprint widens, landing narrows briefly
+      let targetFov = Player.BASE_FOV;
+      if (sprinting && moveSpeed > 1) {
+        targetFov = Player.SPRINT_FOV;
+      }
+      // Brief landing squeeze (when just landed)
+      if (this.onGround && !this.wasOnGround) {
+        targetFov = Player.LANDING_FOV;
+      }
+
+      this.currentFov += (targetFov - this.currentFov) * 0.12;
+      if (Math.abs(this.currentFov - this.camera.fov) > 0.1) {
+        this.camera.fov = this.currentFov;
+        this.camera.updateProjectionMatrix();
+      }
     }
   }
 

@@ -69,13 +69,24 @@
 - Semi-transparent water blocks with depth-fade
 
 ## Goal 8: Smooth Lighting / Ambient Occlusion
+**Status**: SKIPPED — InstancedMesh shares materials, per-face lighting requires custom shader or geometry refactor. Deferred to future.
+
+---
+
+## Goal 10: Footstep Sound Variety
 **Status**: TODO
-- Simple AO darkening on block edges/corners
-- Per-face brightness based on face direction (top=bright, bottom=dark)
-- Torch light glow improvement
+- Different step sounds for different block types (stone, dirt, sand, wood)
+- Volume varies slightly for natural feel
+- Landing impact sound after falling
+
+## Goal 11: FOV Effects
+**Status**: TODO  
+- FOV widens when sprinting
+- FOV narrows slightly when crouching/sneaking
+- Smooth FOV transitions
 
 ## Goal 9: Better Cloud System
-**Status**: TODO
+**Status**: DONE
 - Volumetric-ish flat clouds with noise-based shapes
 - Clouds cast soft shadows on terrain
 - Cloud density varies with weather
