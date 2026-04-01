@@ -261,7 +261,7 @@
 - Screen shake on nearby explosion
 
 ## Goal 36: Torch Placement Particles & Smoke
-**Status**: TODO
+**Status**: DONE
 - Torches emit small smoke particles rising upward
 - Flame particle at torch tip that flickers
 - Particles only render for torches within 24 blocks of player

@@ -2001,6 +2001,33 @@ function animate() {
 
     tickWater(now / 1000);
     world.updateTorchFlicker(now / 1000);
+
+    // Torch smoke and flame particles — only for nearby torches
+    for (const [torchKey] of world.torchLights) {
+      const [tx, ty, tz] = torchKey.split(",").map(Number);
+      const tdx = tx - player.position.x;
+      const tdz = tz - player.position.z;
+      if (tdx * tdx + tdz * tdz > 576) continue; // 24^2 = 576 — skip distant torches
+      // Smoke particle (grey, rising slowly)
+      if (Math.random() < 0.06) {
+        particles.spawn(
+          tx + (Math.random() - 0.5) * 0.1,
+          ty + 0.7,
+          tz + (Math.random() - 0.5) * 0.1,
+          0x888888, 1.5, 0, 0.3, 0, 0.15
+        );
+      }
+      // Flame particle (orange/yellow, at torch tip)
+      if (Math.random() < 0.04) {
+        particles.spawn(
+          tx + (Math.random() - 0.5) * 0.08,
+          ty + 0.55,
+          tz + (Math.random() - 0.5) * 0.08,
+          0xff8800, 0.4, 0, 0.5, 0, 0.12
+        );
+      }
+    }
+
     weather.update(dt, player.position, (scene.fog as THREE.Fog).color);
     itemDrops.update(dt, player.position);
     xpOrbs.update(dt, player.position);
