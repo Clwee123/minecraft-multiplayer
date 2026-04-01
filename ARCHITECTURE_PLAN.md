@@ -254,7 +254,7 @@
 - Improved arrow mesh (elongated, rotated to face velocity direction)
 
 ## Goal 35: Boss Mob — Creeper AI Countdown & Explosion Warning
-**Status**: TODO
+**Status**: DONE
 - Creeper flashes white and swells when about to explode
 - Visual countdown timer (1.5s fuse)
 - Larger explosion radius (3 blocks)

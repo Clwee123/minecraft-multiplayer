@@ -376,6 +376,8 @@ const potionEffects = { strength: 0, speed: 0 };
 
 let witherTimer = 0;
 const WITHER_DURATION = 5; // 5 seconds
+let screenShakeTimer = 0;
+let screenShakeIntensity = 0;
 
 // ── Wave 10: Stats Tracker ───────────────────────────────────────────────────
 
@@ -1759,12 +1761,20 @@ async function startGame(name: string) {
           }
         }
         sounds.play("break");
-        // Camera shake via brief CSS animation
+        // Screen shake on explosion — intensity based on distance
+        const _eDist = Math.sqrt(
+          (player.position.x - x) ** 2 + (player.position.y - y) ** 2 + (player.position.z - z) ** 2
+        );
+        if (_eDist < 20) {
+          screenShakeTimer = 0.4;
+          screenShakeIntensity = Math.max(0.02, 0.12 * (1 - _eDist / 20));
+        }
+        // Brightness flash
         const origFilter = renderer.domElement.style.filter;
-        renderer.domElement.style.filter = "brightness(1.2)";
+        renderer.domElement.style.filter = "brightness(1.3)";
         setTimeout(() => {
           renderer.domElement.style.filter = origFilter;
-        }, 80);
+        }, 100);
       },
       // Wave 9: Wither effect callback
       onWitherEffect: () => {
@@ -1828,12 +1838,20 @@ async function startGame(name: string) {
           }
         }
         sounds.play("break");
-        // Camera shake via brief CSS animation
+        // Screen shake on explosion — intensity based on distance
+        const _eDist = Math.sqrt(
+          (player.position.x - x) ** 2 + (player.position.y - y) ** 2 + (player.position.z - z) ** 2
+        );
+        if (_eDist < 20) {
+          screenShakeTimer = 0.4;
+          screenShakeIntensity = Math.max(0.02, 0.12 * (1 - _eDist / 20));
+        }
+        // Brightness flash
         const origFilter = renderer.domElement.style.filter;
-        renderer.domElement.style.filter = "brightness(1.2)";
+        renderer.domElement.style.filter = "brightness(1.3)";
         setTimeout(() => {
           renderer.domElement.style.filter = origFilter;
-        }, 80);
+        }, 100);
       },
       // Wave 9: Wither effect callback
       onWitherEffect: () => {
@@ -2463,6 +2481,15 @@ function animate() {
         version: "0.8",
       });
     }
+  }
+
+  // Apply screen shake
+  if (screenShakeTimer > 0) {
+    screenShakeTimer -= dt;
+    const shakeX = (Math.random() - 0.5) * 2 * screenShakeIntensity;
+    const shakeY = (Math.random() - 0.5) * 2 * screenShakeIntensity;
+    camera.position.x += shakeX;
+    camera.position.y += shakeY;
   }
 
   renderer.render(scene, camera);

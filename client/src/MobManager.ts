@@ -503,6 +503,8 @@ export class MobManager {
     }
   }
 
+  private static readonly CREEPER_FUSE_TIME = 1.5;
+
   private creeperAI(lm: LocalMob, dt: number, playerDistSq: number, playerPos: THREE.Vector3) {
     const d = lm.data;
     const SPEED = 2.5;
@@ -511,17 +513,22 @@ export class MobManager {
     if (playerDistSq < 100) { // 10^2=100
       if (d.state !== "fusing") {
         d.state = "fusing";
-        lm.timer = 1.5; // fuse for 1.5 seconds
+        lm.timer = MobManager.CREEPER_FUSE_TIME;
       }
     } else if (d.state === "fusing") {
-      // Player got away, abort
+      // Player got away, abort — reset visual
       d.state = "idle";
       lm.timer = rnd(1.5, 4);
+      lm.mob.setCreeperFuse(0);
     }
 
     if (d.state === "fusing") {
       // Chase player while fusing — with pathfinding
       this.moveToward(lm, playerPos.x, playerPos.z, SPEED, dt);
+
+      // Update visual fuse progress (0→1)
+      const progress = 1.0 - (lm.timer / MobManager.CREEPER_FUSE_TIME);
+      lm.mob.setCreeperFuse(Math.max(0, Math.min(1, progress)));
 
       // Explode when timer expires
       if (lm.timer <= 0) {

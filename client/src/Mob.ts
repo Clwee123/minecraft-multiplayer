@@ -1038,6 +1038,21 @@ export class Mob {
 
   // ── Damage feedback ───────────────────────────────────────────────────────
 
+  /** Set creeper fuse progress (0=not fusing, 1=about to explode). Flashes white and swells. */
+  setCreeperFuse(progress: number) {
+    if (this.type !== "creeper") return;
+    // Swell: scale from 1.0 to 1.4
+    const scale = 1.0 + progress * 0.4;
+    this.group.scale.setScalar(scale);
+    // Flash white with increasing frequency
+    const flashFreq = 2 + progress * 12; // flashes per second
+    const flashOn = Math.sin(Date.now() * 0.001 * flashFreq * Math.PI * 2) > 0;
+    const color = flashOn && progress > 0.1 ? 0xffffff : MOB_ORIGINAL_COLORS.creeper;
+    for (const m of this.bodyMeshes) {
+      (m.material as THREE.MeshLambertMaterial).color.set(color);
+    }
+  }
+
   showDamage(newHp: number) {
     this.health = newHp;
     this.hpSprite.visible = true;
