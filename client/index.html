@@ -168,11 +168,22 @@
       background:rgba(0,0,0,0.4);
       transition:border-color 0.1s, background 0.1s;
     }
+    @keyframes slotGlow {
+      0%,100% { box-shadow:inset 0 0 8px rgba(255,255,255,0.1), 0 0 6px rgba(255,255,255,0.1); }
+      50% { box-shadow:inset 0 0 12px rgba(255,255,255,0.2), 0 0 10px rgba(255,255,255,0.15); }
+    }
     .hotbar-slot.active{
       border-color:#fff;background:rgba(255,255,255,0.18);
-      box-shadow:inset 0 0 8px rgba(255,255,255,0.1);
+      animation:slotGlow 2s ease-in-out infinite;
     }
     .slot-icon{width:26px;height:26px;border-radius:2px;margin-bottom:2px}
+    #hotbarTooltip{
+      position:absolute;bottom:90px;left:50%;transform:translateX(-50%);
+      background:rgba(0,0,0,0.8);border:1px solid rgba(255,255,255,0.3);
+      border-radius:4px;padding:4px 12px;color:#fff;font-size:0.75rem;
+      pointer-events:none;opacity:0;transition:opacity 0.2s ease;
+      white-space:nowrap;z-index:20;
+    }
 
     /* Hearts */
     #hearts{
@@ -419,6 +430,7 @@
     <div id="crosshair"></div>
     <div id="breakProgress"></div>
     <div id="hotbar"></div>
+    <div id="hotbarTooltip"></div>
     <div id="hearts"></div>
     <div id="hunger"></div>
     <div id="timeDisplay"></div>

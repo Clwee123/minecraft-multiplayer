@@ -113,12 +113,28 @@ export class UI {
     });
   }
 
+  private tooltipEl = document.getElementById("hotbarTooltip");
+  private tooltipTimer: ReturnType<typeof setTimeout> | null = null;
+
   selectSlot(index: number): number {
     this.selectedIndex = index;
     document.querySelectorAll(".hotbar-slot").forEach((el, i) => {
       el.classList.toggle("active", i === index);
     });
     this.blockNameEl.textContent = "";
+
+    // Show tooltip with block name
+    const icon = this.hotbarEl.querySelectorAll(".slot-icon")[index] as HTMLElement;
+    const name = icon?.title;
+    if (name && this.tooltipEl) {
+      this.tooltipEl.textContent = name;
+      this.tooltipEl.style.opacity = "1";
+      if (this.tooltipTimer) clearTimeout(this.tooltipTimer);
+      this.tooltipTimer = setTimeout(() => {
+        if (this.tooltipEl) this.tooltipEl.style.opacity = "0";
+      }, 1500);
+    }
+
     return index;
   }
 
