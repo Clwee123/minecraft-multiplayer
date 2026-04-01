@@ -639,8 +639,27 @@ async function startGame(name: string) {
   const mode       = (window as any).__getSelectedMode?.() ?? "sp";
   isSingleplayer   = mode === "sp";
 
+  // Show loading bar
+  const loadingBar = document.getElementById("loadingBar")!;
+  const loadingProgress = document.getElementById("loadingProgress")!;
+  const loadingText = document.getElementById("loadingText")!;
+  const playBtnEl = document.getElementById("playBtn")!;
+  playBtnEl.style.display = "none";
+  loadingBar.style.display = "block";
+  loadingProgress.style.width = "20%";
+  loadingText.textContent = "Loading textures...";
+
   // Preload real minecraft textures before world generates
   await preloadAtlas();
+  loadingProgress.style.width = "60%";
+  loadingText.textContent = "Generating world...";
+
+  // Brief delay so user sees the progress
+  await new Promise(r => setTimeout(r, 200));
+  loadingProgress.style.width = "90%";
+  loadingText.textContent = "Starting game...";
+  await new Promise(r => setTimeout(r, 150));
+  loadingProgress.style.width = "100%";
 
   loginScreen.style.display = "none";
   hud.style.display         = "block";
