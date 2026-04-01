@@ -22,8 +22,8 @@ import { SkyDome }            from "./SkyDome";
 const renderer = new THREE.WebGLRenderer({ antialias: false }); // disable antialias for perf
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1)); // cap at 1x on high-DPI screens
 renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.shadowMap.enabled = true;
-renderer.shadowMap.type    = THREE.BasicShadowMap; // reduced from PCFSoftShadowMap for perf
+renderer.shadowMap.enabled = false; // disabled for performance
+// shadow map type: N/A (disabled)
 renderer.toneMapping       = THREE.NoToneMapping; // disable tone mapping for perf
 renderer.toneMappingExposure = 1.1;
 document.body.appendChild(renderer.domElement);
@@ -156,9 +156,11 @@ function updateDayNight(dt: number) {
   sun.position.copy(sunMesh.position).normalize().multiplyScalar(100);
   moonLight.position.copy(moonMesh.position).normalize().multiplyScalar(100);
 
-  // Cloud drift every frame
-  for (const c of clouds) {
-    c.position.x = ((c.position.x + 0.015 * dt * 20 + 125) % 250) - 125;
+  // Cloud drift — throttle to every 4 frames
+  if (_dayNightSkipCounter % 4 === 0) {
+    for (const c of clouds) {
+      c.position.x = ((c.position.x + 0.06 + 125) % 250) - 125;
+    }
   }
 
   // Sky/lighting updates — throttle to every 3 frames (imperceptible at 60fps)
