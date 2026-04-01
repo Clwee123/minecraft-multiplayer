@@ -749,83 +749,144 @@ export class UI {
 
   private chestPanel: HTMLElement | null = null;
   onChestClose?: () => void;
+  onChestTransfer?: (fromChest: boolean, slotIndex: number, chestSlots: number[], hotbarSlots: number[]) => void;
 
-  showChestUI(slots: number[]) {
+  showChestUI(chestSlots: number[], hotbarSlots: number[]) {
     if (this.chestPanel) return;
+
+    const SLOT_SIZE = 30;
+    const slotStyle = (itemId: number) => {
+      const hex = itemId === 0 ? "444444" : getBlockColor(itemId).toString(16).padStart(6, "0");
+      return `
+        width: ${SLOT_SIZE}px; height: ${SLOT_SIZE}px;
+        background: #${hex};
+        border: 1px solid #1a1a1a;
+        border-radius: 2px;
+        cursor: ${itemId ? "pointer" : "default"};
+        transition: transform 0.1s, box-shadow 0.1s;
+        position: relative;
+      `;
+    };
 
     this.chestPanel = document.createElement("div");
     this.chestPanel.id = "chest-panel";
     this.chestPanel.style.cssText = `
-      position: fixed;
-      left: 50%;
-      top: 50%;
+      position: fixed; left: 50%; top: 50%;
       transform: translate(-50%, -50%);
       background: #8B6914;
       border: 4px solid #3d2814;
-      padding: 20px;
-      width: 310px;
+      padding: 18px;
+      width: 320px;
       z-index: 1000;
       border-radius: 4px;
       box-shadow: 0 0 30px rgba(0,0,0,0.7);
+      font-family: Arial, sans-serif;
     `;
 
+    // Title
     const title = document.createElement("h2");
     title.textContent = "Chest";
-    title.style.cssText = "color: white; margin: 0 0 15px 0; text-align: center; font-family: Arial, sans-serif;";
+    title.style.cssText = "color: white; margin: 0 0 10px 0; text-align: center; font-size: 16px;";
     this.chestPanel.appendChild(title);
 
-    // 3x9 grid of slots
-    const grid = document.createElement("div");
-    grid.style.cssText = `
-      display: grid;
-      grid-template-columns: repeat(9, 1fr);
-      gap: 2px;
-      margin-bottom: 15px;
-      background: #2B2B2B;
-      padding: 5px;
-    `;
+    // Helper to build a grid section
+    const buildGrid = (label: string, items: number[], isChest: boolean, cols: number) => {
+      const section = document.createElement("div");
+      section.style.cssText = "margin-bottom: 10px;";
 
-    for (let i = 0; i < 27; i++) {
-      const slot = document.createElement("div");
-      const itemId = slots[i] ?? 0;
-      const color = itemId === 0 ? "#444444" : "#" + getBlockColor(itemId).toString(16).padStart(6, "0");
-      slot.style.cssText = `
-        width: 30px;
-        height: 30px;
-        background: ${color};
-        border: 1px solid #1a1a1a;
+      const lbl = document.createElement("div");
+      lbl.textContent = label;
+      lbl.style.cssText = "color: #ddd; font-size: 11px; margin-bottom: 4px;";
+      section.appendChild(lbl);
+
+      const grid = document.createElement("div");
+      grid.style.cssText = `
+        display: grid;
+        grid-template-columns: repeat(${cols}, 1fr);
+        gap: 2px;
+        background: #2B2B2B;
+        padding: 4px;
         border-radius: 2px;
-        cursor: pointer;
-        transition: background 0.1s;
       `;
-      slot.title = itemId === 0 ? "Empty" : getBlockName(itemId);
-      slot.addEventListener("mouseenter", () => {
-        slot.style.background = "#" + Math.min(0xffffff, (parseInt(color.slice(1), 16) ?? 0) + 0x222222).toString(16).padStart(6, "0");
-      });
-      slot.addEventListener("mouseleave", () => {
-        slot.style.background = color;
-      });
-      grid.appendChild(slot);
-    }
-    this.chestPanel.appendChild(grid);
+
+      for (let i = 0; i < items.length; i++) {
+        const itemId = items[i] ?? 0;
+        const slot = document.createElement("div");
+        slot.style.cssText = slotStyle(itemId);
+        slot.title = itemId === 0 ? "Empty" : `${getBlockName(itemId)} (click to move)`;
+
+        // Item name overlay for non-empty slots
+        if (itemId !== 0) {
+          const nameTag = document.createElement("span");
+          nameTag.style.cssText = `
+            position: absolute; bottom: -1px; right: 1px;
+            font-size: 7px; color: #fff; text-shadow: 1px 1px 0 #000;
+            pointer-events: none;
+          `;
+          nameTag.textContent = getBlockName(itemId).slice(0, 3);
+          slot.appendChild(nameTag);
+        }
+
+        // Hover effect
+        slot.addEventListener("mouseenter", () => {
+          if (itemId) {
+            slot.style.transform = "scale(1.1)";
+            slot.style.boxShadow = "0 0 6px rgba(255,255,200,0.5)";
+            slot.style.zIndex = "2";
+          }
+        });
+        slot.addEventListener("mouseleave", () => {
+          slot.style.transform = "scale(1)";
+          slot.style.boxShadow = "none";
+          slot.style.zIndex = "0";
+        });
+
+        // Click to transfer item
+        const idx = i;
+        slot.addEventListener("click", () => {
+          if (itemId === 0) return;
+          this.onChestTransfer?.(isChest, idx, chestSlots, hotbarSlots);
+          // Refresh the UI
+          this.hideChestUI();
+          this.showChestUI(chestSlots, hotbarSlots);
+        });
+
+        grid.appendChild(slot);
+      }
+      section.appendChild(grid);
+      return section;
+    };
+
+    // Chest grid (27 slots, 9 columns)
+    this.chestPanel.appendChild(buildGrid("Chest", chestSlots, true, 9));
+
+    // Separator
+    const sep = document.createElement("hr");
+    sep.style.cssText = "border: none; border-top: 1px solid #5a3a10; margin: 6px 0;";
+    this.chestPanel.appendChild(sep);
+
+    // Player hotbar (show current hotbar items)
+    this.chestPanel.appendChild(buildGrid("Your Hotbar", hotbarSlots, false, 9));
 
     // Close button
     const closeBtn = document.createElement("button");
     closeBtn.style.cssText = `
-      display: block;
-      width: 100%;
-      padding: 10px;
-      background: #5B3333;
-      color: white;
-      border: 2px solid #3d0000;
-      border-radius: 2px;
-      cursor: pointer;
-      font-family: Arial, sans-serif;
-      font-weight: bold;
+      display: block; width: 100%; padding: 8px; margin-top: 8px;
+      background: #5B3333; color: white; border: 2px solid #3d0000;
+      border-radius: 2px; cursor: pointer; font-weight: bold; font-size: 13px;
     `;
     closeBtn.textContent = "Close Chest";
     closeBtn.addEventListener("click", () => this.hideChestUI());
     this.chestPanel.appendChild(closeBtn);
+
+    // ESC to close
+    const escHandler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        this.hideChestUI();
+        document.removeEventListener("keydown", escHandler);
+      }
+    };
+    document.addEventListener("keydown", escHandler);
 
     document.body.appendChild(this.chestPanel);
   }
@@ -834,7 +895,7 @@ export class UI {
     if (this.chestPanel) {
       this.chestPanel.remove();
       this.chestPanel = null;
-      this.onChestClose?.();
+      this.onChestClose?.(); // signal close
     }
   }
 

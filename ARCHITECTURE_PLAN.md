@@ -150,7 +150,7 @@
 - Works in all game modes
 
 ## Goal 21: Experience Bar Polish & Day Counter HUD
-**Status**: PENDING
+**Status**: DONE
 - Polished XP bar with level number, smooth fill animation, glow on level-up
 - Day counter display showing survived days (Day 1, Day 2, etc.)
 - Day transition notification ("Day 2 has begun")

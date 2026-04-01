@@ -1188,9 +1188,78 @@ async function startGame(name: string) {
     }
   });
 
-  // Wave 9/10: E key for lever and furnace interaction
+  // Chest transfer callback
+  ui.onChestTransfer = (fromChest, slotIndex, chestSlots, hotbarSlots) => {
+    if (fromChest) {
+      // Move item from chest to first empty hotbar slot
+      const item = chestSlots[slotIndex];
+      if (!item) return;
+      const emptyIdx = hotbarSlots.indexOf(0);
+      if (emptyIdx >= 0) {
+        hotbarSlots[emptyIdx] = item;
+        chestSlots[slotIndex] = 0;
+        // Sync hotbar back to HOTBAR_BLOCKS
+        for (let i = 0; i < hotbarSlots.length && i < HOTBAR_BLOCKS.length; i++) {
+          HOTBAR_BLOCKS[i] = hotbarSlots[i];
+        }
+        ui.updateHotbarFromInventory(HOTBAR_BLOCKS);
+        sounds.play("place");
+      } else {
+        ui.addChatMessage("", "Hotbar is full!", true);
+      }
+    } else {
+      // Move item from hotbar to first empty chest slot
+      const item = hotbarSlots[slotIndex];
+      if (!item) return;
+      const emptyIdx = chestSlots.indexOf(0);
+      if (emptyIdx >= 0) {
+        chestSlots[emptyIdx] = item;
+        hotbarSlots[slotIndex] = 0;
+        for (let i = 0; i < hotbarSlots.length && i < HOTBAR_BLOCKS.length; i++) {
+          HOTBAR_BLOCKS[i] = hotbarSlots[i];
+        }
+        ui.updateHotbarFromInventory(HOTBAR_BLOCKS);
+        sounds.play("place");
+      } else {
+        ui.addChatMessage("", "Chest is full!", true);
+      }
+    }
+  };
+
+  // Wave 9/10: E key for lever, chest, and furnace interaction
   document.addEventListener("keydown", e => {
     if ((e.key === "e" || e.key === "E") && hud.style.display !== "none") {
+      // Check if looking at a chest within 5 blocks
+      let chestPos: [number, number, number] | null = null;
+      for (let x = -5; x <= 5 && !chestPos; x++) {
+        for (let y = -5; y <= 5 && !chestPos; y++) {
+          for (let z = -5; z <= 5 && !chestPos; z++) {
+            const bx = Math.floor(player.position.x) + x;
+            const by = Math.floor(player.position.y) + y;
+            const bz = Math.floor(player.position.z) + z;
+            const block = world.getBlock(bx, by, bz);
+            if (block && block.type === 31) { // Chest
+              const dist = player.position.distanceTo(_blockDistVec.set(bx + 0.5, by + 0.5, bz + 0.5));
+              if (dist <= 5) {
+                chestPos = [bx, by, bz];
+              }
+            }
+          }
+        }
+      }
+
+      if (chestPos) {
+        const chestSlots = world.getChestInventory(chestPos[0], chestPos[1], chestPos[2]);
+        const hotbarCopy = HOTBAR_BLOCKS.slice(0, 9);
+        ui.showChestUI(chestSlots, hotbarCopy);
+        ui.onChestClose = () => {
+          // Persist chest contents back to world
+          world.setChestInventory(chestPos![0], chestPos![1], chestPos![2], chestSlots);
+        };
+        sounds.play("place"); // chest open sound
+        return;
+      }
+
       // Check if looking at a furnace within 5 blocks
       let furnacePos: [number, number, number] | null = null;
       for (let x = -5; x <= 5; x++) {
