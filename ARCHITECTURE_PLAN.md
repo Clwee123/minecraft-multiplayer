@@ -122,6 +122,11 @@
 
 ## Goal 18: Improved Hotbar with Tooltip Preview
 **Status**: DONE
+
+## Goal 19: Improved Mob Death Animation
+**Status**: DONE
+- Cinematic death: tilt, sink, red flash, shrink
+- Smooth requestAnimationFrame-driven animation
 - Show block name tooltip on hotbar hover
 - Selected slot glow animation
 - Desert biome: warm sandy fog
