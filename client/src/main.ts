@@ -828,6 +828,7 @@ async function startGame(name: string) {
       world.addTorchLight(x, y + 0.5, z);
     }
 
+    particles.placeEffect(x, y, z, t);
     sounds.play("place");
     mp?.sendAddBlock(x, y, z, t);
   };

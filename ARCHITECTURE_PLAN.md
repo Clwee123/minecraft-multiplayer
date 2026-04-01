@@ -74,16 +74,30 @@
 ---
 
 ## Goal 10: Footstep Sound Variety
-**Status**: TODO
+**Status**: DONE
 - Different step sounds for different block types (stone, dirt, sand, wood)
 - Volume varies slightly for natural feel
 - Landing impact sound after falling
 
 ## Goal 11: FOV Effects
-**Status**: TODO  
+**Status**: DONE
 - FOV widens when sprinting
-- FOV narrows slightly when crouching/sneaking
+- FOV narrows on landing impact
 - Smooth FOV transitions
+
+---
+
+## Goal 12: Smooth Block Place/Break Particles Enhancement
+**Status**: IN PROGRESS
+- More particles when breaking blocks (8→16, burst pattern)
+- Block place "pop" scale animation effect
+- Block type-specific particle colors
+
+## Goal 13: Improved Torch/Light Rendering
+**Status**: TODO
+- Torch flicker effect (oscillating light intensity)
+- Warm glow radius on nearby blocks
+- Campfire fire particles improvement
 
 ## Goal 9: Better Cloud System
 **Status**: DONE

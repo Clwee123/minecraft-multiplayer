@@ -67,18 +67,40 @@ export class Particles {
   }
 
   /** Burst block-break particles at world position (x,y,z) for given block type. */
-  burst(x: number, y: number, z: number, blockType: number, count = 6) {
+  burst(x: number, y: number, z: number, blockType: number, count = 12) {
     const color = getBlockColor(blockType);
     for (let i = 0; i < count; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = 2 + Math.random() * 4;
       this.acquire(
-        x + (Math.random() - 0.5),
-        y + (Math.random() - 0.5),
-        z + (Math.random() - 0.5),
+        x + (Math.random() - 0.5) * 0.6,
+        y + (Math.random() - 0.5) * 0.6,
+        z + (Math.random() - 0.5) * 0.6,
         color,
-        (Math.random() - 0.5) * 5,
-        2 + Math.random() * 4,
-        (Math.random() - 0.5) * 5,
-        0.5 + Math.random() * 0.4,
+        Math.cos(angle) * speed,
+        1.5 + Math.random() * 3.5,
+        Math.sin(angle) * speed,
+        0.4 + Math.random() * 0.5,
+        0.6 + Math.random() * 0.5, // varied size
+      );
+    }
+  }
+
+  /** Block placement "pop" — small ring of particles expanding outward. */
+  placeEffect(x: number, y: number, z: number, blockType: number) {
+    const color = getBlockColor(blockType);
+    for (let i = 0; i < 8; i++) {
+      const angle = (i / 8) * Math.PI * 2;
+      this.acquire(
+        x + Math.cos(angle) * 0.4,
+        y,
+        z + Math.sin(angle) * 0.4,
+        color,
+        Math.cos(angle) * 2,
+        0.5 + Math.random(),
+        Math.sin(angle) * 2,
+        0.3 + Math.random() * 0.2,
+        0.4,
       );
     }
   }
