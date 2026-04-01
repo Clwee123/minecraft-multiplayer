@@ -898,19 +898,28 @@ async function startGame(name: string) {
     }
   }
 
-  // Find a safe spawn: scan nearby coords for a flat non-mountain location
+  // Find a safe spawn: scan grid for low-elevation (plains/forest) spot
   {
     let spawnX = 0, spawnZ = 0;
     let bestY = 9999;
-    // Try a grid of candidates — pick lowest elevation (plains/forest, not mountain)
-    for (let dx = -3; dx <= 3; dx++) {
-      for (let dz = -3; dz <= 3; dz++) {
+    // First pass: strict — want plains/forest (63-80)
+    for (let dx = -5; dx <= 5 && bestY === 9999; dx++) {
+      for (let dz = -5; dz <= 5 && bestY === 9999; dz++) {
         const tx = dx * 16, tz = dz * 16;
         const h = world.getSurfaceHeight(tx, tz);
-        if (h > 60 && h < 80 && h < bestY) { bestY = h; spawnX = tx; spawnZ = tz; }
+        if (h >= 63 && h <= 80) { bestY = h; spawnX = tx; spawnZ = tz; }
       }
     }
-    if (bestY === 9999) { spawnX = 0; spawnZ = 0; } // fallback
+    // Second pass: accept anything solid above sea level
+    if (bestY === 9999) {
+      for (let dx = -5; dx <= 5; dx++) {
+        for (let dz = -5; dz <= 5; dz++) {
+          const tx = dx * 16, tz = dz * 16;
+          const h = world.getSurfaceHeight(tx, tz);
+          if (h > 62 && h < bestY) { bestY = h; spawnX = tx; spawnZ = tz; }
+        }
+      }
+    }
     player.spawnAt(spawnX, spawnZ);
   }
   if (!isMobile()) {
