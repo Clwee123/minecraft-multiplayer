@@ -179,7 +179,7 @@
 - Smoother water entry/exit transitions
 
 ## Goal 25: Nether Portal Effect
-**Status**: PENDING
+**Status**: DONE
 - Swirling purple overlay when near/entering a nether portal block
 - Screen distortion effect with portal proximity
 - Obsidian portal frame detection

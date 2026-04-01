@@ -840,13 +840,23 @@ export class World {
 
   // ── Save/Load system ──────────────────────────────────────────────────────
 
-  saveToStorage(): void {
+  saveToStorage(playerState?: {
+    inventory: number[]; invCount: number[];
+    px: number; py: number; pz: number;
+    health: number; hunger: number;
+    xp: number; xpLevel: number; dayCount: number;
+  }): void {
     // Serialize all modifications to a compact format
     const mods: Record<string, number> = {};
     for (const [key, type] of this.modifications.entries()) {
       mods[key] = type;
     }
-    const data = JSON.stringify({ version: 1, mods });
+    // Serialize chest inventories (only non-empty)
+    const chests: Record<string, number[]> = {};
+    for (const [key, items] of this.chestInventory.entries()) {
+      if (items.some(v => v !== 0)) chests[key] = items;
+    }
+    const data = JSON.stringify({ version: 2, mods, chests, player: playerState ?? null });
     try {
       localStorage.setItem("mc_world_save", data);
     } catch (e) {
@@ -854,12 +864,16 @@ export class World {
     }
   }
 
-  loadFromStorage(): void {
+  loadFromStorage(): { inventory: number[]; invCount: number[];
+    px: number; py: number; pz: number;
+    health: number; hunger: number;
+    xp: number; xpLevel: number; dayCount: number;
+  } | null {
     try {
       const raw = localStorage.getItem("mc_world_save");
-      if (!raw) return;
+      if (!raw) return null;
       const data = JSON.parse(raw);
-      if (data.version !== 1) return;
+      if (data.version !== 1 && data.version !== 2) return null;
       for (const [key, type] of Object.entries(data.mods as Record<string, number>)) {
         const [x, y, z] = key.split(",").map(Number);
         if (type === 0) {
@@ -868,8 +882,16 @@ export class World {
           this.placeBlock(x, y, z, type, true);
         }
       }
+      // Load chest inventories (version 2+)
+      if (data.version >= 2 && data.chests) {
+        for (const [key, items] of Object.entries(data.chests as Record<string, number[]>)) {
+          this.chestInventory.set(key, items);
+        }
+      }
+      return data.version >= 2 ? data.player : null;
     } catch (e) {
       console.warn("Load failed:", e);
+      return null;
     }
   }
 

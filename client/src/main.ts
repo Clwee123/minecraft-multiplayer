@@ -540,7 +540,12 @@ function handleCommand(cmd: string, playerName: string): boolean {
 
   if (base === "/save") {
     if (isSingleplayer) {
-      world.saveToStorage();
+      world.saveToStorage({
+        inventory: [...inventory], invCount: [...invCount],
+        px: player.position.x, py: player.position.y, pz: player.position.z,
+        health: player.health, hunger,
+        xp, xpLevel, dayCount,
+      });
       ui.addChatMessage("", "World saved!", true);
     } else {
       ui.addChatMessage("", "Save only works in singleplayer", true);
@@ -550,7 +555,19 @@ function handleCommand(cmd: string, playerName: string): boolean {
 
   if (base === "/load") {
     if (isSingleplayer) {
-      world.loadFromStorage();
+      const ps = world.loadFromStorage();
+      if (ps) {
+        for (let i = 0; i < 36; i++) { inventory[i] = ps.inventory[i] ?? 0; invCount[i] = ps.invCount[i] ?? 0; }
+        player.position.set(ps.px, ps.py, ps.pz);
+        player.health = ps.health;
+        hunger = ps.hunger;
+        xp = ps.xp; xpLevel = ps.xpLevel; dayCount = ps.dayCount;
+        ui.updateHearts(player.health, player.maxHealth);
+        ui.updateHunger(hunger, maxHunger);
+        ui.updateXP(xp, xpLevel);
+        ui.updateDayCounter(dayCount);
+        ui.updateHotbarFromInventory(inventory, invCount);
+      }
       ui.addChatMessage("", "World loaded!", true);
     } else {
       ui.addChatMessage("", "Load only works in singleplayer", true);
@@ -854,13 +871,31 @@ async function startGame(name: string) {
   }
 
   // Load saved world if singleplayer
+  let loadedPlayerState = false;
   if (isSingleplayer) {
-    world.loadFromStorage();
+    const ps = world.loadFromStorage();
     // Wave 9: Initialize torch lights after loading
     world.initializeTorchLights();
+    if (ps) {
+      for (let i = 0; i < 36; i++) { inventory[i] = ps.inventory[i] ?? 0; invCount[i] = ps.invCount[i] ?? 0; }
+      player.health = ps.health;
+      hunger = ps.hunger;
+      xp = ps.xp; xpLevel = ps.xpLevel; dayCount = ps.dayCount;
+      loadedPlayerState = true;
+      // Defer position restore until after spawnAt
+      setTimeout(() => {
+        player.position.set(ps.px, ps.py, ps.pz);
+        ui.updateHearts(player.health, player.maxHealth);
+        ui.updateHunger(hunger, maxHunger);
+        ui.updateXP(xp, xpLevel);
+        ui.updateDayCounter(dayCount);
+        ui.updateHotbarFromInventory(inventory, invCount);
+      }, 100);
+    }
   }
 
-  player.spawnAt(0, 0);
+  if (!loadedPlayerState) player.spawnAt(0, 0);
+  else player.spawnAt(0, 0); // still need to init ground
   if (!isMobile()) {
     setTimeout(() => document.body.requestPointerLock(), 200);
   }
@@ -1794,6 +1829,8 @@ if (autoName) { nameInput.value = autoName; setTimeout(() => startGame(autoName)
 // ── Game loop ─────────────────────────────────────────────────────────────────
 
 let lastTime = performance.now();
+let autoSaveTimer = 0;
+const AUTO_SAVE_INTERVAL = 60; // seconds
 
 // Pre-allocated reusable vectors to avoid per-frame allocations in the animate loop
 const _animVec3 = new THREE.Vector3();
@@ -1830,6 +1867,21 @@ function animate() {
   if (hud.style.display !== "none") {
     player.update(dt);
     mp?.updatePlayers(dt);
+
+    // Auto-save every 60s in singleplayer
+    if (isSingleplayer) {
+      autoSaveTimer += dt;
+      if (autoSaveTimer >= AUTO_SAVE_INTERVAL) {
+        autoSaveTimer = 0;
+        world.saveToStorage({
+          inventory: [...inventory], invCount: [...invCount],
+          px: player.position.x, py: player.position.y, pz: player.position.z,
+          health: player.health, hunger,
+          xp, xpLevel, dayCount,
+        });
+      }
+    }
+
     // Dynamic chunk loading — every 3s in singleplayer
     if (isSingleplayer) {
       minimapTimer += dt;
@@ -2360,3 +2412,15 @@ function animate() {
 }
 
 animate();
+
+// Save on tab close / navigation
+window.addEventListener("beforeunload", () => {
+  if (isSingleplayer) {
+    world.saveToStorage({
+      inventory: [...inventory], invCount: [...invCount],
+      px: player.position.x, py: player.position.y, pz: player.position.z,
+      health: player.health, hunger,
+      xp, xpLevel, dayCount,
+    });
+  }
+});
