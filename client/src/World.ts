@@ -468,7 +468,37 @@ export class World {
     this._removeBlockInstance(k);
     this.blockData.delete(k);
     this.modifications.set(strKey(x, y, z), 0);
+
+    // Expose previously hidden neighbors — add their mesh if they had none
+    const neighbors: [number,number,number][] = [
+      [x+1,y,z],[x-1,y,z],[x,y+1,z],[x,y-1,z],[x,y,z+1],[x,y,z-1],
+    ];
+    for (const [nx,ny,nz] of neighbors) {
+      const nk = key(nx,ny,nz);
+      const ntype = this.blockData.get(nk);
+      if (ntype === undefined || ntype === 0) continue;
+      if (!this.instanceIndex.has(nk)) {
+        this._addBlockMesh(nx, ny, nz, ntype);
+      }
+    }
+
     return true;
+  }
+
+  /** Add a mesh instance for a block that already exists in blockData but has no instance. */
+  private _addBlockMesh(x: number, y: number, z: number, type: number) {
+    const k = key(x, y, z);
+    if (this.instanceIndex.has(k)) return; // already has mesh
+    const mesh = this.getOrCreateInstancedMesh(type);
+    const idx = this.instanceCount.get(type) ?? 0;
+    if (idx >= World.MAX_INSTANCES) return;
+    World._mat4.setPosition(x + 0.5, y + 0.5, z + 0.5);
+    mesh.setMatrixAt(idx, World._mat4);
+    mesh.count = idx + 1;
+    mesh.instanceMatrix.needsUpdate = true;
+    this.instanceIndex.set(k, idx);
+    this.instanceRevIndex.set((type << 17) | idx, k);
+    this.instanceCount.set(type, idx + 1);
   }
 
   private _removeBlockInstance(k: number) {
