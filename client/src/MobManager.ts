@@ -105,7 +105,7 @@ export class MobManager {
         : 20;
       y = Math.min(rawSurf + 1.5, rawSurf + 2); // clamp: sit on surface, don't overshoot
 
-      if (surfaceY < 15 && Math.random() < 0.08) {
+      if (rawSurf < 15 && Math.random() < 0.08) {
         // Slimes spawn in caves (low ground)
         type = "slime";
       } else {

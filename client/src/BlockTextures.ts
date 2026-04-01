@@ -179,16 +179,16 @@ export function getBlockMaterials(blockType: number, info: any): THREE.Material[
 }
 
 function makeMat(tex: THREE.Texture, info: any): THREE.Material {
-  const isTransparent = info.transparent;
+  const isTransparent = !!(info?.transparent);
   const mat = new THREE.MeshLambertMaterial({
     map: tex,
     transparent: isTransparent,
     opacity: isTransparent ? 0.65 : 1,
-    depthWrite: !isTransparent,   // transparent faces must not write depth
+    depthWrite: !isTransparent,
     alphaTest: isTransparent ? 0 : 0.01,
     side: isTransparent ? THREE.DoubleSide : THREE.FrontSide,
   });
-  if (info.emissive) {
+  if (info?.emissive) {
     mat.emissive = new THREE.Color(info.emissive);
     mat.emissiveIntensity = 0.55;
   }
