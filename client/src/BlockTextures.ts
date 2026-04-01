@@ -160,8 +160,8 @@ function getOrCreateWaterMat(): THREE.MeshLambertMaterial {
   _waterMat = new THREE.MeshLambertMaterial({
     map: _waterTex,
     transparent: true,
-    opacity: 0.78,
-    depthWrite: false,   // false = see through water stacks; opaque blocks behind still show
+    opacity: 0.75,
+    depthWrite: true,    // true = water properly occludes sky, no bleed-through
     alphaTest: 0,
     side: THREE.FrontSide,
   });

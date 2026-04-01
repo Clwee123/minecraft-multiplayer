@@ -27,7 +27,7 @@ export class World {
   private instanceIndex: Map<number, number> = new Map(); // intKey -> instance index in its type's mesh
   private instanceRevIndex: Map<string, number> = new Map(); // "type:idx" -> intKey
   private instanceCount: Map<number, number> = new Map(); // blockType -> current count
-  private static readonly MAX_INSTANCES = 60000; // MC-height terrain needs more
+  private static readonly MAX_INSTANCES = 30000; // R=3 perf-safe
 
   private chestInventory: Map<string, number[]> = new Map();
   private visibilityTimer = 0;
@@ -199,7 +199,7 @@ export class World {
   }
 
   private generateTerrain() {
-    const R = 4; // render distance in chunks — 4 = 9x9 chunk grid
+    const R = 3; // R=3=7x7 chunks, perf balance
 
     // Pass 1: build a raw voxel map without adding to scene (integer keys)
     const rawBlocks = new Map<number, number>();
@@ -252,7 +252,7 @@ export class World {
 
   /** Generate new chunks around player position (call periodically) */
   generateAroundPlayer(px: number, pz: number) {
-    const R = 4;
+    const R = 3;
     const cx0 = Math.floor(px / 16);
     const cz0 = Math.floor(pz / 16);
     const rawBlocks = new Map<number, number>();
@@ -750,12 +750,12 @@ export class World {
 
   /** Y of the top face of the highest non-liquid solid block at (x, z). */
   getSurfaceHeight(x: number, z: number): number {
-    // Scan down from max world height
+    // Non-solid decoration types that should not count as "surface"
+    const skip = new Set([0, 6, 7, 9, 21, 50, 51, 52, 56, 57, 58]);
     for (let y = 200; y >= 0; y--) {
       const type = this.blockData.get(key(x, y, z));
-      if (type !== undefined && type !== 0 && type !== 7 && type !== 9 && type !== 21) return y;
+      if (type !== undefined && !skip.has(type)) return y;
     }
-    // Fallback: use noise height
     return this.getHeight(x, z);
   }
 

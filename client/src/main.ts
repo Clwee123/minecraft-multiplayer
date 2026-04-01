@@ -38,7 +38,7 @@ window.addEventListener("resize", () => {
 
 const scene  = new THREE.Scene();
 scene.background = null; // sky dome renders the background
-scene.fog        = new THREE.Fog(0x87ceeb, 80, 140); // MC-style fog, render distance R=4 chunks
+scene.fog        = new THREE.Fog(0x87ceeb, 60, 96);  // R=3 chunks fog — limits overdraw
 
 const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 500);
 
@@ -898,8 +898,21 @@ async function startGame(name: string) {
     }
   }
 
-  if (!loadedPlayerState) player.spawnAt(0, 0);
-  else player.spawnAt(0, 0); // still need to init ground
+  // Find a safe spawn: scan nearby coords for a flat non-mountain location
+  {
+    let spawnX = 0, spawnZ = 0;
+    let bestY = 9999;
+    // Try a grid of candidates — pick lowest elevation (plains/forest, not mountain)
+    for (let dx = -3; dx <= 3; dx++) {
+      for (let dz = -3; dz <= 3; dz++) {
+        const tx = dx * 16, tz = dz * 16;
+        const h = world.getSurfaceHeight(tx, tz);
+        if (h > 60 && h < 80 && h < bestY) { bestY = h; spawnX = tx; spawnZ = tz; }
+      }
+    }
+    if (bestY === 9999) { spawnX = 0; spawnZ = 0; } // fallback
+    player.spawnAt(spawnX, spawnZ);
+  }
   if (!isMobile()) {
     setTimeout(() => document.body.requestPointerLock(), 200);
   }
