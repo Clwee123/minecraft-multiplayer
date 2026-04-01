@@ -1002,6 +1002,8 @@ async function startGame(name: string) {
       49: { item: 49, count: 1 },          // sandstone
       54: { item: 54, count: 1 },          // terracotta
       61: { item: 65, count: [1,3] },      // diamond ore -> 1-3 diamond
+      74: { item: 76, count: [2,3] },      // copper ore -> 2-3 copper ingot
+      75: { item: 77, count: [4,8] },      // lapis ore -> 4-8 lapis lazuli
     };
     const dropDef = drops[b.type];
     if (dropDef) {

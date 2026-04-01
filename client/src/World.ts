@@ -96,10 +96,19 @@ export class World {
   }
 
   private getCaveNoise(x: number, y: number, z: number): number {
-    // 3D cave noise
-    const n1 = this.noise2D2(x * 0.08 + y * 0.04, z * 0.08);
-    const n2 = this.noise2D(x * 0.12, z * 0.12 + y * 0.06);
-    return (n1 + n2) / 2;
+    // Spaghetti caves: two noise fields, cave where both are near 0
+    const n1 = this.noise2D2(x * 0.06 + y * 0.05, z * 0.06);
+    const n2 = this.noise2D(x * 0.07, z * 0.07 + y * 0.05);
+    // Cheese caves: large open areas underground
+    const cheese = this.noise2D2(x * 0.025 + y * 0.03, z * 0.025);
+    // Spaghetti: thin tunnels where both noise values are near 0
+    const spaghetti = Math.abs(n1) + Math.abs(n2);
+    // Combine: low spaghetti = tunnel, high cheese = cavern
+    // Deeper caves are more likely (y < 15 increases cave chance)
+    const depthBonus = y < 15 ? (15 - y) * 0.008 : 0;
+    if (spaghetti < 0.15 + depthBonus) return 1.0; // spaghetti tunnel
+    if (cheese > 0.6 && y < 20) return 1.0; // cheese cavern
+    return 0.0;
   }
 
   private getRiverNoise(x: number, z: number): number {
@@ -291,8 +300,8 @@ export class World {
         };
 
         for (let y = 0; y <= h; y++) {
-          // Cave carving
-          if (y > 0 && y < h - 1 && this.getCaveNoise(wx, y, wz) > 0.55) continue;
+          // Cave carving — skip blocks in cave regions
+          if (y > 0 && y < h - 1 && this.getCaveNoise(wx, y, wz) > 0.5) continue;
 
           let type: number;
 
@@ -318,17 +327,21 @@ export class World {
             else type = 3;
           }
 
-          // Ore distribution
+          // Ore veins — use noise to create clusters instead of random single blocks
           if (type === 3) {
-            const r = Math.random();
-            if (r < 0.001 && y < 8)       type = 61;
-            else if (r < 0.006 && y < 12)  type = 13;
-            else if (r < 0.02 && y < 20)   type = 14;
-            else if (r < 0.03)             type = 15;
-            else if (r < 0.008 && y <= 5 && Math.random() < 0.3) type = 19;
+            // Vein noise: each ore type uses offset coordinates for unique patterns
+            const vn = (ox: number, oz: number) =>
+              this.noise2D2(wx * 0.15 + ox, wz * 0.15 + oz + y * 0.15);
+            if (y <= 8 && vn(1000, 1000) > 0.65)       type = 61; // Diamond: rare, deep
+            else if (y <= 12 && vn(2000, 2000) > 0.55)  type = 13; // Gold: y<12
+            else if (y <= 25 && vn(3000, 3000) > 0.5)   type = 14; // Iron: common
+            else if (vn(4000, 4000) > 0.5)               type = 15; // Coal: everywhere
+            else if (y <= 20 && vn(5000, 5000) > 0.55)  type = 74; // Copper: mid-depth
+            else if (y <= 15 && vn(6000, 6000) > 0.6)   type = 75; // Lapis: uncommon
+            else if (y <= 5 && Math.random() < 0.005)    type = 19; // Glowstone: very deep
           }
 
-          if (type === 3 && y >= 3 && Math.random() < 0.008) type = 12;
+          if (type === 3 && y >= 3 && Math.random() < 0.008) type = 12; // Gravel
 
           setBlock(y, type);
         }

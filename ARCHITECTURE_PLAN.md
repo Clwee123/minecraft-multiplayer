@@ -184,3 +184,12 @@
 - Screen distortion effect with portal proximity
 - Obsidian portal frame detection
 - Visual nether-themed color shift
+
+## Goal 26: Enhanced Save/Load System
+**Status**: DONE
+- Auto-save every 60 seconds in singleplayer
+- Save on tab close (beforeunload)
+- Persists: inventory, stack counts, player position, health, hunger, XP, level, day count
+- Persists chest inventories
+- /save and /load chat commands with full player state
+- Backward compatible with version 1 save format

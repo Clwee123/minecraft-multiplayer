@@ -84,6 +84,10 @@ export const BLOCK_TYPES: Record<number, {
   71: { name: "Music Disc (Blue)",  color: 0x4444aa },
   72: { name: "Shield",         color: 0xcccccc },
   73: { name: "Nether Portal",  color: 0x7722cc, emissive: 0x9933ff, transparent: true, solid: false },
+  74: { name: "Copper Ore",     color: 0xb87333 },
+  75: { name: "Lapis Ore",      color: 0x2244aa },
+  76: { name: "Copper Ingot",   color: 0xdd8844, solid: false },
+  77: { name: "Lapis Lazuli",   color: 0x2255cc, solid: false },
 
   // ── Crafting materials & tools ────────────────────────────────────────────
   280: { name: "Stick",             color: 0xc8a464, solid: false },
