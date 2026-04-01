@@ -405,7 +405,21 @@
     <div id="compassLabel">N</div>
   </div>
 
-  <!-- ── UNDERWATER OVERLAY ────────────────────────────────────────── -->
+  <!-- ── SCREEN OVERLAYS ──────────────────────────────────────────── -->
+  <div id="vignette" style="
+    position:fixed;inset:0;z-index:8;pointer-events:none;
+    background:radial-gradient(ellipse at center,transparent 55%,rgba(0,0,0,0.5) 100%);
+  "></div>
+  <div id="damageFlash" style="
+    position:fixed;inset:0;z-index:11;pointer-events:none;
+    background:radial-gradient(ellipse at center,rgba(180,0,0,0.3) 0%,rgba(120,0,0,0.6) 100%);
+    opacity:0;transition:opacity 0.08s ease-in;
+  "></div>
+  <div id="lowHealthVignette" style="
+    position:fixed;inset:0;z-index:9;pointer-events:none;
+    background:radial-gradient(ellipse at center,transparent 30%,rgba(120,0,0,0.6) 100%);
+    opacity:0;transition:opacity 0.5s ease;
+  "></div>
   <div id="underwaterOverlay" style="
     position:fixed;inset:0;z-index:9;pointer-events:none;
     background:radial-gradient(ellipse at center,rgba(10,60,100,0.45) 0%,rgba(5,30,60,0.7) 100%);

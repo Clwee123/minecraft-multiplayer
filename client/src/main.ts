@@ -557,6 +557,43 @@ const WATER_FOG_NEAR  = 2;
 const WATER_FOG_FAR   = 20;
 const WATER_FOG_COLOR = new THREE.Color(0x0a3c64);
 
+// ── Post-processing overlays ────────────────────────────────────────────────
+const damageFlash       = document.getElementById("damageFlash")!;
+const lowHealthVignette = document.getElementById("lowHealthVignette")!;
+let damageFlashTimer = 0;
+let prevPlayerHealth = 40;
+
+function triggerDamageFlash() {
+  damageFlash.style.opacity = "1";
+  damageFlashTimer = 0.15;
+}
+
+function updatePostEffects(dt: number, health: number, maxHealth: number) {
+  // Damage flash fade-out
+  if (damageFlashTimer > 0) {
+    damageFlashTimer -= dt;
+    if (damageFlashTimer <= 0) {
+      damageFlash.style.opacity = "0";
+    }
+  }
+
+  // Detect damage taken
+  if (health < prevPlayerHealth) {
+    triggerDamageFlash();
+  }
+  prevPlayerHealth = health;
+
+  // Low health red vignette pulse
+  const healthRatio = health / maxHealth;
+  if (healthRatio <= 0.3 && health > 0) {
+    // Pulse effect: oscillate opacity based on time
+    const pulse = 0.4 + Math.sin(Date.now() * 0.005) * 0.3;
+    lowHealthVignette.style.opacity = String(pulse);
+  } else {
+    lowHealthVignette.style.opacity = "0";
+  }
+}
+
 async function startGame(name: string) {
   currentPlayerName = name.trim() || `Player${Math.floor(Math.random() * 999)}`;
   const mode       = (window as any).__getSelectedMode?.() ?? "sp";
@@ -1687,6 +1724,7 @@ function animate() {
 
     ui.updatePosition(player.position.x, player.position.y, player.position.z);
     ui.updateTime(dayTime);
+    updatePostEffects(dt, player.health, player.maxHealth);
 
     // Center sun/moon/clouds around player
     sunMesh.position.x  += (player.position.x - sunMesh.position.x) * 0.02;

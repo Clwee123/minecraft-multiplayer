@@ -40,7 +40,7 @@
 ---
 
 ## Goal 4: Ambient Background Music System
-**Status**: IN PROGRESS
+**Status**: DONE
 - Procedural ambient music during gameplay (calm pads, piano-like tones)
 - Different moods for day vs night
 - Underground/cave ambient droning sounds
