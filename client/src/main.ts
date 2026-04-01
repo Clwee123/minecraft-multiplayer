@@ -700,7 +700,15 @@ async function startGame(name: string) {
   player.setDeathCause = (cause) => { lastDeathCause = cause; };
   player.onDied = () => {
     lastDeathPos.copy(player.position);
-    ui.showDeath(lastDeathCause, lastDeathPos.x, lastDeathPos.y, lastDeathPos.z, xpLevel);
+    // Fade to red then show death screen
+    const screenFade = document.getElementById("screenFade")!;
+    screenFade.style.background = "rgba(80,0,0,0.7)";
+    screenFade.style.transition = "opacity 0.8s ease";
+    screenFade.style.opacity = "1";
+    setTimeout(() => {
+      ui.showDeath(lastDeathCause, lastDeathPos.x, lastDeathPos.y, lastDeathPos.z, xpLevel);
+      screenFade.style.opacity = "0";
+    }, 600);
     ui.addChatMessage("", "☠ You died!", true);
     sounds.play("hurt");
   };
@@ -1278,12 +1286,24 @@ async function startGame(name: string) {
 
   // Respawn
   ui.onRespawn = () => {
-    player.respawn();
-    hunger = maxHunger;
-    ui.updateHearts(player.maxHealth, player.maxHealth);
-    ui.updateHunger(hunger, maxHunger);
-    mp?.sendRespawn();
-    setTimeout(() => document.body.requestPointerLock(), 150);
+    // Fade to black, respawn, then fade back
+    const screenFade = document.getElementById("screenFade")!;
+    screenFade.style.background = "#000";
+    screenFade.style.transition = "opacity 0.4s ease";
+    screenFade.style.opacity = "1";
+    setTimeout(() => {
+      player.respawn();
+      hunger = maxHunger;
+      ui.updateHearts(player.maxHealth, player.maxHealth);
+      ui.updateHunger(hunger, maxHunger);
+      mp?.sendRespawn();
+      // Fade back in
+      setTimeout(() => {
+        screenFade.style.transition = "opacity 0.6s ease";
+        screenFade.style.opacity = "0";
+        setTimeout(() => document.body.requestPointerLock(), 200);
+      }, 200);
+    }, 400);
   };
 
   ui.updateHearts(player.health, player.maxHealth);

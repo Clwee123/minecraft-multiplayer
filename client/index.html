@@ -436,6 +436,10 @@
   </div>
 
   <!-- ── SCREEN OVERLAYS ──────────────────────────────────────────── -->
+  <div id="screenFade" style="
+    position:fixed;inset:0;z-index:200;pointer-events:none;
+    background:#000;opacity:0;transition:opacity 0.5s ease;
+  "></div>
   <div id="vignette" style="
     position:fixed;inset:0;z-index:8;pointer-events:none;
     background:radial-gradient(ellipse at center,transparent 55%,rgba(0,0,0,0.5) 100%);

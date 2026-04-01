@@ -111,7 +111,7 @@
 - Fade to black on respawn, fade back in at spawn
 
 ## Goal 16: Biome-Specific Fog Colors
-**Status**: TODO
+**Status**: DONE
 - Desert biome: warm sandy fog
 - Ocean biome: blue-tinted fog
 - Forest biome: slightly green-tinted fog
