@@ -1062,9 +1062,42 @@ export class Mob {
 
   die() {
     this.alive = false;
-    this.group.rotation.z = Math.PI / 2;
-    this.hpSprite.visible  = false;
-    setTimeout(() => { this.group.visible = false; }, 2500);
+    this.hpSprite.visible = false;
+
+    // Death animation: tilt over, flash red, shrink, then hide
+    const startTime = Date.now();
+    const duration = 1200;
+    const animate = () => {
+      const elapsed = Date.now() - startTime;
+      const t = Math.min(elapsed / duration, 1);
+
+      // Tilt over slowly
+      this.group.rotation.z = t * (Math.PI / 2);
+      // Sink into ground
+      this.group.position.y = this.targetPos.y - t * 0.5;
+      // Shrink
+      const scale = 1 - t * 0.3;
+      this.group.scale.setScalar(scale);
+      // Flash red rapidly
+      if (elapsed % 200 < 100) {
+        for (const m of this.bodyMeshes) {
+          (m.material as THREE.MeshLambertMaterial).color.set(0xff2222);
+        }
+      } else {
+        const origColor = MOB_ORIGINAL_COLORS[this.type] ?? 0xffffff;
+        for (const m of this.bodyMeshes) {
+          (m.material as THREE.MeshLambertMaterial).color.set(origColor);
+        }
+      }
+
+      if (t < 1) {
+        requestAnimationFrame(animate);
+      } else {
+        // Poof — fade out
+        setTimeout(() => { this.group.visible = false; }, 500);
+      }
+    };
+    animate();
   }
 
   dispose(scene: THREE.Scene) {

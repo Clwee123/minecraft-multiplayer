@@ -116,12 +116,12 @@
 ---
 
 ## Goal 17: Sprint Speed Lines Effect
-**Status**: IN PROGRESS
+**Status**: DONE
 - White radial lines on screen edges when sprinting
 - Intensity increases with sprint duration
 
 ## Goal 18: Improved Hotbar with Tooltip Preview
-**Status**: TODO
+**Status**: DONE
 - Show block name tooltip on hotbar hover
 - Selected slot glow animation
 - Desert biome: warm sandy fog
