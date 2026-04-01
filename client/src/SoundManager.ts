@@ -148,16 +148,68 @@ export class SoundManager {
   }
 
   private playStep(vol: number) {
-    const ctx  = this.getCtx();
-    const buf  = this.makeNoise(ctx, 0.04);
-    const src  = ctx.createBufferSource();
+    this.playStepOnBlock(vol, "dirt");
+  }
+
+  /** Play a footstep sound with tone adapted to block type. */
+  playStepOnBlock(vol: number, blockType: string = "dirt") {
+    const ctx = this.getCtx();
+    const buf = this.makeNoise(ctx, 0.04 + Math.random() * 0.02);
+    const src = ctx.createBufferSource();
     src.buffer = buf;
     const gain = ctx.createGain();
-    gain.gain.setValueAtTime(vol * 0.12, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.06);
+    // Slight volume randomization for natural feel
+    const v = vol * (0.10 + Math.random() * 0.06);
+    gain.gain.setValueAtTime(v, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.08);
     const filter = ctx.createBiquadFilter();
-    filter.type      = "lowpass";
-    filter.frequency.value = 300;
+
+    // Different filter settings for different surface types
+    switch (blockType) {
+      case "stone":
+        filter.type = "highpass";
+        filter.frequency.value = 600 + Math.random() * 200;
+        break;
+      case "sand":
+        filter.type = "lowpass";
+        filter.frequency.value = 200 + Math.random() * 100;
+        filter.Q.value = 0.3;
+        break;
+      case "wood":
+        filter.type = "bandpass";
+        filter.frequency.value = 400 + Math.random() * 150;
+        filter.Q.value = 1.2;
+        break;
+      case "grass":
+        filter.type = "bandpass";
+        filter.frequency.value = 250 + Math.random() * 100;
+        filter.Q.value = 0.6;
+        break;
+      default: // dirt
+        filter.type = "lowpass";
+        filter.frequency.value = 300 + Math.random() * 100;
+        break;
+    }
+
+    src.connect(filter);
+    filter.connect(gain);
+    gain.connect(ctx.destination);
+    src.start();
+  }
+
+  /** Landing thud after falling. Volume scales with fall distance. */
+  playLanding(intensity: number) {
+    const ctx = this.getCtx();
+    const buf = this.makeNoise(ctx, 0.1);
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    const gain = ctx.createGain();
+    const v = Math.min(intensity * 0.15, 0.5);
+    gain.gain.setValueAtTime(v, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15);
+    const filter = ctx.createBiquadFilter();
+    filter.type = "lowpass";
+    filter.frequency.value = 150;
     src.connect(filter);
     filter.connect(gain);
     gain.connect(ctx.destination);

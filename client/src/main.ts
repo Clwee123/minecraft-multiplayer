@@ -367,6 +367,10 @@ let lastDeathPos = new THREE.Vector3();
 
 let campfireTimer = 0;
 let ambientParticleTimer = 0;
+let footstepTimer = 0;
+let footstepInterval = 0.35;
+let wasPlayerOnGround = false;
+const lastFootstepPos = new THREE.Vector3();
 let prevWaterState = false;
 
 // ── Command handler ───────────────────────────────────────────────────────────
@@ -1813,6 +1817,37 @@ function animate() {
       fog.near = NORMAL_FOG_NEAR;
       fog.far  = NORMAL_FOG_FAR;
     }
+
+    // Footstep sounds — trigger based on movement distance
+    footstepTimer += dt;
+    if (footstepTimer > footstepInterval && player.onGround) {
+      const dx = player.position.x - lastFootstepPos.x;
+      const dz = player.position.z - lastFootstepPos.z;
+      const distSq = dx * dx + dz * dz;
+      if (distSq > 1.5) { // moved ~1.2 blocks
+        footstepTimer = 0;
+        lastFootstepPos.set(player.position.x, 0, player.position.z);
+        // Determine surface type from block below player
+        const bx = Math.round(player.position.x);
+        const by = Math.round(player.position.y - 1.9);
+        const bz = Math.round(player.position.z);
+        const blockBelow = world.getBlockType(bx, by, bz);
+        let surfaceType = "dirt";
+        if (blockBelow === 3 || blockBelow === 11 || blockBelow === 17 || blockBelow === 18) surfaceType = "stone";
+        else if (blockBelow === 4 || blockBelow === 12 || blockBelow === 49) surfaceType = "sand";
+        else if (blockBelow === 5 || blockBelow === 10 || blockBelow === 16) surfaceType = "wood";
+        else if (blockBelow === 1 || blockBelow === 6) surfaceType = "grass";
+        const sprinting = (player as any).keys?.["ControlLeft"];
+        footstepInterval = sprinting ? 0.25 : 0.35;
+        sounds.playStepOnBlock(0.7, surfaceType);
+      }
+    }
+
+    // Landing impact sound
+    if (player.onGround && !wasPlayerOnGround && player.velocity.y < -0.5) {
+      sounds.playLanding(Math.min(Math.abs(player.velocity.y) / 10, 1));
+    }
+    wasPlayerOnGround = player.onGround;
 
     // Campfire detection and effects
     campfireTimer += dt;
