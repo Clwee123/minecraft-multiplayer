@@ -93,6 +93,12 @@ export const BLOCK_TYPES: Record<number, {
   80: { name: "Fence Gate",      color: 0xc8a464, transparent: true, solid: false },
   81: { name: "Stone Bricks",    color: 0x7a7a7a },
   82: { name: "Mossy Stone Bricks", color: 0x5a7a5a },
+  83: { name: "Spruce Log",         color: 0x4a3528, topColor: 0x6a4a30 },
+  84: { name: "Spruce Leaves",      color: 0x1a4a2a },
+  85: { name: "Palm Log",           color: 0x9a7a4a, topColor: 0x8a6a3a },
+  86: { name: "Palm Leaves",        color: 0x3a8a2a },
+  87: { name: "Birch Log",          color: 0xd4cbb5, topColor: 0xc8b898 },
+  88: { name: "Birch Leaves",       color: 0x4a9a3a },
 
   // ── Crafting materials & tools ────────────────────────────────────────────
   280: { name: "Stick",             color: 0xc8a464, solid: false },

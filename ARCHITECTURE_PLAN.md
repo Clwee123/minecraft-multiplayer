@@ -223,3 +223,25 @@
 - Splashes rise briefly then fade for puddle effect
 - Ambient brown noise rain sound during precipitation
 - Low-pass filtered for realistic rain ambience
+
+## Goal 31: Biome-Specific Trees
+**Status**: IN PROGRESS
+- Pine/spruce trees in mountain biome (tall narrow trunk, triangular leaf canopy)
+- Palm trees in desert biome (curved trunk, fan-shaped leaf crown)
+- New block types: Spruce Log, Spruce Leaves, Palm Log, Palm Leaves
+- Birch trees mixed into forest biome for variety
+- Mountains now have trees at lower elevations instead of only rocks
+
+## Goal 32: Day/Night Mob Spawning Rules
+**Status**: TODO
+- Hostile mobs (zombie, skeleton, spider, creeper) only spawn at night or in caves
+- Peaceful mobs (pig, cow, sheep, chicken) only spawn during daytime
+- Mobs burn/despawn at dawn if exposed to sunlight (zombies, skeletons)
+- Higher hostile spawn rates at night for challenge progression
+
+## Goal 33: Scoreboard & Player Stats Screen
+**Status**: TODO
+- Track kills by mob type, blocks mined, blocks placed, distance walked
+- Days survived counter (already exists in HUD)
+- Press Tab to toggle stats overlay
+- Persistent stats saved with game state

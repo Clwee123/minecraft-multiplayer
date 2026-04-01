@@ -388,9 +388,18 @@ export class World {
               this.placeBlock(wx, h + 1, wz, 52, false);
             }
           }
+          // Palm trees - rare, near sea level in desert
+          if (h > SEA_LEVEL && h < SEA_LEVEL + 4 && Math.random() < 0.008) {
+            this.placePalmTree(wx, h + 1, wz);
+          }
         } else if (biome === 2) { // Forest
           if (h > SEA_LEVEL && h < SEA_LEVEL + 9 && Math.random() < 0.08) {
-            this.placeTree(wx, h + 1, wz);
+            // Mix of oak and birch in forest
+            if (Math.random() < 0.35) {
+              this.placeBirchTree(wx, h + 1, wz);
+            } else {
+              this.placeTree(wx, h + 1, wz);
+            }
           }
           if (h > SEA_LEVEL && h < SEA_LEVEL + 9 && Math.random() < 0.05) {
             this.placeBlock(wx, h + 1, wz, 51, false);
@@ -398,6 +407,10 @@ export class World {
         } else if (biome === 3) { // Mountains
           if (h > SEA_LEVEL + 5 && Math.random() < 0.03) {
             this.placeRocks(wx, h + 1, wz);
+          }
+          // Pine trees at lower mountain elevations
+          if (h > SEA_LEVEL && h < SEA_LEVEL + 12 && Math.random() < 0.04) {
+            this.placePineTree(wx, h + 1, wz);
           }
         }
       }
@@ -422,6 +435,94 @@ export class World {
       }
     }
     this.placeBlock(x, top + 2, z, 6, false);
+  }
+
+  private placePineTree(x: number, y: number, z: number) {
+    const trunkH = 6 + Math.floor(Math.random() * 3); // 6-8 tall
+    for (let i = 0; i < trunkH; i++) this.placeBlock(x, y + i, z, 83, false); // Spruce Log
+
+    // Triangular canopy - wider at bottom, narrow at top
+    const top = y + trunkH;
+    // Layer 1 (bottom) - radius 2
+    for (let dx = -2; dx <= 2; dx++) {
+      for (let dz = -2; dz <= 2; dz++) {
+        if (Math.abs(dx) === 2 && Math.abs(dz) === 2) continue;
+        this.placeBlock(x + dx, top - 3, z + dz, 84, false);
+      }
+    }
+    // Layer 2 - radius 2
+    for (let dx = -2; dx <= 2; dx++) {
+      for (let dz = -2; dz <= 2; dz++) {
+        if (Math.abs(dx) === 2 && Math.abs(dz) === 2) continue;
+        this.placeBlock(x + dx, top - 2, z + dz, 84, false);
+      }
+    }
+    // Layer 3 - radius 1
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dz = -1; dz <= 1; dz++) {
+        this.placeBlock(x + dx, top - 1, z + dz, 84, false);
+      }
+    }
+    // Layer 4 - radius 1
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dz = -1; dz <= 1; dz++) {
+        this.placeBlock(x + dx, top, z + dz, 84, false);
+      }
+    }
+    // Top point
+    this.placeBlock(x, top + 1, z, 84, false);
+  }
+
+  private placePalmTree(x: number, y: number, z: number) {
+    const trunkH = 5 + Math.floor(Math.random() * 3); // 5-7 tall
+    // Slight lean - trunk curves by 1 block in a random direction
+    const leanDx = Math.random() < 0.5 ? (Math.random() < 0.5 ? 1 : -1) : 0;
+    const leanDz = leanDx === 0 ? (Math.random() < 0.5 ? 1 : -1) : 0;
+    let tx = x, tz = z;
+    for (let i = 0; i < trunkH; i++) {
+      this.placeBlock(tx, y + i, tz, 85, false); // Palm Log
+      if (i === Math.floor(trunkH / 2)) { tx += leanDx; tz += leanDz; }
+    }
+
+    // Fan-shaped leaf crown - cross pattern
+    const top = y + trunkH;
+    this.placeBlock(tx, top, tz, 86, false); // center leaf
+    for (let r = 1; r <= 3; r++) {
+      this.placeBlock(tx + r, top, tz, 86, false);
+      this.placeBlock(tx - r, top, tz, 86, false);
+      this.placeBlock(tx, top, tz + r, 86, false);
+      this.placeBlock(tx, top, tz - r, 86, false);
+      // Diagonal fronds
+      if (r <= 2) {
+        this.placeBlock(tx + r, top, tz + r, 86, false);
+        this.placeBlock(tx - r, top, tz - r, 86, false);
+        this.placeBlock(tx + r, top, tz - r, 86, false);
+        this.placeBlock(tx - r, top, tz + r, 86, false);
+      }
+    }
+    // Drooping tips
+    this.placeBlock(tx + 3, top - 1, tz, 86, false);
+    this.placeBlock(tx - 3, top - 1, tz, 86, false);
+    this.placeBlock(tx, top - 1, tz + 3, 86, false);
+    this.placeBlock(tx, top - 1, tz - 3, 86, false);
+  }
+
+  private placeBirchTree(x: number, y: number, z: number) {
+    const trunkH = 5 + Math.floor(Math.random() * 2); // 5-6 tall
+    for (let i = 0; i < trunkH; i++) this.placeBlock(x, y + i, z, 87, false); // Birch Log
+
+    const top = y + trunkH;
+    // Rounder, slightly smaller canopy than oak
+    for (let dx = -2; dx <= 2; dx++) {
+      for (let dz = -2; dz <= 2; dz++) {
+        for (let dy = -1; dy <= 1; dy++) {
+          if (Math.abs(dx) === 2 && Math.abs(dz) === 2) continue;
+          if (dy === 1 && (Math.abs(dx) === 2 || Math.abs(dz) === 2)) continue;
+          this.placeBlock(x + dx, top + dy, z + dz, 88, false);
+        }
+      }
+    }
+    this.placeBlock(x, top + 2, z, 88, false);
   }
 
   private placeRocks(x: number, y: number, z: number) {
