@@ -88,16 +88,34 @@
 ---
 
 ## Goal 12: Smooth Block Place/Break Particles Enhancement
-**Status**: IN PROGRESS
+**Status**: DONE
 - More particles when breaking blocks (8→16, burst pattern)
 - Block place "pop" scale animation effect
 - Block type-specific particle colors
 
 ## Goal 13: Improved Torch/Light Rendering
-**Status**: TODO
+**Status**: DONE
 - Torch flicker effect (oscillating light intensity)
-- Warm glow radius on nearby blocks
-- Campfire fire particles improvement
+- Per-torch phase offset for natural flicker
+
+## Goal 14: Loading Progress Bar & Death Screen Animation
+**Status**: DONE
+- Green progress bar during game loading
+- Death screen fade-in and title slide animation
+
+---
+
+## Goal 15: Smooth Camera Transition on Death/Respawn
+**Status**: TODO
+- Camera slowly rotates on death (death cam effect)
+- Fade to black on respawn, fade back in at spawn
+
+## Goal 16: Biome-Specific Fog Colors
+**Status**: TODO
+- Desert biome: warm sandy fog
+- Ocean biome: blue-tinted fog
+- Forest biome: slightly green-tinted fog
+- Mountains: thinner, lighter fog
 
 ## Goal 9: Better Cloud System
 **Status**: DONE

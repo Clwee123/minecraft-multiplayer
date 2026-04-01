@@ -66,7 +66,7 @@ export class World {
 
   // ── Biome system ──────────────────────────────────────────────────────────
 
-  private getBiome(x: number, z: number): number {
+  getBiome(x: number, z: number): number {
     const b = this.biomeNoise(x * 0.005, z * 0.005); // very low frequency noise for biomes
     if (b < -0.4) return 4; // ocean
     if (b < -0.1) return 0; // plains

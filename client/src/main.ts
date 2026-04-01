@@ -367,6 +367,16 @@ let lastDeathPos = new THREE.Vector3();
 
 let campfireTimer = 0;
 let ambientParticleTimer = 0;
+let biomeFogTimer = 0;
+let currentBiome = 0;
+// Biome fog color tints: 0=plains, 1=desert, 2=forest, 3=mountains, 4=ocean
+const BIOME_FOG_TINTS: Record<number, THREE.Color> = {
+  0: new THREE.Color(0x88ccee), // plains: neutral blue
+  1: new THREE.Color(0xddcc88), // desert: warm sandy
+  2: new THREE.Color(0x77bb88), // forest: green tint
+  3: new THREE.Color(0xaabbcc), // mountains: cool grey-blue
+  4: new THREE.Color(0x6699bb), // ocean: deep blue
+};
 let footstepTimer = 0;
 let footstepInterval = 0.35;
 let wasPlayerOnGround = false;
@@ -1497,6 +1507,25 @@ function animate() {
       }
     }
     updateDayNight(dt);
+
+    // Biome-specific fog tinting (only when not underwater or in nether)
+    if (!isUnderwater && !netherMode) {
+      biomeFogTimer += dt;
+      if (biomeFogTimer > 2) { // check every 2 seconds
+        biomeFogTimer = 0;
+        const biome = world.getBiome(Math.round(player.position.x), Math.round(player.position.z));
+        if (biome !== currentBiome) {
+          currentBiome = biome;
+        }
+      }
+      // Tint fog based on biome — blend subtly with base fog color
+      const fog = scene.fog as THREE.Fog;
+      const tint = BIOME_FOG_TINTS[currentBiome];
+      if (tint) {
+        fog.color.lerp(tint, 0.08);
+      }
+    }
+
     if (mobManager) {
       mobManager.dayTime = dayTime;
       mobManager.update(dt);
