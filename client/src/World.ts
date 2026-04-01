@@ -180,7 +180,8 @@ export class World {
     mesh.receiveShadow = false;
     mesh.frustumCulled = false;
     // Transparent blocks render after opaque to avoid depth sorting issues
-    // No special renderOrder — depthWrite:true on all materials handles sorting correctly
+    // Water renders last (after all opaque) so depth test works correctly with depthWrite:false
+    if (blockType === 7) mesh.renderOrder = 1;
     this.scene.add(mesh);
 
     this.instancedMeshes.set(blockType, mesh);
