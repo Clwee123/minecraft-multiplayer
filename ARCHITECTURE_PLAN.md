@@ -54,7 +54,7 @@
 - Smoother hotbar scroll animation
 
 ## Goal 6: Vignette & Post-Processing Effects
-**Status**: TODO
+**Status**: DONE
 - Screen vignette (dark edges) for immersion
 - Low-health red vignette pulse
 - Damage flash effect (red tint)

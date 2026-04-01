@@ -594,6 +594,27 @@ function updatePostEffects(dt: number, health: number, maxHealth: number) {
   }
 }
 
+// ── Crosshair break progress ────────────────────────────────────────────────
+const crosshairEl    = document.getElementById("crosshair")!;
+const breakProgressEl = document.getElementById("breakProgress")!;
+let _lastBreaking = false;
+
+function updateCrosshair(breakProgress: number) {
+  const isBreaking = breakProgress > 0;
+  if (isBreaking !== _lastBreaking) {
+    crosshairEl.classList.toggle("breaking", isBreaking);
+    _lastBreaking = isBreaking;
+  }
+  if (isBreaking) {
+    // Conic gradient to show progress as a ring
+    const deg = Math.floor(breakProgress * 360);
+    breakProgressEl.style.background = `conic-gradient(rgba(255,255,255,0.7) ${deg}deg, transparent ${deg}deg)`;
+    breakProgressEl.style.opacity = "1";
+  } else {
+    breakProgressEl.style.opacity = "0";
+  }
+}
+
 async function startGame(name: string) {
   currentPlayerName = name.trim() || `Player${Math.floor(Math.random() * 999)}`;
   const mode       = (window as any).__getSelectedMode?.() ?? "sp";
@@ -1725,6 +1746,7 @@ function animate() {
     ui.updatePosition(player.position.x, player.position.y, player.position.z);
     ui.updateTime(dayTime);
     updatePostEffects(dt, player.health, player.maxHealth);
+    updateCrosshair(player.getBreakProgress());
 
     // Center sun/moon/clouds around player
     sunMesh.position.x  += (player.position.x - sunMesh.position.x) * 0.02;

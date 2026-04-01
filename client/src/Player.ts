@@ -151,6 +151,7 @@ export class Player {
 
   /** Expose keys map so mobile controls can inject key states */
   getKeys(): Record<string, boolean> { return this.keys; }
+  getBreakProgress(): number { return this.breakTarget ? this.breakProgress : 0; }
 
   /** Trigger a one-shot break from external (mobile button) */
   breakBlockNow(): void { this.breakBlock(); }
