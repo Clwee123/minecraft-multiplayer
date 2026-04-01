@@ -240,7 +240,7 @@
 - Higher hostile spawn rates at night for challenge progression
 
 ## Goal 33: Scoreboard & Player Stats Screen
-**Status**: TODO
+**Status**: DONE
 - Track kills by mob type, blocks mined, blocks placed, distance walked
 - Days survived counter (already exists in HUD)
 - Press Tab to toggle stats overlay

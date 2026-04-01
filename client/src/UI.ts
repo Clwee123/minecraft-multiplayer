@@ -1,5 +1,6 @@
 import { HOTBAR_BLOCKS, getBlockName, getBlockColor } from "./blocks";
 import { GameMode } from "./Player";
+import type { PlayerStats } from "./Stats";
 
 export class UI {
   private hotbarEl    = document.getElementById("hotbar")!;
@@ -1622,5 +1623,121 @@ Blocks: ${info.blockCount}`;
     if (this.xpBarEl) this.xpBarEl.style.display = "block";
     if (this.xpLevelEl) this.xpLevelEl.style.display = "block";
     if (this.dayCounterEl) this.dayCounterEl.style.display = "block";
+  }
+
+  // ── Scoreboard / Stats Overlay ──────────────────────────────────────────
+
+  private scoreboardPanel: HTMLElement | null = null;
+
+  showScoreboard(playerStats: PlayerStats, dayCount: number): void {
+    if (this.scoreboardPanel) return;
+
+    this.scoreboardPanel = document.createElement("div");
+    this.scoreboardPanel.style.cssText = `
+      position: fixed;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      background: rgba(0, 0, 0, 0.85);
+      border: 3px solid #555;
+      padding: 24px 32px;
+      min-width: 360px;
+      max-height: 80vh;
+      overflow-y: auto;
+      z-index: 1000;
+      border-radius: 6px;
+      font-family: Arial, sans-serif;
+      color: white;
+    `;
+
+    const title = document.createElement("h2");
+    title.textContent = "Statistics";
+    title.style.cssText = "margin: 0 0 16px 0; text-align: center; color: #ffcc00; font-size: 20px; letter-spacing: 1px;";
+    this.scoreboardPanel.appendChild(title);
+
+    // Format play time
+    const totalSec = Math.floor(playerStats.playTime);
+    const hours = Math.floor(totalSec / 3600);
+    const mins = Math.floor((totalSec % 3600) / 60);
+    const secs = totalSec % 60;
+    const timeStr = hours > 0 ? `${hours}h ${mins}m ${secs}s` : `${mins}m ${secs}s`;
+
+    const statRows: [string, string][] = [
+      ["Days Survived", `${dayCount}`],
+      ["Play Time", timeStr],
+      ["", ""], // separator
+      ["Blocks Placed", `${playerStats.blocksPlaced}`],
+      ["Blocks Broken", `${playerStats.blocksBroken}`],
+      ["Distance Walked", `${playerStats.distanceTraveled.toFixed(0)}m`],
+      ["", ""], // separator
+      ["Mobs Killed", `${playerStats.mobsKilled}`],
+      ["Deaths", `${playerStats.deaths}`],
+    ];
+
+    for (const [label, value] of statRows) {
+      if (!label) {
+        const sep = document.createElement("hr");
+        sep.style.cssText = "border: none; border-top: 1px solid #444; margin: 8px 0;";
+        this.scoreboardPanel.appendChild(sep);
+        continue;
+      }
+      const row = document.createElement("div");
+      row.style.cssText = "display: flex; justify-content: space-between; padding: 4px 0; font-size: 14px;";
+      const labelEl = document.createElement("span");
+      labelEl.textContent = label;
+      labelEl.style.color = "#aaa";
+      const valueEl = document.createElement("span");
+      valueEl.textContent = value;
+      valueEl.style.cssText = "font-weight: bold; color: #fff;";
+      row.appendChild(labelEl);
+      row.appendChild(valueEl);
+      this.scoreboardPanel.appendChild(row);
+    }
+
+    // Kills by mob type breakdown
+    const killEntries = Object.entries(playerStats.killsByType || {}).sort((a, b) => b[1] - a[1]);
+    if (killEntries.length > 0) {
+      const sep = document.createElement("hr");
+      sep.style.cssText = "border: none; border-top: 1px solid #444; margin: 8px 0;";
+      this.scoreboardPanel.appendChild(sep);
+
+      const killTitle = document.createElement("div");
+      killTitle.textContent = "Kills by Type";
+      killTitle.style.cssText = "color: #ffcc00; font-size: 13px; margin-bottom: 6px; text-align: center;";
+      this.scoreboardPanel.appendChild(killTitle);
+
+      for (const [mobType, count] of killEntries) {
+        const row = document.createElement("div");
+        row.style.cssText = "display: flex; justify-content: space-between; padding: 2px 0; font-size: 13px;";
+        const nameEl = document.createElement("span");
+        nameEl.textContent = mobType.charAt(0).toUpperCase() + mobType.slice(1);
+        nameEl.style.color = "#999";
+        const countEl = document.createElement("span");
+        countEl.textContent = `${count}`;
+        countEl.style.color = "#ddd";
+        row.appendChild(nameEl);
+        row.appendChild(countEl);
+        this.scoreboardPanel.appendChild(row);
+      }
+    }
+
+    // Close hint
+    const hint = document.createElement("div");
+    hint.textContent = "Press O to close";
+    hint.style.cssText = "text-align: center; color: #666; font-size: 11px; margin-top: 16px;";
+    this.scoreboardPanel.appendChild(hint);
+
+    document.body.appendChild(this.scoreboardPanel);
+  }
+
+  hideScoreboard(): void {
+    if (this.scoreboardPanel) {
+      this.scoreboardPanel.remove();
+      this.scoreboardPanel = null;
+    }
+  }
+
+  isScoreboardOpen(): boolean {
+    return this.scoreboardPanel !== null;
   }
 }

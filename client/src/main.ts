@@ -907,6 +907,7 @@ async function startGame(name: string) {
   player.onHealthChanged = hp => ui.updateHearts(hp, player.maxHealth);
   player.setDeathCause = (cause) => { lastDeathCause = cause; };
   player.onDied = () => {
+    stats.increment("deaths");
     lastDeathPos.copy(player.position);
     // Fade to red then show death screen
     const screenFade = document.getElementById("screenFade")!;
@@ -1198,6 +1199,8 @@ async function startGame(name: string) {
         if (mobData.type === "zombie") achievements.trigger("kill_zombie");
         if (mobData.type === "creeper") achievements.trigger("kill_creeper");
         if (mobData.type === "enderdragon") achievements.trigger("kill_dragon");
+        // Track mob kill stats
+        stats.recordMobKill(mobData.type);
         // Add kill feed entry
         ui.addKillFeedDeath(mobData.type);
       }
@@ -1342,6 +1345,20 @@ async function startGame(name: string) {
       } else {
         ui.showInventory(inventory);
         inventoryOpen = true;
+        document.exitPointerLock();
+      }
+    }
+  });
+
+  // O key for scoreboard / stats overlay
+  document.addEventListener("keydown", e => {
+    if ((e.key === "o" || e.key === "O") && document.pointerLockElement && !ui.isChatOpen()) {
+      e.preventDefault();
+      if (ui.isScoreboardOpen()) {
+        ui.hideScoreboard();
+        document.body.requestPointerLock();
+      } else {
+        ui.showScoreboard(stats.getAll(), dayCount);
         document.exitPointerLock();
       }
     }
@@ -1716,7 +1733,7 @@ async function startGame(name: string) {
           player.takeDamage(actualDamage);
           sounds.play("hurt");
           ui.updateHearts(player.health, player.maxHealth);
-          if (player.health <= 0) ui.showDeath();
+          if (player.health <= 0) { stats.increment("deaths"); ui.showDeath(); }
         }
       },
       getPlayerPos: () => player.position,
@@ -1782,7 +1799,7 @@ async function startGame(name: string) {
       },
       onPlayerDied: (name) => {
         ui.addChatMessage("", `☠ ${name} was slain!`, true);
-        if (name === currentPlayerName) ui.showDeath();
+        if (name === currentPlayerName) { stats.increment("deaths"); ui.showDeath(); }
       },
     }, serverAddr);
 
