@@ -15,6 +15,7 @@ import { Weather }            from "./Weather";
 import { XPOrbManager }       from "./XPOrb";
 import { AchievementManager } from "./Achievements";
 import { StatsTracker }       from "./Stats";
+import { SkyDome }            from "./SkyDome";
 
 // ── Renderer ─────────────────────────────────────────────────────────────────
 
@@ -36,7 +37,7 @@ window.addEventListener("resize", () => {
 // ── Scene ─────────────────────────────────────────────────────────────────────
 
 const scene  = new THREE.Scene();
-scene.background = new THREE.Color(0x87ceeb);
+scene.background = null; // sky dome renders the background
 scene.fog        = new THREE.Fog(0x87ceeb, 55, 96); // reduced far from 160 to match render distance
 
 const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 100);
@@ -76,22 +77,9 @@ const moonMat  = new THREE.MeshBasicMaterial({ color: 0xddddff });
 const moonMesh = new THREE.Mesh(moonGeo, moonMat);
 scene.add(moonMesh);
 
-// Stars (only visible at night)
-const starGeo   = new THREE.BufferGeometry();
-const starCount = 1200;
-const starPos   = new Float32Array(starCount * 3);
-for (let i = 0; i < starCount; i++) {
-  const theta  = Math.random() * Math.PI * 2;
-  const phi    = Math.acos(2 * Math.random() - 1);
-  const r      = 180;
-  starPos[i * 3]     = r * Math.sin(phi) * Math.cos(theta);
-  starPos[i * 3 + 1] = r * Math.abs(Math.cos(phi)); // only upper hemisphere
-  starPos[i * 3 + 2] = r * Math.sin(phi) * Math.sin(theta);
-}
-starGeo.setAttribute("position", new THREE.BufferAttribute(starPos, 3));
-const starMat   = new THREE.PointsMaterial({ color: 0xffffff, size: 0.6, sizeAttenuation: false });
-const stars     = new THREE.Points(starGeo, starMat);
-scene.add(stars);
+// Sky dome (gradient sky with integrated stars, sun/moon halos)
+const skyDome = new SkyDome();
+scene.add(skyDome.mesh);
 
 // Clouds (simple flat boxes drifting)
 const clouds: THREE.Mesh[] = [];
@@ -195,17 +183,17 @@ function updateDayNight(dt: number) {
     ambientIntensity = 0.05;
   }
 
-  renderer.setClearColor(_skyColorBuf);
-  scene.background = _skyColorBuf;
+  renderer.setClearColor(_fogColorBuf); // clear color matches fog for seamless blend
   (scene.fog as THREE.Fog).color.copy(_fogColorBuf);
+
+  // Update sky dome with current dayTime and sun position
+  skyDome.update(dayTime, sunMesh.position);
+  skyDome.followCamera(camera.position);
 
   sun.intensity       = sunIntensity;
   ambient.intensity   = Math.max(ambientIntensity, 0.04);
   moonLight.intensity = Math.max(0.35 - sunIntensity * 0.2, 0);
   hemi.intensity      = ambientIntensity * 0.5;
-
-  starMat.opacity = Math.max(0, 1 - sunIntensity * 1.5);
-  starMat.transparent = true;
 
   const isSunUp = Math.sin(sunAngle) > 0;
   sunMesh.visible  =  isSunUp;
@@ -442,7 +430,8 @@ function handleCommand(cmd: string, playerName: string): boolean {
       player.spawnAt(player.position.x, player.position.z);
       player.position.y = 30;
       (scene.fog as THREE.Fog).color.copy(new THREE.Color(0xff4400));
-      scene.background = new THREE.Color(0x220000);
+      renderer.setClearColor(0x220000);
+      skyDome.mesh.visible = false;
       ui.addChatMessage("", "Entered the Nether!", true);
       return true;
     }
@@ -450,7 +439,7 @@ function handleCommand(cmd: string, playerName: string): boolean {
       netherMode = false;
       player.spawnAt(player.position.x, player.position.z);
       (scene.fog as THREE.Fog).color.copy(new THREE.Color(0x87ceeb));
-      scene.background = new THREE.Color(0x87ceeb);
+      skyDome.mesh.visible = true;
       ui.addChatMessage("", "Exited the Nether!", true);
       return true;
     }
@@ -1649,7 +1638,7 @@ function animate() {
     // Center sun/moon/clouds around player
     sunMesh.position.x  += (player.position.x - sunMesh.position.x) * 0.02;
     moonMesh.position.x += (player.position.x - moonMesh.position.x) * 0.02;
-    stars.position.set(player.position.x, 0, player.position.z);
+    // skyDome.followCamera() already handled in updateDayNight
 
     // Thunder flash effect
     if (weather.isThunderFlashing()) {
@@ -1732,7 +1721,7 @@ function animate() {
 
   // Reset clear color if it was flashed
   if (weather.isThunderFlashing()) {
-    renderer.setClearColor(scene.background as THREE.Color);
+    renderer.setClearColor(_fogColorBuf);
   }
 }
 

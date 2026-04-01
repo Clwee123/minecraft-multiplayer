@@ -1,0 +1,38 @@
+# Architecture Plan — Minecraft Three.js Clone
+
+## Codebase Overview
+- **Renderer**: Three.js with InstancedMesh for blocks, shadow maps, day/night cycle
+- **World**: Chunk-based terrain with biomes (plains, desert, forest, mountains, ocean), simplex noise
+- **Player**: First/third person, survival/creative/spectator modes, physics, combat
+- **Systems**: Particles, SoundManager (synthesized), Weather, Mobs, Multiplayer, UI (HTML DOM)
+
+## Current State Assessment
+- Day/night cycle exists but sky is a flat color (no gradient dome)
+- Fog exists but is basic linear fog
+- No underwater visual effects (tint, bubbles)
+- Player movement is functional but lacks head bob and smooth camera
+- No ambient particles (dust motes, fireflies at night)
+- Sound system exists but no ambient music/nature sounds during gameplay
+
+---
+
+## Goal 1: Immersive Sky Dome with Gradient Horizon
+**Status**: IN PROGRESS
+- Replace flat `scene.background` color with a sky shader dome that blends zenith→horizon colors
+- Horizon glow during dawn/dusk for atmospheric depth
+- Stars rendered on the dome instead of separate Points object
+- Sun/moon halos
+
+## Goal 2: Underwater Visual Effects
+**Status**: TODO
+- Blue-green color overlay when camera is below water level
+- Reduced fog distance underwater
+- Distortion/waviness post-processing effect (simple UV offset)
+- Bubble particles rising from player
+
+## Goal 3: Ambient Particles & Head Bob
+**Status**: TODO
+- Floating dust motes in sunlight (small bright particles drifting slowly)
+- Fireflies at night near grass (small yellow emissive particles)
+- Subtle head bob when walking for immersion
+- Camera tilt when sprinting
