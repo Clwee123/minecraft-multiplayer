@@ -298,14 +298,14 @@ export class UI {
     this.xpBarEl.id = "xp-bar";
     this.xpBarEl.style.cssText = `
       position: absolute;
-      bottom: 60px;
+      bottom: 74px;
       left: 50%;
       transform: translateX(-50%);
       width: 300px;
-      height: 6px;
-      background: rgba(0,0,0,0.7);
-      border: 1px solid #333;
-      border-radius: 3px;
+      height: 5px;
+      background: rgba(0,0,0,0.5);
+      border: 1px solid #222;
+      border-radius: 2px;
       z-index: 100;
       overflow: hidden;
       box-shadow: 0 0 4px rgba(0,0,0,0.5);
@@ -328,12 +328,12 @@ export class UI {
     levelLabel.textContent = "0";
     levelLabel.style.cssText = `
       position: absolute;
-      bottom: 67px;
+      bottom: 80px;
       left: 50%;
       transform: translateX(-50%);
       color: #88ff44;
       font-family: 'Courier New', monospace;
-      font-size: 13px;
+      font-size: 12px;
       font-weight: bold;
       z-index: 100;
       text-shadow: 0 0 4px rgba(136,255,68,0.5), 1px 1px 0 #000;

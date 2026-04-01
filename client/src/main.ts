@@ -1742,16 +1742,40 @@ async function startGame(name: string) {
     if (n >= 1 && n <= 8) updateHotbarSlot(n - 1);
   });
 
-  // Setup item pickup callback
+  // Item name → block/item type ID
+  const ITEM_NAME_TO_TYPE: Record<string, number> = {
+    // Food / mob drops (use tool/item type IDs)
+    porkchop: 0, feather: 0, beef: 0, leather: 0, wool: 26, chicken: 0,
+    egg: 0, gunpowder: 0, bone: 0, arrow: 0, string: 0,
+    salmon: 0, cod: 0, tropical_fish: 0, pufferfish: 0,
+    // Armor
+    iron_helmet: 35, iron_chestplate: 36, iron_leggings: 37, iron_boots: 38,
+    // Tools/weapons (from crafting)
+    wooden_sword: 268, wooden_pickaxe: 270, wooden_axe: 271, wooden_shovel: 269,
+    stone_sword: 272, stone_pickaxe: 274, stone_axe: 275,
+    iron_sword: 267, iron_pickaxe: 257, iron_axe: 258,
+    // Blocks
+    oak_log: 5, oak_planks: 10, cobblestone: 11, stick: 280,
+    dirt: 2, stone: 3, sand: 4, gravel: 12,
+    coal: 64, iron_ingot: 62, gold_ingot: 63, diamond: 65,
+  };
+
+  // Setup item pickup callback — adds items to actual inventory
   itemDrops.onPickup = (item) => {
     sounds.play("eat");
-    ui.addChatMessage("", "Picked up: " + item, true);
-
-    // Handle armor items
-    if (item === "iron_helmet" || item === "iron_chestplate" || item === "iron_leggings" || item === "iron_boots") {
-      player.armor = Math.min(20, player.armor + 5);
-      ui.addChatMessage("", `Armor: ${(player.armor / 20 * 100).toFixed(0)}%`, true);
+    const typeId = ITEM_NAME_TO_TYPE[item];
+    if (typeId && typeId > 0) {
+      invAddItem(typeId, 1);
+      ui.updateHotbarFromInventory(inventory, invCount);
+      ui.addChatMessage("", `+ 1x ${getBlockName(typeId)}`, true);
+    } else {
+      ui.addChatMessage("", `Picked up: ${item}`, true);
     }
+    // Armor equip
+    if (item === "iron_helmet")     { player.armor = Math.min(20, player.armor + 5); }
+    if (item === "iron_chestplate") { player.armor = Math.min(20, player.armor + 8); }
+    if (item === "iron_leggings")   { player.armor = Math.min(20, player.armor + 7); }
+    if (item === "iron_boots")      { player.armor = Math.min(20, player.armor + 4); }
   };
 
   if (isSingleplayer) {
