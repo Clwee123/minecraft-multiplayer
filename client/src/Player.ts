@@ -54,7 +54,11 @@ export class Player {
   private lastSpace = 0;
 
   private inWater = false;
+  private wasInWater = false; // track water entry for splash
   private waterTimer = 0;
+  private swimStroke = 0; // continuous swim arm cycle
+  private waterCameraTilt = 0; // smooth camera tilt in water
+  private waterEntryVelocityDamp = 1; // smooth velocity damping on water entry
 
   selectedBlockType = 1;
   private raycaster = new THREE.Raycaster();
@@ -105,6 +109,8 @@ export class Player {
   onHealthChanged?: (hp: number) => void;
   onRightClick?: () => void;  // For fishing rod and special interactions
   setDeathCause?: (cause: string) => void;  // To track death cause
+  onWaterEnter?: () => void;  // Swimming effects
+  onWaterExit?:  () => void;
 
   // ── Crack textures (static cache) ────────────────────────────────────────
   private static _crackTextures: THREE.CanvasTexture[] | null = null;
@@ -552,6 +558,8 @@ export class Player {
       this.velocity.y += -4 * dt; // reduced gravity
       if (this.velocity.y < -3) this.velocity.y = -3; // cap fall speed
       if (this.keys["Space"]) this.velocity.y = 4; // swim upward
+      // Swim stroke animation
+      this.swimStroke += dt * 3.5;
       // Drowning timer in survival mode
       if (this.gameMode === "survival") {
         this.waterTimer += dt;
@@ -561,8 +569,28 @@ export class Player {
           this.takeDamage(1);
         }
       }
+      // Track water entry
+      if (!this.wasInWater) {
+        this.wasInWater = true;
+        // Dampen velocity on water entry for smooth transition
+        this.velocity.y *= 0.4;
+        this.velocity.x *= 0.6;
+        this.velocity.z *= 0.6;
+        this.waterEntryVelocityDamp = 0.3;
+        this.onWaterEnter?.();
+      }
+      // Smooth velocity recovery after water entry
+      if (this.waterEntryVelocityDamp < 1) {
+        this.waterEntryVelocityDamp = Math.min(1, this.waterEntryVelocityDamp + dt * 2);
+      }
     } else {
       this.waterTimer = 0;
+      this.swimStroke *= 0.9; // decay smoothly
+      this.waterEntryVelocityDamp = 1;
+      if (this.wasInWater) {
+        this.wasInWater = false;
+        this.onWaterExit?.();
+      }
     }
 
     const gravity = this.inWater ? -4 : GRAVITY;
@@ -767,10 +795,14 @@ export class Player {
       const tiltTarget = sprinting && moveSpeed > 1 ? 0.015 : 0;
       this.cameraRoll += (tiltTarget - this.cameraRoll) * 0.08;
 
+      // Water camera tilt — gentle forward lean when swimming
+      const waterTiltTarget = this.inWater ? 0.06 : 0;
+      this.waterCameraTilt += (waterTiltTarget - this.waterCameraTilt) * 0.05;
+
       this.camera.rotation.order = "YXZ";
       this.camera.rotation.y = this.yaw;
-      this.camera.rotation.x = this.pitch;
-      this.camera.rotation.z = this.cameraRoll;
+      this.camera.rotation.x = this.pitch + this.waterCameraTilt;
+      this.camera.rotation.z = this.cameraRoll + (this.inWater ? Math.sin(Date.now() * 0.001) * 0.008 : 0);
 
       // FOV effects: sprint widens, landing narrows briefly
       let targetFov = Player.BASE_FOV;
@@ -879,6 +911,20 @@ export class Player {
     else              this._armBob *= 0.85;
 
     const bob = Math.sin(this._armBob) * 0.02;
+
+    // Swimming stroke animation
+    if (this.inWater && this.swimStroke > 0.1) {
+      const stroke = Math.sin(this.swimStroke) * 0.8;
+      const reach  = Math.cos(this.swimStroke * 0.5) * 0.15;
+      this.fpArm.rotation.x = -0.6 + stroke; // sweep forward and back
+      this.fpArm.rotation.z = 0.3 + reach;   // spread out
+      this.fpArm.position.y = -0.2 + Math.sin(this.swimStroke * 2) * 0.05;
+      // Decay swing if not breaking
+      if (!this.isBreakingHeld || !this.breakTarget) {
+        this._armSwing = Math.max(0, this._armSwing - dt * 4);
+      }
+      return;
+    }
 
     // Breaking swing: punch forward and back
     let swingRot = 0;

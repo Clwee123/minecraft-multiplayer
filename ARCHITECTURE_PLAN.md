@@ -170,3 +170,17 @@
 - Click to move items between chest and player hotbar
 - Visual chest open/close animation
 - Items persist per-chest in world data
+
+## Goal 24: Swimming Animation & Water Movement Polish
+**Status**: IN PROGRESS
+- Arm stroke animation when swimming (first-person arm sweeps)
+- Camera tilt when entering/exiting water
+- Bubble particle burst when diving
+- Smoother water entry/exit transitions
+
+## Goal 25: Nether Portal Effect
+**Status**: PENDING
+- Swirling purple overlay when near/entering a nether portal block
+- Screen distortion effect with portal proximity
+- Obsidian portal frame detection
+- Visual nether-themed color shift

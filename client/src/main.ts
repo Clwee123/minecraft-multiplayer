@@ -2048,6 +2048,8 @@ function animate() {
     const playerInWater = world.getBlockType(Math.round(player.position.x), Math.round(player.position.y), Math.round(player.position.z)) === 7;
     if (playerInWater && !prevWaterState) {
       particles.splash(player.position.x, player.position.y, player.position.z, 12);
+      // Bubble burst when diving into water
+      particles.bubbles(player.position.x, player.position.y - 0.5, player.position.z, 8);
       sounds.play("splash");
     }
     prevWaterState = playerInWater;
