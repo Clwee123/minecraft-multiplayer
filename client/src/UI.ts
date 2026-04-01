@@ -47,7 +47,8 @@ export class UI {
 
   onChat?:   (text: string) => void;
   onRespawn?: () => void;
-  onCraft?: (recipe: string) => void;
+  onCraft?: (recipeId: string) => boolean;  // returns true if crafted ok
+  getInvCount?: (type: number) => number;   // returns count of item type in inventory
 
   constructor() {
     this.buildHotbar();
@@ -92,7 +93,7 @@ export class UI {
     }
   }
 
-  updateHotbarFromInventory(inv: number[]) {
+  updateHotbarFromInventory(inv: number[], counts?: number[]) {
     const slots = this.hotbarEl.querySelectorAll(".hotbar-slot");
     slots.forEach((slot, i) => {
       const icon = slot.querySelector(".slot-icon") as HTMLElement;
@@ -101,18 +102,19 @@ export class UI {
       if (type === 0) {
         icon.style.background = "transparent";
         icon.title = "";
+        const countEl = slot.querySelector(".item-count") as HTMLElement;
+        if (countEl) countEl.textContent = "";
       } else {
         icon.style.background = "#" + getBlockColor(type).toString(16).padStart(6, "0");
         icon.title = getBlockName(type);
-        // Show item count
         let countEl = slot.querySelector(".item-count") as HTMLElement;
         if (!countEl) {
           countEl = document.createElement("span");
           countEl.className = "item-count";
-          countEl.style.cssText = "position:absolute;bottom:1px;right:2px;font-size:9px;color:#fff;text-shadow:1px 1px 0 #000";
+          countEl.style.cssText = "position:absolute;bottom:1px;right:2px;font-size:9px;color:#fff;text-shadow:1px 1px 0 #000;pointer-events:none;";
           slot.appendChild(countEl);
         }
-        const count = inv.filter((v, j) => j >= 0 && v === type).length;
+        const count = counts ? (counts[i] ?? 1) : 1;
         countEl.textContent = count > 1 ? String(count) : "";
       }
     });
@@ -658,76 +660,140 @@ export class UI {
   // ── Crafting ──────────────────────────────────────────────────────────────
 
   showCraftingUI() {
-    if (this.craftingPanel) return;
+    if (this.craftingPanel) {
+      // Refresh counts if already open
+      this.hideCraftingUI();
+    }
+
+    // ── Minecraft-style crafting recipes ──────────────────────────────────────
+    // ingredients: { itemType: count }
+    // output: { itemType, count }
+    // hand: true = can craft without table (2x2 grid)
+    const RECIPES: Array<{
+      id: string;
+      name: string;
+      ingredients: Record<number, number>;
+      output: { type: number; count: number };
+      hand?: boolean;
+    }> = [
+      // ── From logs (hand-craftable) ──
+      { id: "log_to_planks",      name: "Oak Planks (×4)",      hand: true, ingredients: { 5: 1 },  output: { type: 10, count: 4 } },
+      { id: "planks_to_sticks",   name: "Sticks (×4)",          hand: true, ingredients: { 10: 2 }, output: { type: 280, count: 4 } },
+      // ── Tools (need crafting table) ──
+      { id: "wood_pickaxe",       name: "Wooden Pickaxe",       ingredients: { 10: 3, 280: 2 },     output: { type: 270, count: 1 } },
+      { id: "wood_sword",         name: "Wooden Sword",         ingredients: { 10: 2, 280: 1 },     output: { type: 268, count: 1 } },
+      { id: "wood_axe",           name: "Wooden Axe",           ingredients: { 10: 3, 280: 2 },     output: { type: 271, count: 1 } },
+      { id: "wood_shovel",        name: "Wooden Shovel",        ingredients: { 10: 1, 280: 2 },     output: { type: 269, count: 1 } },
+      { id: "stone_pickaxe",      name: "Stone Pickaxe",        ingredients: { 11: 3, 280: 2 },     output: { type: 274, count: 1 } },
+      { id: "stone_sword",        name: "Stone Sword",          ingredients: { 11: 2, 280: 1 },     output: { type: 272, count: 1 } },
+      { id: "stone_axe",          name: "Stone Axe",            ingredients: { 11: 3, 280: 2 },     output: { type: 275, count: 1 } },
+      { id: "iron_pickaxe",       name: "Iron Pickaxe",         ingredients: { 62: 3, 280: 2 },     output: { type: 257, count: 1 } },
+      { id: "iron_sword",         name: "Iron Sword",           ingredients: { 62: 2, 280: 1 },     output: { type: 267, count: 1 } },
+      { id: "iron_axe",           name: "Iron Axe",             ingredients: { 62: 3, 280: 2 },     output: { type: 258, count: 1 } },
+      // ── Armor ──
+      { id: "iron_helmet",        name: "Iron Helmet",          ingredients: { 62: 5 },              output: { type: 35, count: 1 } },
+      { id: "iron_chest",         name: "Iron Chestplate",      ingredients: { 62: 8 },              output: { type: 36, count: 1 } },
+      { id: "iron_legs",          name: "Iron Leggings",        ingredients: { 62: 7 },              output: { type: 37, count: 1 } },
+      { id: "iron_boots",         name: "Iron Boots",           ingredients: { 62: 4 },              output: { type: 38, count: 1 } },
+      // ── Blocks ──
+      { id: "crafting_table",     name: "Crafting Table",       hand: true, ingredients: { 10: 4 }, output: { type: 22, count: 1 } },
+      { id: "furnace",            name: "Furnace",              ingredients: { 11: 8 },              output: { type: 23, count: 1 } },
+      { id: "chest",              name: "Chest",                ingredients: { 10: 8 },              output: { type: 31, count: 1 } },
+      { id: "torch",              name: "Torch (×4)",           hand: true, ingredients: { 64: 1, 280: 1 }, output: { type: 56, count: 4 } },
+      { id: "planks_to_slab",     name: "Wood Slabs (×4)",      ingredients: { 10: 3 },              output: { type: 10, count: 4 } },
+      { id: "sand_to_glass",      name: "Glass (via furnace)",  ingredients: { 4: 1 },               output: { type: 9, count: 1 } },
+    ];
 
     this.craftingPanel = document.createElement("div");
     this.craftingPanel.id = "crafting-panel";
     this.craftingPanel.style.cssText = `
-      position: fixed;
-      left: 50%;
-      top: 50%;
+      position: fixed; left: 50%; top: 50%;
       transform: translate(-50%, -50%);
-      background: #8B8B8B;
-      border: 2px solid #2B2B2B;
-      padding: 20px;
-      width: 300px;
-      z-index: 1000;
-      border-radius: 4px;
-      box-shadow: 0 0 20px rgba(0,0,0,0.5);
+      background: #3d3d3d; border: 3px solid #111;
+      padding: 16px; width: 360px; max-height: 80vh;
+      overflow-y: auto; z-index: 1000; border-radius: 4px;
+      box-shadow: 0 0 30px rgba(0,0,0,0.8);
+      font-family: "Minecraft", monospace, Arial, sans-serif;
     `;
 
     const title = document.createElement("h2");
-    title.textContent = "Crafting Table";
-    title.style.cssText = "color: white; margin: 0 0 15px 0; text-align: center; font-family: Arial, sans-serif;";
+    title.textContent = "✦ Crafting";
+    title.style.cssText = "color: #ffdd44; margin: 0 0 4px 0; text-align: center; font-size: 18px; text-shadow: 2px 2px #000;";
     this.craftingPanel.appendChild(title);
 
-    // Recipe buttons
-    const recipes = [
-      { name: "Wood Planks (4→2 Sticks)", id: "planks_to_sticks", desc: "4 wood planks → 4 sticks" },
-      { name: "Cobblestone (4→Furnace)", id: "cobble_to_furnace", desc: "4 cobblestone → furnace" },
-      { name: "Planks (4→Table)", id: "planks_to_table", desc: "4 wood planks → crafting table" },
-    ];
+    const sub = document.createElement("div");
+    sub.style.cssText = "color: #aaa; font-size: 11px; text-align: center; margin-bottom: 12px;";
+    sub.textContent = "Right-click crafting table to open. Hand-craftable items marked ✋";
+    this.craftingPanel.appendChild(sub);
 
-    for (const recipe of recipes) {
-      const btn = document.createElement("button");
-      btn.style.cssText = `
-        display: block;
-        width: 100%;
-        padding: 10px;
-        margin: 8px 0;
-        background: #5B8C5A;
-        color: white;
-        border: 2px solid #3D5A3D;
-        border-radius: 2px;
-        cursor: pointer;
-        font-family: Arial, sans-serif;
-        font-weight: bold;
+    const getCount = this.getInvCount ?? (() => 0);
+
+    // Item name lookup (simplified)
+    const itemNames: Record<number, string> = {
+      5: "Oak Log", 10: "Oak Planks", 11: "Cobblestone", 62: "Iron Ingot",
+      64: "Coal", 280: "Stick", 65: "Diamond", 63: "Gold Ingot",
+    };
+
+    for (const recipe of RECIPES) {
+      const canCraft = Object.entries(recipe.ingredients).every(
+        ([t, n]) => getCount(Number(t)) >= n
+      );
+
+      const row = document.createElement("div");
+      row.style.cssText = `
+        display: flex; align-items: center; gap: 8px;
+        margin: 4px 0; padding: 8px 10px;
+        background: ${canCraft ? "#2a4a2a" : "#2a2a2a"};
+        border: 1px solid ${canCraft ? "#44aa44" : "#555"};
+        border-radius: 3px; cursor: ${canCraft ? "pointer" : "default"};
+        opacity: ${canCraft ? "1" : "0.5"};
       `;
-      btn.textContent = recipe.name;
-      btn.title = recipe.desc;
-      btn.addEventListener("click", () => {
-        this.onCraft?.(recipe.id);
-        this.hideCraftingUI();
+
+      const icon = document.createElement("span");
+      icon.textContent = recipe.hand ? "✋" : "🔨";
+      icon.style.cssText = "font-size: 16px; flex-shrink: 0;";
+
+      const info = document.createElement("div");
+      info.style.cssText = "flex: 1;";
+
+      const nameEl = document.createElement("div");
+      nameEl.textContent = recipe.name;
+      nameEl.style.cssText = `color: ${canCraft ? "#eee" : "#888"}; font-size: 13px; font-weight: bold;`;
+
+      const cost = document.createElement("div");
+      const costParts = Object.entries(recipe.ingredients).map(([t, n]) => {
+        const have = getCount(Number(t));
+        const name = itemNames[Number(t)] ?? `Item ${t}`;
+        return `<span style="color:${have >= n ? "#88ff88" : "#ff8888"}">${n}x ${name}</span>`;
       });
-      this.craftingPanel.appendChild(btn);
+      cost.innerHTML = costParts.join(", ");
+      cost.style.cssText = "font-size: 10px; margin-top: 2px;";
+
+      info.appendChild(nameEl);
+      info.appendChild(cost);
+      row.appendChild(icon);
+      row.appendChild(info);
+
+      if (canCraft) {
+        row.addEventListener("click", () => {
+          const ok = this.onCraft?.(recipe.id);
+          if (ok !== false) {
+            this.hideCraftingUI();
+            setTimeout(() => this.showCraftingUI(), 50); // reopen to refresh counts
+          }
+        });
+      }
+
+      this.craftingPanel!.appendChild(row);
     }
 
-    // Close button
     const closeBtn = document.createElement("button");
     closeBtn.style.cssText = `
-      display: block;
-      width: 100%;
-      padding: 10px;
-      margin: 8px 0;
-      background: #8B3333;
-      color: white;
-      border: 2px solid #5B0000;
-      border-radius: 2px;
-      cursor: pointer;
-      font-family: Arial, sans-serif;
-      font-weight: bold;
+      display: block; width: 100%; padding: 10px; margin-top: 12px;
+      background: #8B3333; color: white; border: 2px solid #5B0000;
+      border-radius: 2px; cursor: pointer; font-size: 14px; font-weight: bold;
     `;
-    closeBtn.textContent = "Close";
+    closeBtn.textContent = "Close [E]";
     closeBtn.addEventListener("click", () => this.hideCraftingUI());
     this.craftingPanel.appendChild(closeBtn);
 

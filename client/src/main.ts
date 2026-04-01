@@ -271,7 +271,52 @@ const achievements = new AchievementManager();
 // ── Inventory System ──────────────────────────────────────────────────────────
 
 let inventoryOpen = false;
-const inventory: number[] = new Array(36).fill(0); // spawn with nothing
+const inventory: number[] = new Array(36).fill(0);   // item type per slot
+const invCount:  number[] = new Array(36).fill(0);   // stack count per slot
+
+/** Add `count` of item type to inventory. Returns leftover that didn't fit. */
+function invAddItem(type: number, count = 1): number {
+  // Try to stack onto existing slot first
+  for (let i = 0; i < inventory.length; i++) {
+    if (inventory[i] === type && invCount[i] < 64) {
+      const space = 64 - invCount[i];
+      const take  = Math.min(count, space);
+      invCount[i] += take;
+      count -= take;
+      if (count === 0) return 0;
+    }
+  }
+  // Find empty slot
+  while (count > 0) {
+    const empty = inventory.findIndex((v, i) => v === 0 && invCount[i] === 0);
+    if (empty < 0) return count; // inventory full
+    inventory[empty]  = type;
+    invCount[empty]   = Math.min(count, 64);
+    count -= invCount[empty];
+  }
+  return 0;
+}
+
+/** Remove `count` of item type from inventory. Returns true if enough were present. */
+function invRemoveItem(type: number, count = 1): boolean {
+  // Check we have enough
+  const total = inventory.reduce((s, v, i) => s + (v === type ? invCount[i] : 0), 0);
+  if (total < count) return false;
+  for (let i = 0; i < inventory.length && count > 0; i++) {
+    if (inventory[i] === type) {
+      const take = Math.min(count, invCount[i]);
+      invCount[i] -= take;
+      count -= take;
+      if (invCount[i] === 0) inventory[i] = 0;
+    }
+  }
+  return true;
+}
+
+/** Count how many of a type we have. */
+function invCountOf(type: number): number {
+  return inventory.reduce((s, v, i) => s + (v === type ? invCount[i] : 0), 0);
+}
 
 // ── Arrow System ──────────────────────────────────────────────────────────────
 
@@ -768,35 +813,48 @@ async function startGame(name: string) {
     const b = world.getBlock(x, y, z);
     if (!b) return;
     // Real Minecraft: add drops to inventory
-    const drops: Record<number, number> = {
-      1: 2,  // grass -> dirt
-      2: 2,  // dirt -> dirt
-      3: 11, // stone -> cobblestone
-      4: 4,  // sand -> sand
-      5: 10, // oak log -> oak planks
-      6: 5,  // leaves -> sometimes log (simplify: 30% chance)
-      8: 8,  // brick -> brick
-      10: 10, // planks -> planks
-      11: 11, // cobble -> cobble
-      12: 12, // gravel -> gravel
-      13: 63, // gold ore -> gold ingot
-      14: 62, // iron ore -> iron ingot
-      15: 64, // coal ore -> coal
+    // Real Minecraft drop table
+    const drops: Record<number, { item: number; count: number | [number,number]; chance?: number }> = {
+      1:  { item: 2,  count: 1 },          // grass -> 1 dirt
+      2:  { item: 2,  count: 1 },          // dirt -> 1 dirt
+      3:  { item: 11, count: 1 },          // stone -> 1 cobblestone
+      4:  { item: 4,  count: 1 },          // sand -> 1 sand
+      5:  { item: 5,  count: 1 },          // oak log -> 1 oak log (logs drop logs, not planks)
+      6:  { item: 5,  count: 1, chance: 0.05 }, // leaves -> oak log (5% like MC)
+      8:  { item: 8,  count: 1 },          // brick -> brick
+      10: { item: 10, count: 1 },          // planks -> planks
+      11: { item: 11, count: 1 },          // cobble -> cobble
+      12: { item: 12, count: 1 },          // gravel -> gravel
+      13: { item: 63, count: 1 },          // gold ore -> gold ingot
+      14: { item: 62, count: 1 },          // iron ore -> iron ingot
+      15: { item: 64, count: [2,4] },      // coal ore -> 2-4 coal
+      16: { item: 16, count: 1 },          // bookshelf -> bookshelf
+      17: { item: 11, count: 1 },          // mossy stone -> cobble
+      18: { item: 18, count: 1 },          // obsidian
+      19: { item: 19, count: [2,4] },      // glowstone -> 2-4 glowstone
+      20: { item: 20, count: 1 },          // snow
+      21: { item: 21, count: 1 },          // ice
+      22: { item: 22, count: 1 },          // crafting table
+      23: { item: 23, count: 1 },          // furnace
+      24: { item: 24, count: 1 },          // tnt (don't trigger here)
+      25: { item: 25, count: 1 },          // sponge
+      26: { item: 26, count: 1 },          // white wool
+      27: { item: 27, count: 1 },          // red wool
+      31: { item: 31, count: 1 },          // chest
+      49: { item: 49, count: 1 },          // sandstone
+      54: { item: 54, count: 1 },          // terracotta
+      61: { item: 65, count: [1,3] },      // diamond ore -> 1-3 diamond
     };
-    const drop = drops[b.type];
-    const shouldDrop = drop && (b.type !== 6 || Math.random() < 0.3);
-    if (shouldDrop) {
-      const dropItem = b.type === 6 ? 5 : drop!;
-      // Try to stack in existing slot first
-      let placed = false;
-      for (let i = 0; i < inventory.length; i++) {
-        if (inventory[i] === dropItem) { placed = true; break; } // already have it, just show pickup
-      }
-      const slot = inventory.findIndex((v, i) => v === 0 && i >= 0);
-      if (slot >= 0) {
-        inventory[slot] = dropItem;
-        ui.updateHotbarFromInventory(inventory);
-        ui.addChatMessage("", `+ ${getBlockName(dropItem)}`, true);
+    const dropDef = drops[b.type];
+    if (dropDef) {
+      const roll = Math.random();
+      if (!dropDef.chance || roll < dropDef.chance) {
+        const amt = Array.isArray(dropDef.count)
+          ? Math.floor(Math.random() * (dropDef.count[1] - dropDef.count[0] + 1)) + dropDef.count[0]
+          : dropDef.count;
+        invAddItem(dropDef.item, amt);
+        ui.updateHotbarFromInventory(inventory, invCount);
+        ui.addChatMessage("", `+ ${amt}x ${getBlockName(dropDef.item)}`, true);
       }
     }
 
@@ -1253,10 +1311,31 @@ async function startGame(name: string) {
         const hotbarCopy = HOTBAR_BLOCKS.slice(0, 9);
         ui.showChestUI(chestSlots, hotbarCopy);
         ui.onChestClose = () => {
-          // Persist chest contents back to world
           world.setChestInventory(chestPos![0], chestPos![1], chestPos![2], chestSlots);
         };
-        sounds.play("place"); // chest open sound
+        sounds.play("place");
+        return;
+      }
+
+      // Check for crafting table within 5 blocks
+      let craftTableNearby = false;
+      for (let x = -5; x <= 5 && !craftTableNearby; x++) {
+        for (let y = -5; y <= 5 && !craftTableNearby; y++) {
+          for (let z = -5; z <= 5 && !craftTableNearby; z++) {
+            const bx = Math.floor(player.position.x) + x;
+            const by = Math.floor(player.position.y) + y;
+            const bz = Math.floor(player.position.z) + z;
+            const block = world.getBlock(bx, by, bz);
+            if (block && block.type === 22) {
+              const dist = player.position.distanceTo(_blockDistVec.set(bx + 0.5, by + 0.5, bz + 0.5));
+              if (dist <= 5) craftTableNearby = true;
+            }
+          }
+        }
+      }
+      if (craftTableNearby) {
+        ui.showCraftingUI();
+        sounds.play("place");
         return;
       }
 
@@ -1346,16 +1425,54 @@ async function startGame(name: string) {
     return null;
   };
 
-  // Crafting
+  // Expose inventory count to UI for crafting display
+  ui.getInvCount = (type: number) => invCountOf(type);
+
+  // Real crafting recipes — mirrors what UI shows
+  const CRAFT_RECIPES: Record<string, { ingredients: Record<number,number>; output: { type: number; count: number } }> = {
+    log_to_planks:    { ingredients: { 5: 1 },          output: { type: 10,  count: 4 } },
+    planks_to_sticks: { ingredients: { 10: 2 },         output: { type: 280, count: 4 } },
+    wood_pickaxe:     { ingredients: { 10: 3, 280: 2 }, output: { type: 270, count: 1 } },
+    wood_sword:       { ingredients: { 10: 2, 280: 1 }, output: { type: 268, count: 1 } },
+    wood_axe:         { ingredients: { 10: 3, 280: 2 }, output: { type: 271, count: 1 } },
+    wood_shovel:      { ingredients: { 10: 1, 280: 2 }, output: { type: 269, count: 1 } },
+    stone_pickaxe:    { ingredients: { 11: 3, 280: 2 }, output: { type: 274, count: 1 } },
+    stone_sword:      { ingredients: { 11: 2, 280: 1 }, output: { type: 272, count: 1 } },
+    stone_axe:        { ingredients: { 11: 3, 280: 2 }, output: { type: 275, count: 1 } },
+    iron_pickaxe:     { ingredients: { 62: 3, 280: 2 }, output: { type: 257, count: 1 } },
+    iron_sword:       { ingredients: { 62: 2, 280: 1 }, output: { type: 267, count: 1 } },
+    iron_axe:         { ingredients: { 62: 3, 280: 2 }, output: { type: 258, count: 1 } },
+    iron_helmet:      { ingredients: { 62: 5 },          output: { type: 35,  count: 1 } },
+    iron_chest:       { ingredients: { 62: 8 },          output: { type: 36,  count: 1 } },
+    iron_legs:        { ingredients: { 62: 7 },          output: { type: 37,  count: 1 } },
+    iron_boots:       { ingredients: { 62: 4 },          output: { type: 38,  count: 1 } },
+    crafting_table:   { ingredients: { 10: 4 },          output: { type: 22,  count: 1 } },
+    furnace:          { ingredients: { 11: 8 },          output: { type: 23,  count: 1 } },
+    chest:            { ingredients: { 10: 8 },          output: { type: 31,  count: 1 } },
+    torch:            { ingredients: { 64: 1, 280: 1 },  output: { type: 56,  count: 4 } },
+    planks_to_slab:   { ingredients: { 10: 3 },          output: { type: 10,  count: 4 } },
+    sand_to_glass:    { ingredients: { 4: 1 },            output: { type: 9,   count: 1 } },
+  };
+
   ui.onCraft = (recipeId) => {
-    const hotbarBlocks = HOTBAR_BLOCKS;
-    // Dummy crafting - just add block to hotbar if not full
-    let block = 22; // default to crafting table
-    if (recipeId === "planks_to_sticks") block = 0; // placeholder
-    if (recipeId === "cobble_to_furnace") block = 23;
-    if (recipeId === "planks_to_table") block = 22;
-    // In a real game, this would consume materials and add to inventory
-    ui.addChatMessage("", `Crafted: ${recipeId}`, true);
+    const recipe = CRAFT_RECIPES[recipeId];
+    if (!recipe) return false;
+    // Check we have all ingredients
+    for (const [tStr, need] of Object.entries(recipe.ingredients)) {
+      if (invCountOf(Number(tStr)) < need) {
+        ui.addChatMessage("", `✗ Not enough materials`, true);
+        return false;
+      }
+    }
+    // Consume
+    for (const [tStr, need] of Object.entries(recipe.ingredients)) {
+      invRemoveItem(Number(tStr), need);
+    }
+    // Add output
+    invAddItem(recipe.output.type, recipe.output.count);
+    ui.updateHotbarFromInventory(inventory, invCount);
+    ui.addChatMessage("", `✓ Crafted ${recipe.output.count}x ${getBlockName(recipe.output.type)}`, true);
+    return true;
   };
 
   // Respawn
@@ -1390,7 +1507,7 @@ async function startGame(name: string) {
     hotbarSlot = ((slot % 8) + 8) % 8;
     player.selectedBlockType = inventory[hotbarSlot] ?? 0;
     ui.selectSlot(hotbarSlot);
-    ui.updateHotbarFromInventory(inventory);
+    ui.updateHotbarFromInventory(inventory, invCount);
   };
   document.addEventListener("wheel", e => {
     updateHotbarSlot(hotbarSlot + (e.deltaY > 0 ? 1 : -1));

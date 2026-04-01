@@ -249,6 +249,56 @@ export class MobManager {
     }
   }
 
+  // ── Pathfinding-aware movement ─────────────────────────────────────────
+
+  /**
+   * Move mob toward target with obstacle avoidance.
+   * Returns true if the mob successfully moved forward.
+   * If blocked by a 1-block wall, mob will jump. If 2+ blocks, mob sidesteps.
+   */
+  private moveToward(lm: LocalMob, targetX: number, targetZ: number, speed: number, dt: number): boolean {
+    const d = lm.data;
+    const dx = targetX - d.x;
+    const dz = targetZ - d.z;
+    const angle = Math.atan2(dx, dz);
+    d.rotY = angle;
+
+    // Check ahead: is there a block at mob's feet level in the move direction?
+    const stepX = Math.sin(angle) * 0.8;
+    const stepZ = Math.cos(angle) * 0.8;
+    const aheadX = Math.round(d.x + stepX);
+    const aheadZ = Math.round(d.z + stepZ);
+    const feetY  = Math.round(d.y);
+
+    const blockAhead = this.world.getBlockType(aheadX, feetY, aheadZ);
+    const blockAbove = this.world.getBlockType(aheadX, feetY + 1, aheadZ);
+
+    if (blockAhead && blockAhead !== 7 && blockAhead !== 0) {
+      // There's a solid block ahead at feet level
+      if (!blockAbove || blockAbove === 7 || blockAbove === 0) {
+        // Can jump over it (1-block obstacle)
+        if (lm.velY === 0) {
+          lm.velY = 7.5; // jump
+        }
+        d.x += Math.sin(angle) * speed * dt;
+        d.z += Math.cos(angle) * speed * dt;
+        return true;
+      } else {
+        // 2+ block wall — try sidestepping
+        const sideAngle = angle + (Math.random() < 0.5 ? Math.PI / 2 : -Math.PI / 2);
+        d.rotY = sideAngle;
+        d.x += Math.sin(sideAngle) * speed * 0.5 * dt;
+        d.z += Math.cos(sideAngle) * speed * 0.5 * dt;
+        return false;
+      }
+    }
+
+    // Clear path — move straight
+    d.x += Math.sin(angle) * speed * dt;
+    d.z += Math.cos(angle) * speed * dt;
+    return true;
+  }
+
   // ── Simple AI (singleplayer only) ────────────────────────────────────────
 
   private runAI(lm: LocalMob, dt: number, playerPos: THREE.Vector3) {
@@ -408,9 +458,7 @@ export class MobManager {
     }
 
     if (d.state === "chasing") {
-      d.rotY = Math.atan2(dx, dz) + (Math.random() - 0.5) * 0.4;
-      d.x   += Math.sin(d.rotY) * SPEED * dt;
-      d.z   += Math.cos(d.rotY) * SPEED * dt;
+      this.moveToward(lm, playerPos.x, playerPos.z, SPEED, dt);
 
       // Attack player — use per-mob hitCooldown so multiple zombies don't stack instantly
       if (playerDistSq < 3.24 && lm.hitCooldown <= 0) { // 1.8^2=3.24
@@ -439,12 +487,8 @@ export class MobManager {
     }
 
     if (d.state === "fusing") {
-      // Chase player while fusing
-      const dx = playerPos.x - d.x;
-      const dz = playerPos.z - d.z;
-      d.rotY = Math.atan2(dx, dz);
-      d.x += Math.sin(d.rotY) * SPEED * dt;
-      d.z += Math.cos(d.rotY) * SPEED * dt;
+      // Chase player while fusing — with pathfinding
+      this.moveToward(lm, playerPos.x, playerPos.z, SPEED, dt);
 
       // Explode when timer expires
       if (lm.timer <= 0) {
@@ -544,10 +588,8 @@ export class MobManager {
       d.state = "chasing";
       lm.aggro = true;
 
-      // Chase player
-      d.rotY = Math.atan2(dx, dz);
-      d.x += Math.sin(d.rotY) * SPEED * dt;
-      d.z += Math.cos(d.rotY) * SPEED * dt;
+      // Chase player with pathfinding
+      this.moveToward(lm, playerPos.x, playerPos.z, SPEED, dt);
 
       // Melee attack if close — per-mob cooldown
       if (playerDistSq < ATTACK_SQ && lm.hitCooldown <= 0) {
@@ -667,10 +709,8 @@ export class MobManager {
     }
 
     if (d.state === "chasing") {
-      // Face and move toward player
-      d.rotY = Math.atan2(dx, dz);
-      d.x += Math.sin(d.rotY) * SPEED * dt;
-      d.z += Math.cos(d.rotY) * SPEED * dt;
+      // Chase with pathfinding
+      this.moveToward(lm, playerPos.x, playerPos.z, SPEED, dt);
 
       // Jump at player if close enough
       (lm as any).jumpTimer -= dt;

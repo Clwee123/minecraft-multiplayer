@@ -158,6 +158,13 @@
 
 ## Goal 22: Chest Inventory UI
 **Status**: DONE
+
+## Goal 23: Better Mob AI with Obstacle Avoidance
+**Status**: DONE
+- Hostile mobs (zombie, creeper, wither skeleton, spider) use pathfinding-aware movement
+- Mobs jump over 1-block obstacles when chasing player
+- Mobs sidestep around 2+ block walls
+- Smoother, more challenging combat encounters
 - Open chest with right-click interaction
 - Grid-based chest inventory (27 slots like Minecraft)
 - Click to move items between chest and player hotbar

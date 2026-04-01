@@ -83,6 +83,23 @@ export const BLOCK_TYPES: Record<number, {
   70: { name: "Music Disc (Red)",   color: 0xaa4444 },
   71: { name: "Music Disc (Blue)",  color: 0x4444aa },
   72: { name: "Shield",         color: 0xcccccc },
+
+  // ── Crafting materials & tools ────────────────────────────────────────────
+  280: { name: "Stick",             color: 0xc8a464, solid: false },
+  // Wooden tools
+  268: { name: "Wooden Sword",      color: 0xc8a464, solid: false },
+  269: { name: "Wooden Shovel",     color: 0xc8a464, solid: false },
+  270: { name: "Wooden Pickaxe",    color: 0xc8a464, solid: false },
+  271: { name: "Wooden Axe",        color: 0xc8a464, solid: false },
+  // Stone tools
+  272: { name: "Stone Sword",       color: 0x808080, solid: false },
+  273: { name: "Stone Shovel",      color: 0x808080, solid: false },
+  274: { name: "Stone Pickaxe",     color: 0x808080, solid: false },
+  275: { name: "Stone Axe",         color: 0x808080, solid: false },
+  // Iron tools
+  257: { name: "Iron Pickaxe",      color: 0xdddddd, solid: false },
+  258: { name: "Iron Axe",          color: 0xdddddd, solid: false },
+  267: { name: "Iron Sword",        color: 0xdddddd, solid: false },
 };
 
 // Hotbar presets — what shows in the 8 hotbar slots by default
