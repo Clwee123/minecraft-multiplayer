@@ -446,7 +446,9 @@ export class World {
     const idx = this.instanceCount.get(type) ?? 0;
     if (idx >= World.MAX_INSTANCES) return; // safety cap
 
-    World._mat4.setPosition(x + 0.5, y + 0.5, z + 0.5);
+    // Water blocks sit slightly lower (like Minecraft's 7/8 height water)
+    const yOff = type === 7 ? 0.375 : 0.5;
+    World._mat4.setPosition(x + 0.5, y + yOff, z + 0.5);
     mesh.setMatrixAt(idx, World._mat4);
     mesh.count = idx + 1;
     mesh.instanceMatrix.needsUpdate = true;

@@ -47,7 +47,7 @@
 - Smooth crossfading between tracks
 
 ## Goal 5: Improved Crosshair & Block Selection UI
-**Status**: TODO
+**Status**: DONE
 - Animated crosshair that expands when breaking blocks
 - Block breaking progress bar on the crosshair
 - Hotbar item tooltip with block icon preview
@@ -59,3 +59,23 @@
 - Low-health red vignette pulse
 - Damage flash effect (red tint)
 - Speed lines when sprinting
+
+---
+
+## Goal 7: Improved Water Rendering
+**Status**: IN PROGRESS
+- Animated water surface with vertex displacement (wave effect)
+- Water surface reflection/sheen
+- Semi-transparent water blocks with depth-fade
+
+## Goal 8: Smooth Lighting / Ambient Occlusion
+**Status**: TODO
+- Simple AO darkening on block edges/corners
+- Per-face brightness based on face direction (top=bright, bottom=dark)
+- Torch light glow improvement
+
+## Goal 9: Better Cloud System
+**Status**: TODO
+- Volumetric-ish flat clouds with noise-based shapes
+- Clouds cast soft shadows on terrain
+- Cloud density varies with weather

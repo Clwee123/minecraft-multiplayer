@@ -119,11 +119,18 @@ export function getBlockMaterial(blockType: number, info: any): THREE.Material {
   const mat = new THREE.MeshLambertMaterial({
     map: tex,
     transparent: isTransparent,
-    opacity: isWater ? 0.72 : (isGlass ? 0.65 : 1),
+    opacity: isWater ? 0.65 : (isGlass ? 0.65 : 1),
     depthWrite: !isWater,
     alphaTest: (!isTransparent) ? 0.01 : 0,
     side: isTransparent ? THREE.DoubleSide : THREE.FrontSide,
+    color: isWater ? new THREE.Color(0x3388bb) : undefined,
   });
+
+  if (isWater) {
+    // Add slight emissive glow to water for a sheen effect
+    mat.emissive = new THREE.Color(0x113355);
+    mat.emissiveIntensity = 0.15;
+  }
 
   if (info.emissive) {
     mat.emissive = new THREE.Color(info.emissive);
@@ -146,10 +153,12 @@ export function getWaterTexRef(): THREE.Texture | null { return _waterTex; }
 export function tickWater(elapsed: number) {
   if (!_waterTex) return;
   // Scroll within a 1/16 tile (one tile width = 1/ATLAS_TILES = 0.0625)
-  // Oscillate so we loop cleanly inside the tile bounds
+  // Two overlapping waves for organic movement
   const tileSize = 1 / ATLAS_TILES;
-  const wave = (Math.sin(elapsed * 1.4) * 0.5 + 0.5) * tileSize * 0.45;
-  _waterTex.offset.x = (_waterTex as any)._baseOffsetX + wave;
+  const wave1 = Math.sin(elapsed * 1.2) * 0.5 + 0.5;
+  const wave2 = Math.sin(elapsed * 0.7 + 1.5) * 0.3 + 0.5;
+  const combined = (wave1 * 0.6 + wave2 * 0.4) * tileSize * 0.4;
+  _waterTex.offset.x = (_waterTex as any)._baseOffsetX + combined;
   _waterTex.needsUpdate = true;
 }
 
