@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { preloadAtlas } from "./BlockTextures";
+import { preloadAtlas, tickWater } from "./BlockTextures";
 import { World }              from "./World";
 import { Player, GameMode }   from "./Player";
 import { MobileControls, isMobile } from "./MobileControls";
@@ -39,7 +39,7 @@ const scene  = new THREE.Scene();
 scene.background = new THREE.Color(0x87ceeb);
 scene.fog        = new THREE.Fog(0x87ceeb, 55, 96); // reduced far from 160 to match render distance
 
-const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 120);
+const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 100);
 
 // ── Shield system ─────────────────────────────────────────────────────────────
 let shieldActive = false;
@@ -1402,6 +1402,7 @@ function animate() {
       mobManager.update(dt);
     }
     particles.update(dt);
+    tickWater(now / 1000);
     weather.update(dt, player.position, (scene.fog as THREE.Fog).color);
     itemDrops.update(dt, player.position);
     xpOrbs.update(dt, player.position);

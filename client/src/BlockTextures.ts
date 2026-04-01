@@ -110,6 +110,12 @@ export function getBlockMaterial(blockType: number, info: any): THREE.Material {
   const isWater = blockType === 7;
   const isGlass = blockType === 9 || blockType === 21;
 
+  // Capture water texture for animation
+  if (isWater && !_waterTex) {
+    (tex as any)._baseOffsetX = tex.offset.x;
+    _waterTex = tex;
+  }
+
   const mat = new THREE.MeshLambertMaterial({
     map: tex,
     transparent: isTransparent,
@@ -129,6 +135,22 @@ export function getBlockMaterial(blockType: number, info: any): THREE.Material {
 // Atlas texture getter (used by World for preloading)
 export function getAtlasTexture(): THREE.Texture | null {
   return atlasTexture;
+}
+
+// Water animation — hold a reference to the water material's texture for UV scrolling
+let _waterTex: THREE.Texture | null = null;
+
+export function getWaterTexRef(): THREE.Texture | null { return _waterTex; }
+
+/** Call once per frame with elapsed seconds to scroll water UV */
+export function tickWater(elapsed: number) {
+  if (!_waterTex) return;
+  // Scroll within a 1/16 tile (one tile width = 1/ATLAS_TILES = 0.0625)
+  // Oscillate so we loop cleanly inside the tile bounds
+  const tileSize = 1 / ATLAS_TILES;
+  const wave = (Math.sin(elapsed * 1.4) * 0.5 + 0.5) * tileSize * 0.45;
+  _waterTex.offset.x = (_waterTex as any)._baseOffsetX + wave;
+  _waterTex.needsUpdate = true;
 }
 
 // Per-face tile mapping for blocks that have different top/side/bottom
@@ -157,14 +179,14 @@ export function getBlockMaterials(blockType: number, info: any): THREE.Material[
 }
 
 function makeMat(tex: THREE.Texture, info: any): THREE.Material {
-  const isWater = false;
   const isTransparent = info.transparent;
   const mat = new THREE.MeshLambertMaterial({
     map: tex,
     transparent: isTransparent,
     opacity: isTransparent ? 0.65 : 1,
-    depthWrite: true,
+    depthWrite: !isTransparent,   // transparent faces must not write depth
     alphaTest: isTransparent ? 0 : 0.01,
+    side: isTransparent ? THREE.DoubleSide : THREE.FrontSide,
   });
   if (info.emissive) {
     mat.emissive = new THREE.Color(info.emissive);
