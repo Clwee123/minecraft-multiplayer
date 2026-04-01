@@ -324,8 +324,10 @@ interface Arrow {
   mesh: THREE.Mesh;
   vel: THREE.Vector3;
   life: number;
+  stuck?: boolean; // arrow stuck in block
 }
 const playerArrows: Arrow[] = [];
+const stuckArrows: { mesh: THREE.Mesh; life: number }[] = [];
 
 // Shared geo/mat for player arrows — no new geometry per shot
 const _PLAYER_ARROW_GEO = new THREE.BoxGeometry(0.05, 0.05, 0.4);
@@ -2054,15 +2056,35 @@ function animate() {
     for (let i = playerArrows.length - 1; i >= 0; i--) {
       const arrow = playerArrows[i];
       arrow.life -= dt;
-      arrow.vel.y -= 20 * dt; // gravity
+      arrow.vel.y -= 20 * dt; // gravity arc
       arrow.mesh.position.addScaledVector(arrow.vel, dt);
 
-      // Check block collisions
+      // Rotate arrow to face velocity direction
+      const speed = Math.sqrt(arrow.vel.x * arrow.vel.x + arrow.vel.y * arrow.vel.y + arrow.vel.z * arrow.vel.z);
+      if (speed > 0.1) {
+        arrow.mesh.rotation.x = -Math.asin(arrow.vel.y / speed);
+        arrow.mesh.rotation.y = Math.atan2(arrow.vel.x, arrow.vel.z);
+      }
+
+      // Spawn trail particle every few frames
+      if (Math.random() < 0.3 && particles) {
+        particles.spawn(
+          arrow.mesh.position.x, arrow.mesh.position.y, arrow.mesh.position.z,
+          0xffffaa, 0.3, 0, -0.2, 0
+        );
+      }
+
+      // Check block collisions — arrow sticks into block
       const bx = Math.round(arrow.mesh.position.x);
       const by = Math.round(arrow.mesh.position.y);
       const bz = Math.round(arrow.mesh.position.z);
       if (world.hasBlock(bx, by, bz)) {
-        // Don't dispose — geo/mat are shared module-level resources
+        // Create stuck arrow that persists briefly
+        const stuckMesh = new THREE.Mesh(_PLAYER_ARROW_GEO, _PLAYER_ARROW_MAT);
+        stuckMesh.position.copy(arrow.mesh.position);
+        stuckMesh.rotation.copy(arrow.mesh.rotation);
+        scene.add(stuckMesh);
+        stuckArrows.push({ mesh: stuckMesh, life: 8 });
         scene.remove(arrow.mesh);
         playerArrows.splice(i, 1);
         continue;
@@ -2072,14 +2094,17 @@ function animate() {
       let hit = false;
       if (mobManager) for (const lm of mobManager.iterMobs()) {
         const mob = lm.mob;
-        // Squared distance instead of distanceTo (no sqrt)
         const _adx = arrow.mesh.position.x - mob.targetPos.x;
         const _ady = arrow.mesh.position.y - mob.targetPos.y;
         const _adz = arrow.mesh.position.z - mob.targetPos.z;
-        if (_adx*_adx + _ady*_ady + _adz*_adz < 0.64 && mob.alive) { // 0.8^2=0.64
+        if (_adx*_adx + _ady*_ady + _adz*_adz < 0.64 && mob.alive) {
           mob.health -= 5;
           mob.showDamage(mob.health);
-          if (mob.health <= 0) mob.die();
+          if (mob.health <= 0) {
+            mob.die();
+            stats.recordMobKill(lm.data.type);
+            itemDrops.spawnFromMob(lm.data.type, mob.targetPos.x, mob.targetPos.y, mob.targetPos.z);
+          }
           scene.remove(arrow.mesh);
           playerArrows.splice(i, 1);
           hit = true;
@@ -2088,10 +2113,19 @@ function animate() {
         }
       }
 
-      // Remove if expired — don't dispose shared geo/mat
+      // Remove if expired
       if (arrow.life <= 0 && !hit) {
         scene.remove(arrow.mesh);
         playerArrows.splice(i, 1);
+      }
+    }
+
+    // Update stuck arrows (decay after 8 seconds)
+    for (let i = stuckArrows.length - 1; i >= 0; i--) {
+      stuckArrows[i].life -= dt;
+      if (stuckArrows[i].life <= 0) {
+        scene.remove(stuckArrows[i].mesh);
+        stuckArrows.splice(i, 1);
       }
     }
     if (minimap) {

@@ -245,3 +245,23 @@
 - Days survived counter (already exists in HUD)
 - Press Tab to toggle stats overlay
 - Persistent stats saved with game state
+
+## Goal 34: Arrow Physics with Gravity Arc
+**Status**: DONE
+- Player arrows follow realistic gravity arc instead of straight line
+- Arrow sticks into blocks on hit (visual arrow entity remains)
+- Arrow trail particles for visibility
+- Improved arrow mesh (elongated, rotated to face velocity direction)
+
+## Goal 35: Boss Mob — Creeper AI Countdown & Explosion Warning
+**Status**: TODO
+- Creeper flashes white and swells when about to explode
+- Visual countdown timer (1.5s fuse)
+- Larger explosion radius (3 blocks)
+- Screen shake on nearby explosion
+
+## Goal 36: Torch Placement Particles & Smoke
+**Status**: TODO
+- Torches emit small smoke particles rising upward
+- Flame particle at torch tip that flickers
+- Particles only render for torches within 24 blocks of player

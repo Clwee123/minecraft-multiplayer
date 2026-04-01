@@ -66,6 +66,11 @@ export class Particles {
     this.active.push(p);
   }
 
+  /** Spawn a single particle with given color, lifetime, and velocity. */
+  spawn(x: number, y: number, z: number, color: number, life: number, vx: number, vy: number, vz: number, scale = 0.3) {
+    this.acquire(x, y, z, color, vx, vy, vz, life, scale);
+  }
+
   /** Burst block-break particles at world position (x,y,z) for given block type. */
   burst(x: number, y: number, z: number, blockType: number, count = 12) {
     const color = getBlockColor(blockType);
