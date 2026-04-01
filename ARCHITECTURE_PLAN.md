@@ -209,3 +209,10 @@
 - Space to climb up, Shift to climb down
 - Reduced horizontal speed on ladder for stability
 - Crafting recipe: 7 sticks -> 3 ladders
+
+## Goal 29: Fence Blocks, Stone Bricks & New Block Types
+**Status**: DONE
+- Oak Fence (solid, transparent), Fence Gate (walkthrough)
+- Stone Bricks and Mossy Stone Bricks
+- Crafting recipes for all new blocks
+- Dungeons use stone/mossy stone bricks mix for atmosphere
