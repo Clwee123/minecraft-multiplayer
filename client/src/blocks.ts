@@ -88,6 +88,7 @@ export const BLOCK_TYPES: Record<number, {
   75: { name: "Lapis Ore",      color: 0x2244aa },
   76: { name: "Copper Ingot",   color: 0xdd8844, solid: false },
   77: { name: "Lapis Lazuli",   color: 0x2255cc, solid: false },
+  78: { name: "Ladder",          color: 0xc8a464, solid: false, transparent: true },
 
   // ── Crafting materials & tools ────────────────────────────────────────────
   280: { name: "Stick",             color: 0xc8a464, solid: false },

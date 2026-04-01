@@ -56,6 +56,7 @@ export class Player {
   private inWater = false;
   private wasInWater = false; // track water entry for splash
   private waterTimer = 0;
+  onLadder = false; // exposed for UI
   private swimStroke = 0; // continuous swim arm cycle
   private waterCameraTilt = 0; // smooth camera tilt in water
   private waterEntryVelocityDamp = 1; // smooth velocity damping on water entry
@@ -593,7 +594,20 @@ export class Player {
       }
     }
 
-    const gravity = this.inWater ? -4 : GRAVITY;
+    // Ladder climbing — check if player body overlaps a ladder block
+    const ladderCheck1 = this.world.getBlockType(blockX, blockY, blockZ);
+    const ladderCheck2 = this.world.getBlockType(blockX, Math.floor(this.position.y - EYE_HEIGHT + PLAYER_H), blockZ);
+    this.onLadder = ladderCheck1 === 78 || ladderCheck2 === 78;
+
+    if (this.onLadder && !this.inWater) {
+      // Slow fall / climb
+      this.velocity.y = this.keys["Space"] ? 4.5 : (this.keys["ShiftLeft"] ? -3 : -0.5);
+      // Reduce horizontal speed on ladder for stability
+      this.velocity.x *= 0.85;
+      this.velocity.z *= 0.85;
+    }
+
+    const gravity = this.onLadder ? 0 : (this.inWater ? -4 : GRAVITY);
     this.velocity.y += gravity * dt;
     if (this.velocity.y < -60) this.velocity.y = -60;
 

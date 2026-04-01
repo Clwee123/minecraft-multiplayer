@@ -685,6 +685,7 @@ export class UI {
       { id: "torch",              name: "Torch (×4)",           hand: true, ingredients: { 64: 1, 280: 1 }, output: { type: 56, count: 4 } },
       { id: "planks_to_slab",     name: "Wood Slabs (×4)",      ingredients: { 10: 3 },              output: { type: 10, count: 4 } },
       { id: "sand_to_glass",      name: "Glass (via furnace)",  ingredients: { 4: 1 },               output: { type: 9, count: 1 } },
+      { id: "ladder",              name: "Ladder (×3)",          ingredients: { 280: 7 },             output: { type: 78, count: 3 } },
     ];
 
     this.craftingPanel = document.createElement("div");

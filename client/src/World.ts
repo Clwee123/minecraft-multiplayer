@@ -169,7 +169,7 @@ export class World {
   // ── World generation ───────────────────────────────────────────────────────
 
   // Transparent/non-solid block types that don't occlude neighbors
-  private static readonly TRANSPARENT_TYPES = new Set([7, 9, 21, 50, 51, 52, 56, 57, 58]);
+  private static readonly TRANSPARENT_TYPES = new Set([7, 9, 21, 50, 51, 52, 56, 57, 58, 78]);
 
   private static isOpaque(type: number): boolean {
     return type > 0 && !World.TRANSPARENT_TYPES.has(type);

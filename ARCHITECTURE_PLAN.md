@@ -193,3 +193,12 @@
 - Persists chest inventories
 - /save and /load chat commands with full player state
 - Backward compatible with version 1 save format
+
+## Goal 27: Improved Cave System & Ore Veins
+**Status**: DONE
+- Spaghetti caves: thin winding tunnels using dual noise intersection
+- Cheese caves: large open caverns deep underground
+- Deeper caves more likely (depth bonus below y=15)
+- Ore veins using noise-based clusters instead of random single blocks
+- Added copper ore and lapis lazuli ore with drops
+- Better ore depth distribution matching Minecraft conventions

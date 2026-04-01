@@ -1004,6 +1004,7 @@ async function startGame(name: string) {
       61: { item: 65, count: [1,3] },      // diamond ore -> 1-3 diamond
       74: { item: 76, count: [2,3] },      // copper ore -> 2-3 copper ingot
       75: { item: 77, count: [4,8] },      // lapis ore -> 4-8 lapis lazuli
+      78: { item: 78, count: 1 },          // ladder -> ladder
     };
     const dropDef = drops[b.type];
     if (dropDef) {
@@ -1612,6 +1613,7 @@ async function startGame(name: string) {
     torch:            { ingredients: { 64: 1, 280: 1 },  output: { type: 56,  count: 4 } },
     planks_to_slab:   { ingredients: { 10: 3 },          output: { type: 10,  count: 4 } },
     sand_to_glass:    { ingredients: { 4: 1 },            output: { type: 9,   count: 1 } },
+    ladder:           { ingredients: { 280: 7 },           output: { type: 78,  count: 3 } },
   };
 
   ui.onCraft = (recipeId) => {
