@@ -118,6 +118,23 @@ export class Particles {
     }
   }
 
+  /** Underwater bubble particles rising from player. */
+  bubbles(x: number, y: number, z: number, count = 3) {
+    for (let i = 0; i < count; i++) {
+      this.acquire(
+        x + (Math.random() - 0.5) * 0.6,
+        y + Math.random() * 0.3,
+        z + (Math.random() - 0.5) * 0.6,
+        0x88ccff,
+        (Math.random() - 0.5) * 0.3,
+        1.5 + Math.random() * 1.0,
+        (Math.random() - 0.5) * 0.3,
+        1.0 + Math.random() * 0.5,
+        0.5, // small scale for bubbles
+      );
+    }
+  }
+
   /** Magic/enchantment particles. */
   magic(x: number, y: number, z: number, count = 12) {
     for (let i = 0; i < count; i++) {

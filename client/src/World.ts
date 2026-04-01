@@ -27,9 +27,9 @@ export class World {
   private blockData: Map<number, number> = new Map(); // intKey -> blockType
   private instancedMeshes: Map<number, THREE.InstancedMesh> = new Map(); // blockType -> InstancedMesh
   private instanceIndex: Map<number, number> = new Map(); // intKey -> instance index in its type's mesh
-  private instanceRevIndex: Map<number, number> = new Map(); // (type<<17)|idx -> intKey
+  private instanceRevIndex: Map<string, number> = new Map(); // "type:idx" -> intKey
   private instanceCount: Map<number, number> = new Map(); // blockType -> current count
-  private static readonly MAX_INSTANCES = 15000; // reduced for perf — enough for R=4 chunks
+  private static readonly MAX_INSTANCES = 32000; // enough for R=5 chunks
 
   private chestInventory: Map<string, number[]> = new Map();
   private visibilityTimer = 0;
@@ -452,7 +452,7 @@ export class World {
     mesh.instanceMatrix.needsUpdate = true;
 
     this.instanceIndex.set(k, idx);
-    this.instanceRevIndex.set((type << 17) | idx, k);
+    this.instanceRevIndex.set(`${type}:${idx}`, k);
     this.instanceCount.set(type, idx + 1);
 
     // Track modifications (use string key for save/load compatibility)
@@ -497,7 +497,7 @@ export class World {
     mesh.count = idx + 1;
     mesh.instanceMatrix.needsUpdate = true;
     this.instanceIndex.set(k, idx);
-    this.instanceRevIndex.set((type << 17) | idx, k);
+    this.instanceRevIndex.set(`${type}:${idx}`, k);
     this.instanceCount.set(type, idx + 1);
   }
 
@@ -519,18 +519,18 @@ export class World {
       mesh.instanceMatrix.needsUpdate = true;
 
       // Find which key maps to lastIdx and update it
-      const lastKey = this.instanceRevIndex.get((type << 17) | lastIdx);
+      const lastKey = this.instanceRevIndex.get(`${type}:${lastIdx}`);
       if (lastKey !== undefined) {
         this.instanceIndex.set(lastKey, idx);
-        this.instanceRevIndex.set((type << 17) | idx, lastKey);
+        this.instanceRevIndex.set(`${type}:${idx}`, lastKey);
       }
     }
 
     // Remove the last instance
     this.instanceIndex.delete(k);
-    this.instanceRevIndex.delete((type << 17) | lastIdx);
+    this.instanceRevIndex.delete(`${type}:${lastIdx}`);
     if (idx !== lastIdx) {
-      this.instanceRevIndex.delete((type << 17) | idx);
+      this.instanceRevIndex.delete(`${type}:${idx}`);
     }
 
     const newCount = lastIdx;

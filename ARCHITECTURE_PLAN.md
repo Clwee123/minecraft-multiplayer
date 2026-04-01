@@ -17,7 +17,7 @@
 ---
 
 ## Goal 1: Immersive Sky Dome with Gradient Horizon
-**Status**: IN PROGRESS
+**Status**: DONE
 - Replace flat `scene.background` color with a sky shader dome that blends zenith→horizon colors
 - Horizon glow during dawn/dusk for atmospheric depth
 - Stars rendered on the dome instead of separate Points object

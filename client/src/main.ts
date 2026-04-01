@@ -40,7 +40,7 @@ const scene  = new THREE.Scene();
 scene.background = null; // sky dome renders the background
 scene.fog        = new THREE.Fog(0x87ceeb, 55, 96); // reduced far from 160 to match render distance
 
-const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 100);
+const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 500);
 
 // ── Shield system ─────────────────────────────────────────────────────────────
 let shieldActive = false;
@@ -545,6 +545,16 @@ const loginScreen = document.getElementById("loginScreen")!;
 const nameInput   = document.getElementById("nameInput") as HTMLInputElement;
 const playBtn     = document.getElementById("playBtn")!;
 const hud         = document.getElementById("hud")!;
+const underwaterOverlay = document.getElementById("underwaterOverlay")!;
+
+// ── Underwater effect state ──────────────────────────────────────────────────
+let isUnderwater     = false;
+let underwaterBubbleTimer = 0;
+const NORMAL_FOG_NEAR = 55;
+const NORMAL_FOG_FAR  = 96;
+const WATER_FOG_NEAR  = 2;
+const WATER_FOG_FAR   = 20;
+const WATER_FOG_COLOR = new THREE.Color(0x0a3c64);
 
 async function startGame(name: string) {
   currentPlayerName = name.trim() || `Player${Math.floor(Math.random() * 999)}`;
@@ -1649,8 +1659,42 @@ function animate() {
     const playerInWater = world.getBlockType(Math.round(player.position.x), Math.round(player.position.y), Math.round(player.position.z)) === 7;
     if (playerInWater && !prevWaterState) {
       particles.splash(player.position.x, player.position.y, player.position.z, 12);
+      sounds.play("splash");
     }
     prevWaterState = playerInWater;
+
+    // Underwater visual effects — check if camera (eye level) is submerged
+    const eyeInWater = world.getBlockType(
+      Math.round(camera.position.x),
+      Math.round(camera.position.y),
+      Math.round(camera.position.z),
+    ) === 7;
+
+    if (eyeInWater !== isUnderwater) {
+      isUnderwater = eyeInWater;
+      underwaterOverlay.style.opacity = isUnderwater ? "1" : "0";
+    }
+
+    if (isUnderwater) {
+      // Tighter, blue fog underwater
+      const fog = scene.fog as THREE.Fog;
+      fog.near = WATER_FOG_NEAR;
+      fog.far  = WATER_FOG_FAR;
+      fog.color.copy(WATER_FOG_COLOR);
+      renderer.setClearColor(WATER_FOG_COLOR);
+
+      // Bubble particles from player
+      underwaterBubbleTimer += dt;
+      if (underwaterBubbleTimer > 0.3) {
+        underwaterBubbleTimer = 0;
+        particles.bubbles(player.position.x, player.position.y + 0.5, player.position.z, 2);
+      }
+    } else if (!netherMode) {
+      // Restore normal fog when not underwater (only if not in nether)
+      const fog = scene.fog as THREE.Fog;
+      fog.near = NORMAL_FOG_NEAR;
+      fog.far  = NORMAL_FOG_FAR;
+    }
 
     // Campfire detection and effects
     campfireTimer += dt;
