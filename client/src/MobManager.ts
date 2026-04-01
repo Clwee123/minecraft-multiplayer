@@ -101,14 +101,21 @@ export class MobManager {
     const rawSurf = (this.world as any).getSurfaceHeight
       ? (this.world as any).getSurfaceHeight(Math.round(x), Math.round(z))
       : 20;
-    const isCave = rawSurf < 15;
+
+    // Mob is "in a cave" if the column at (x,z) is mostly buried (low surface)
+    // OR if there's a block above the intended spawn point (inside mountain/overhang)
+    const spawnY = Math.round(rawSurf) + 1;
+    const blockAbove = (this.world as any).getBlockType
+      ? (this.world as any).getBlockType(Math.round(x), spawnY + 1, Math.round(z))
+      : undefined;
+    const isCave = rawSurf < 15 || (blockAbove !== undefined && blockAbove !== 0);
 
     if (isNight && Math.random() < 0.15) {
       // Phantom spawns at night at high altitude
       y = 20 + rnd(0, 10);
       type = "phantom";
     } else {
-      y = Math.min(rawSurf + 1.5, rawSurf + 2);
+      y = spawnY + 0.5; // place on surface, half-block above ground
 
       if (isCave && Math.random() < 0.08) {
         // Slimes spawn in caves
