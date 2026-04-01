@@ -906,6 +906,18 @@ export class World {
     }
   }
 
+  /** Update torch lights with flickering effect. Call each frame. */
+  updateTorchFlicker(elapsed: number) {
+    for (const [key, light] of this.torchLights) {
+      // Use key hash for per-torch phase offset
+      const hash = key.charCodeAt(0) * 31 + key.charCodeAt(2) * 17;
+      const flicker = 1.3 + Math.sin(elapsed * 8 + hash) * 0.15
+                          + Math.sin(elapsed * 13 + hash * 2) * 0.1
+                          + (Math.random() - 0.5) * 0.05;
+      light.intensity = flicker;
+    }
+  }
+
   removeTorchLight(x: number, y: number, z: number) {
     const key = `${x},${y},${z}`;
     const light = this.torchLights.get(key);

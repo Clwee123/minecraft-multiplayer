@@ -1518,6 +1518,7 @@ function animate() {
     }
 
     tickWater(now / 1000);
+    world.updateTorchFlicker(now / 1000);
     weather.update(dt, player.position, (scene.fog as THREE.Fog).color);
     itemDrops.update(dt, player.position);
     xpOrbs.update(dt, player.position);
