@@ -225,7 +225,7 @@
 - Low-pass filtered for realistic rain ambience
 
 ## Goal 31: Biome-Specific Trees
-**Status**: IN PROGRESS
+**Status**: DONE
 - Pine/spruce trees in mountain biome (tall narrow trunk, triangular leaf canopy)
 - Palm trees in desert biome (curved trunk, fan-shaped leaf crown)
 - New block types: Spruce Log, Spruce Leaves, Palm Log, Palm Leaves
@@ -233,7 +233,7 @@
 - Mountains now have trees at lower elevations instead of only rocks
 
 ## Goal 32: Day/Night Mob Spawning Rules
-**Status**: TODO
+**Status**: DONE
 - Hostile mobs (zombie, skeleton, spider, creeper) only spawn at night or in caves
 - Peaceful mobs (pig, cow, sheep, chicken) only spawn during daytime
 - Mobs burn/despawn at dawn if exposed to sunlight (zombies, skeletons)

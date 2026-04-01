@@ -81,6 +81,9 @@ export class MobManager {
     return mob;
   }
 
+  private static HOSTILE_TYPES: Set<MobType> = new Set(["zombie", "skeleton", "creeper", "spider", "witherskeleton", "phantom"]);
+  private static UNDEAD_TYPES: Set<MobType> = new Set(["zombie", "skeleton", "witherskeleton", "phantom"]);
+
   spawnRandom(cx: number, cz: number) {
     if (this.mobs.size >= MAX_SP_MOBS) return;
     const angle  = rnd(0, Math.PI * 2);
@@ -94,24 +97,34 @@ export class MobManager {
     let y: number;
     let type: MobType;
 
+    // Check surface height to determine if underground (cave)
+    const rawSurf = (this.world as any).getSurfaceHeight
+      ? (this.world as any).getSurfaceHeight(Math.round(x), Math.round(z))
+      : 20;
+    const isCave = rawSurf < 15;
+
     if (isNight && Math.random() < 0.15) {
       // Phantom spawns at night at high altitude
       y = 20 + rnd(0, 10);
       type = "phantom";
     } else {
-      // Check for slime in caves (low y positions)
-      const rawSurf = (this.world as any).getSurfaceHeight
-        ? (this.world as any).getSurfaceHeight(Math.round(x), Math.round(z))
-        : 20;
-      y = Math.min(rawSurf + 1.5, rawSurf + 2); // clamp: sit on surface, don't overshoot
+      y = Math.min(rawSurf + 1.5, rawSurf + 2);
 
-      if (rawSurf < 15 && Math.random() < 0.08) {
-        // Slimes spawn in caves (low ground)
+      if (isCave && Math.random() < 0.08) {
+        // Slimes spawn in caves
         type = "slime";
-      } else {
-        // Normal mob spawn
+      } else if (isCave) {
+        // Caves always allow hostile mobs regardless of time
         const roll = Math.random();
-        type = roll < 0.18 ? "pig" : roll < 0.28 ? "chicken" : roll < 0.38 ? "cow" : roll < 0.48 ? "sheep" : roll < 0.55 ? "horse" : roll < 0.60 ? "wolf" : roll < 0.65 ? "cat" : roll < 0.72 ? "zombie" : roll < 0.79 ? "creeper" : roll < 0.86 ? "spider" : roll < 0.94 ? "skeleton" : "witherskeleton";
+        type = roll < 0.30 ? "zombie" : roll < 0.55 ? "skeleton" : roll < 0.75 ? "spider" : roll < 0.90 ? "creeper" : "witherskeleton";
+      } else if (isNight) {
+        // Night surface: mostly hostile mobs, few peaceful
+        const roll = Math.random();
+        type = roll < 0.25 ? "zombie" : roll < 0.45 ? "skeleton" : roll < 0.60 ? "creeper" : roll < 0.75 ? "spider" : roll < 0.85 ? "witherskeleton" : roll < 0.90 ? "pig" : roll < 0.95 ? "cow" : "sheep";
+      } else {
+        // Daytime surface: only peaceful mobs
+        const roll = Math.random();
+        type = roll < 0.25 ? "pig" : roll < 0.45 ? "chicken" : roll < 0.60 ? "cow" : roll < 0.75 ? "sheep" : roll < 0.85 ? "horse" : roll < 0.92 ? "wolf" : "cat";
       }
     }
 
@@ -198,6 +211,26 @@ export class MobManager {
       lm.mob.update(dt);
 
       if (!lm.mob.alive) continue;
+
+      // Undead mobs burn at dawn when on the surface
+      if (this.singleplayer && MobManager.UNDEAD_TYPES.has(lm.data.type)) {
+        const isDaytime = this.dayTime >= 0.25 && this.dayTime <= 0.73;
+        if (isDaytime) {
+          // Check if mob is on the surface (not in a cave)
+          const surfH = (this.world as any).getSurfaceHeight
+            ? (this.world as any).getSurfaceHeight(Math.round(lm.data.x), Math.round(lm.data.z))
+            : 20;
+          if (lm.data.y >= surfH - 2) {
+            // Burn: deal 4 damage per second
+            lm.mob.health -= 4 * dt;
+            lm.mob.showDamage(lm.mob.health);
+            if (lm.mob.health <= 0) {
+              lm.mob.die();
+              continue;
+            }
+          }
+        }
+      }
 
       if (this.singleplayer) {
         // Skip AI for mobs > 32 blocks away (perf)
