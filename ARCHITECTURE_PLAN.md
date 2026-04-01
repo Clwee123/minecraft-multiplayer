@@ -172,7 +172,7 @@
 - Items persist per-chest in world data
 
 ## Goal 24: Swimming Animation & Water Movement Polish
-**Status**: IN PROGRESS
+**Status**: DONE
 - Arm stroke animation when swimming (first-person arm sweeps)
 - Camera tilt when entering/exiting water
 - Bubble particle burst when diving

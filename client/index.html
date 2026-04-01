@@ -477,6 +477,31 @@
     background:radial-gradient(ellipse at center,rgba(10,60,100,0.45) 0%,rgba(5,30,60,0.7) 100%);
     opacity:0;transition:opacity 0.4s ease;
   "></div>
+  <div id="portalOverlay" style="
+    position:fixed;inset:0;z-index:10;pointer-events:none;
+    opacity:0;transition:opacity 0.3s ease;
+    overflow:hidden;
+  ">
+    <div style="position:absolute;inset:-20%;width:140%;height:140%;
+      background:radial-gradient(ellipse at center,rgba(119,34,204,0.0) 20%,rgba(60,10,120,0.5) 60%,rgba(30,0,60,0.8) 100%);
+      animation:portalSwirl 3s linear infinite;
+    "></div>
+    <div style="position:absolute;inset:0;
+      background:radial-gradient(ellipse at center,rgba(153,51,255,0.15) 0%,transparent 50%);
+      animation:portalPulse 1.5s ease-in-out infinite alternate;
+    "></div>
+  </div>
+  <style>
+    @keyframes portalSwirl {
+      0% { transform:rotate(0deg) scale(1); }
+      50% { transform:rotate(180deg) scale(1.05); }
+      100% { transform:rotate(360deg) scale(1); }
+    }
+    @keyframes portalPulse {
+      0% { opacity:0.6; }
+      100% { opacity:1; }
+    }
+  </style>
 
   <!-- ── DEATH SCREEN ─────────────────────────────────────────────── -->
   <div id="deathScreen">

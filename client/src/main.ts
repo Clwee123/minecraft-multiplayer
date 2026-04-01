@@ -344,8 +344,6 @@ let fishingBobber: FishingBobber | null = null;
 
 // ── TNT System ────────────────────────────────────────────────────────────────
 
-let netherMode = false;
-
 const attackRaycaster = new THREE.Raycaster();
 attackRaycaster.far   = 5;
 const _CENTER_VEC2 = new THREE.Vector2(0, 0); // reuse for setFromCamera calls
@@ -634,6 +632,131 @@ const NORMAL_FOG_FAR  = 96;
 const WATER_FOG_NEAR  = 2;
 const WATER_FOG_FAR   = 20;
 const WATER_FOG_COLOR = new THREE.Color(0x0a3c64);
+
+// ── Nether portal effect state ──────────────────────────────────────────────
+const portalOverlay     = document.getElementById("portalOverlay")!;
+let portalProximity     = 0; // 0..1 intensity based on distance to portal
+let netherMode          = false; // visual nether color shift active
+const NETHER_FOG_COLOR  = new THREE.Color(0x330808);
+const PORTAL_DETECT_RANGE = 6; // blocks
+
+/**
+ * Check if an obsidian portal frame exists near (px, py, pz).
+ * Portal frame: vertical rectangle of obsidian (type 18) at least 4 wide × 5 tall,
+ * with interior filled with nether portal blocks (type 73) or air.
+ * Returns distance to nearest portal block, or -1 if none found.
+ */
+function findNearestPortal(px: number, py: number, pz: number): number {
+  let minDist = -1;
+  const range = PORTAL_DETECT_RANGE;
+  for (let dx = -range; dx <= range; dx++) {
+    for (let dy = -range; dy <= range; dy++) {
+      for (let dz = -range; dz <= range; dz++) {
+        const bx = Math.floor(px) + dx;
+        const by = Math.floor(py) + dy;
+        const bz = Math.floor(pz) + dz;
+        if (world.getBlockType(bx, by, bz) === 73) {
+          const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+          if (minDist < 0 || dist < minDist) minDist = dist;
+        }
+      }
+    }
+  }
+  return minDist;
+}
+
+/**
+ * Try to light a nether portal: check if there's a valid obsidian frame
+ * and fill interior with portal blocks (type 73).
+ * Call when player uses flint/right-clicks obsidian.
+ */
+function tryLightPortal(bx: number, by: number, bz: number): boolean {
+  // Check both orientations (X-axis portal and Z-axis portal)
+  for (const axis of ["x", "z"] as const) {
+    const frame = detectObsidianFrame(bx, by, bz, axis);
+    if (frame) {
+      // Fill interior with portal blocks
+      for (const pos of frame) {
+        world.setBlock(pos.x, pos.y, pos.z, 73);
+      }
+      return true;
+    }
+  }
+  return false;
+}
+
+function detectObsidianFrame(
+  startX: number, startY: number, startZ: number, axis: "x" | "z"
+): { x: number; y: number; z: number }[] | null {
+  // Find bottom-left of frame: search down and to the left along axis
+  let bx = startX, by = startY, bz = startZ;
+
+  // Search down for bottom
+  while (world.getBlockType(bx, by - 1, bz) === 18) by--;
+
+  // Search left along axis for left edge
+  if (axis === "x") {
+    while (world.getBlockType(bx - 1, by, bz) === 18) bx--;
+  } else {
+    while (world.getBlockType(bx, by, bz - 1) === 18) bz--;
+  }
+
+  // Now (bx, by, bz) should be at bottom-left obsidian corner
+  // Verify frame: need at least 4 wide, 5 tall on the axis
+  const minW = 4, minH = 5;
+
+  // Measure bottom edge width
+  let width = 0;
+  for (let i = 0; i < 10; i++) {
+    const tx = axis === "x" ? bx + i : bx;
+    const tz = axis === "z" ? bz + i : bz;
+    if (world.getBlockType(tx, by, tz) === 18) width++;
+    else break;
+  }
+  if (width < minW) return null;
+
+  // Measure left column height
+  let height = 0;
+  for (let i = 0; i < 10; i++) {
+    if (world.getBlockType(bx, by + i, bz) === 18) height++;
+    else break;
+  }
+  if (height < minH) return null;
+
+  // Verify right column
+  const rx = axis === "x" ? bx + width - 1 : bx;
+  const rz = axis === "z" ? bz + width - 1 : bz;
+  let rightH = 0;
+  for (let i = 0; i < height; i++) {
+    if (world.getBlockType(rx, by + i, rz) === 18) rightH++;
+    else break;
+  }
+  if (rightH < height) return null;
+
+  // Verify top edge
+  let topW = 0;
+  for (let i = 0; i < width; i++) {
+    const tx = axis === "x" ? bx + i : bx;
+    const tz = axis === "z" ? bz + i : bz;
+    if (world.getBlockType(tx, by + height - 1, tz) === 18) topW++;
+    else break;
+  }
+  if (topW < width) return null;
+
+  // Collect interior positions (not including frame edges)
+  const interior: { x: number; y: number; z: number }[] = [];
+  for (let iy = 1; iy < height - 1; iy++) {
+    for (let iw = 1; iw < width - 1; iw++) {
+      const ix = axis === "x" ? bx + iw : bx;
+      const iz = axis === "z" ? bz + iw : bz;
+      const bt = world.getBlockType(ix, by + iy, iz);
+      if (bt !== 0 && bt !== 73) return null; // interior must be air or already portal
+      interior.push({ x: ix, y: by + iy, z: iz });
+    }
+  }
+
+  return interior.length > 0 ? interior : null;
+}
 
 // ── Post-processing overlays ────────────────────────────────────────────────
 const damageFlash       = document.getElementById("damageFlash")!;
@@ -2085,6 +2208,51 @@ function animate() {
       const fog = scene.fog as THREE.Fog;
       fog.near = NORMAL_FOG_NEAR;
       fog.far  = NORMAL_FOG_FAR;
+    }
+
+    // ── Nether portal proximity effect ─────────────────────────────────────
+    const portalDist = findNearestPortal(player.position.x, player.position.y, player.position.z);
+    if (portalDist >= 0) {
+      // Intensity increases as player gets closer (max at distance 0-1)
+      const targetProximity = Math.max(0, 1 - portalDist / PORTAL_DETECT_RANGE);
+      portalProximity += (targetProximity - portalProximity) * 0.08;
+    } else {
+      portalProximity += (0 - portalProximity) * 0.08;
+    }
+
+    if (portalProximity > 0.01) {
+      portalOverlay.style.opacity = String(portalProximity);
+      // Screen distortion effect — hue shift + blur intensifies with proximity
+      const hueShift = Math.sin(performance.now() * 0.002) * portalProximity * 40;
+      const blurAmt = portalProximity * 1.5;
+      const satAmt = 1 + portalProximity * 1.2;
+      renderer.domElement.style.filter =
+        `hue-rotate(${hueShift}deg) blur(${blurAmt}px) saturate(${satAmt})`;
+      // Nether-themed fog color shift when very close
+      if (portalProximity > 0.6 && !isUnderwater) {
+        const fog = scene.fog as THREE.Fog;
+        const t = (portalProximity - 0.6) / 0.4; // 0..1
+        fog.color.lerpColors(fog.color, NETHER_FOG_COLOR, t * 0.15);
+        fog.near = NORMAL_FOG_NEAR - t * 20;
+        fog.far = NORMAL_FOG_FAR - t * 30;
+        netherMode = true;
+      }
+      // Purple magic particles near portals
+      if (portalDist >= 0 && portalDist < 3 && Math.random() < 0.3) {
+        particles.magic(
+          player.position.x + (Math.random() - 0.5) * 3,
+          player.position.y + (Math.random() - 0.5) * 2,
+          player.position.z + (Math.random() - 0.5) * 3,
+          1
+        );
+      }
+    } else {
+      portalOverlay.style.opacity = "0";
+      renderer.domElement.style.filter = "";
+      if (netherMode) {
+        netherMode = false;
+        // Fog will be restored by normal fog logic above
+      }
     }
 
     // Footstep sounds — trigger based on movement distance

@@ -340,23 +340,7 @@ export class UI {
     `;
     this.xpLevelEl = levelLabel;
 
-    // Day counter (top-center)
-    this.dayCounterEl = document.createElement("div");
-    this.dayCounterEl.id = "day-counter";
-    this.dayCounterEl.textContent = "Day 1";
-    this.dayCounterEl.style.cssText = `
-      position: absolute;
-      top: 8px;
-      left: 50%;
-      transform: translateX(-50%);
-      color: rgba(255,255,255,0.7);
-      font-family: 'Courier New', monospace;
-      font-size: 13px;
-      font-weight: bold;
-      z-index: 100;
-      text-shadow: 1px 1px 2px rgba(0,0,0,0.8);
-      pointer-events: none;
-    `;
+    // Day counter removed per user request
 
     // Day transition notification (center screen, fades out)
     this.dayNotifyEl = document.createElement("div");
@@ -379,7 +363,6 @@ export class UI {
 
     document.body.appendChild(this.xpBarEl);
     document.body.appendChild(levelLabel);
-    document.body.appendChild(this.dayCounterEl);
     document.body.appendChild(this.dayNotifyEl);
   }
 
