@@ -82,10 +82,10 @@ export class World {
     const biome = this.getBiome(wx, wz);
 
     // 4-octave fbm, frequencies tuned to MC 1.8 feel
-    const o1 = this.nH1(wx * 0.003,  wz * 0.003);
-    const o2 = this.nH2(wx * 0.006,  wz * 0.006) * 0.5;
-    const o3 = this.nH3(wx * 0.012,  wz * 0.012) * 0.25;
-    const o4 = this.nH4(wx * 0.024,  wz * 0.024) * 0.125;
+    const o1 = this.nH1(wx * 0.002,  wz * 0.002);
+    const o2 = this.nH2(wx * 0.004,  wz * 0.004) * 0.5;
+    const o3 = this.nH3(wx * 0.008,  wz * 0.008) * 0.25;
+    const o4 = this.nH4(wx * 0.016,  wz * 0.016) * 0.125;
     const n = (o1 + o2 + o3 + o4) / 1.875; // range ~[-1,1]
     const t = (n + 1) * 0.5;                // range [0,1]
 
@@ -94,7 +94,7 @@ export class World {
       case 0: return Math.round(63 + t * 5);                // plains: 63-68
       case 1: return Math.round(63 + t * 9);                // desert: 63-72
       case 2: return Math.round(63 + t * 18);               // forest: 63-81
-      case 3: return Math.round(68 + t * 65);               // mountains: 68-133
+      case 3: return Math.round(64 + t * 44);               // mountains: 64-108 (gentler)
       default: return 64;
     }
   }

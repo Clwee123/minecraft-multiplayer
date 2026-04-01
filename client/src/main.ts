@@ -223,27 +223,15 @@ function updateDayNight(dt: number) {
 
 // ── Core objects ──────────────────────────────────────────────────────────────
 
-const world     = new World(scene);
-const player    = new Player(camera, world, scene);
+// World created lazily in startGame() after atlas loads
+let world: any = null as any;
+let player: any = null as any;
 scene.add(camera); // needed so fp arm (camera child) renders
 const ui        = new UI();
 
 // ── Mobile controls (touch joystick + look + buttons) ────────────────────────
 let mobileControls: MobileControls | null = null;
-if (isMobile()) {
-  mobileControls = new MobileControls(
-    player.getKeys(),
-    () => player.breakBlockNow(),
-    () => player.placeBlockNow(),
-  );
-  // Hook look delta into player yaw/pitch
-  mobileControls.onLookDelta = (dx: number, dy: number) => {
-    (player as any).yaw   -= dx * 0.004;
-    (player as any).pitch -= dy * 0.004;
-    (player as any).pitch = Math.max(-Math.PI/2+0.01, Math.min(Math.PI/2-0.01, (player as any).pitch));
-  };
-  mobileControls.hide(); // hidden until game starts
-}
+// Initialized in startGame() after player is created
 const particles = new Particles(scene);
 const sounds    = new SoundManager();
 const itemDrops = new ItemDropManager(scene);
@@ -855,10 +843,32 @@ async function startGame(name: string) {
   loadingProgress.style.width = "20%";
   loadingText.textContent = "Loading textures...";
 
-  // Preload real minecraft textures before world generates
+  // Preload real minecraft textures BEFORE world generates (critical!)
   await preloadAtlas();
-  loadingProgress.style.width = "60%";
+  loadingProgress.style.width = "40%";
   loadingText.textContent = "Generating world...";
+
+  // Create world + player NOW (atlas is loaded, materials will have real textures)
+  if (!world) {
+    world  = new World(scene);
+    player = new Player(camera, world, scene);
+    scene.add(camera);
+    // Setup mobile controls now that player exists
+    if (isMobile()) {
+      mobileControls = new MobileControls(
+        player.getKeys(),
+        () => player.breakBlockNow(),
+        () => player.placeBlockNow(),
+      );
+      mobileControls.onLookDelta = (dx: number, dy: number) => {
+        (player as any).yaw   -= dx * 0.004;
+        (player as any).pitch -= dy * 0.004;
+        (player as any).pitch = Math.max(-Math.PI/2+0.01, Math.min(Math.PI/2-0.01, (player as any).pitch));
+      };
+      mobileControls.hide();
+    }
+  }
+  loadingProgress.style.width = "70%";
 
   // Brief delay so user sees the progress
   await new Promise(r => setTimeout(r, 200));
@@ -1936,7 +1946,7 @@ function animate() {
     if (_fpsBufCount < FPS_SAMPLE_SIZE) _fpsBufCount++;
   }
 
-  if (hud.style.display !== "none") {
+  if (hud.style.display !== "none" && world && player) {
     player.update(dt);
     mp?.updatePlayers(dt);
 
@@ -2539,7 +2549,7 @@ function animate() {
     camera.position.y += shakeY;
   }
 
-  world.flushDirtyMeshes(); // batch GPU matrix uploads
+  if (world) world.flushDirtyMeshes(); // batch GPU matrix uploads
   renderer.render(scene, camera);
 
   // Reset clear color if it was flashed
