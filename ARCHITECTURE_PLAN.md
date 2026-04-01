@@ -216,3 +216,10 @@
 - Stone Bricks and Mossy Stone Bricks
 - Crafting recipes for all new blocks
 - Dungeons use stone/mossy stone bricks mix for atmosphere
+
+## Goal 30: Rain Splash Particles & Ambient Rain Sound
+**Status**: DONE
+- Ground-level splash particles spawn when raindrops land
+- Splashes rise briefly then fade for puddle effect
+- Ambient brown noise rain sound during precipitation
+- Low-pass filtered for realistic rain ambience
