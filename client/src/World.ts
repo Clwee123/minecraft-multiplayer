@@ -34,9 +34,18 @@ export class World {
   private generatedChunks = new Set<string>();
   private modifications: Map<string, number> = new Map(); // Track player-modified blocks
 
-  private noise2D  = createNoise2D();
-  private noise2D2 = createNoise2D();
-  private biomeNoise = createNoise2D(); // For biome generation
+  // Dedicated seeded noise functions — each uses a unique alea seed so they never interfere
+  private nHeight1   = createNoise2D(() => 0.5182763); // continental base
+  private nHeight2   = createNoise2D(() => 0.8374621); // mid-detail
+  private nHeight3   = createNoise2D(() => 0.2938174); // fine detail
+  private nBiome     = createNoise2D(() => 0.6174829); // biome selection
+  private nCave1     = createNoise2D(() => 0.1823947); // cave spaghetti A
+  private nCave2     = createNoise2D(() => 0.9274618); // cave spaghetti B
+  private nOre       = createNoise2D(() => 0.4729183); // ore cluster noise
+  // Legacy aliases kept for anything else that references them
+  private noise2D    = createNoise2D(() => 0.7362819);
+  private noise2D2   = createNoise2D(() => 0.3619274);
+  private biomeNoise = createNoise2D(() => 0.6174829); // same seed as nBiome
 
   // Wave 9: Torch lights system
   torchLights: Map<string, THREE.PointLight> = new Map();
@@ -65,64 +74,62 @@ export class World {
   // ── Biome system ──────────────────────────────────────────────────────────
 
   getBiome(x: number, z: number): number {
-    const b = this.biomeNoise(x * 0.003, z * 0.003);
-    if (b < -0.45) return 4; // ocean
-    if (b < -0.1)  return 0; // plains
-    if (b < 0.2)   return 2; // forest
-    if (b < 0.45)  return 1; // desert
-    return 3; // mountains
+    // Very low frequency — large biome regions like MC 1.8
+    const b = this.nBiome(x * 0.0015, z * 0.0015);
+    if (b < -0.4)  return 4; // ocean  (~20% of world)
+    if (b < -0.05) return 0; // plains (~17%)
+    if (b < 0.25)  return 2; // forest (~15%)
+    if (b < 0.5)   return 1; // desert (~13%)
+    return 3;                 // mountains (~15%)
   }
 
   // ── Terrain height — MC 1.8 style ─────────────────────────────────────────
-  // Multi-octave noise producing terrain in range ~55-130 (sea level 62)
+  // True multi-octave fbm: 4 octaves at 1x, 2x, 4x, 8x frequency
+  // Output mapped to biome-appropriate height range
 
   private getHeight(wx: number, wz: number): number {
     const biome = this.getBiome(wx, wz);
 
-    // Continental base shape (very low frequency)
-    const base = this.noise2D(wx * 0.008, wz * 0.008);
-    // Mid-frequency detail
-    const mid  = this.noise2D(wx * 0.025, wz * 0.025) * 0.5;
-    // Fine detail
-    const fine = this.noise2D2(wx * 0.08,  wz * 0.08)  * 0.2;
-    // Combined noise in range ~-1..1
-    const n = (base + mid + fine) / 1.7;
+    // 4-octave fractional Brownian motion — exactly like MC's Perlin terrain
+    const o1 = this.nHeight1(wx * 0.004,  wz * 0.004);          // large hills
+    const o2 = this.nHeight2(wx * 0.008,  wz * 0.008)  * 0.50;  // medium detail
+    const o3 = this.nHeight3(wx * 0.016,  wz * 0.016)  * 0.25;  // small bumps
+    const o4 = this.nHeight1(wx * 0.032,  wz * 0.032)  * 0.125; // micro detail
+    // Normalised to ~[-1, 1]
+    const n = (o1 + o2 + o3 + o4) / 1.875;
+    const t = (n + 1) * 0.5; // remap to [0, 1]
 
     let height: number;
-    if (biome === 4) {
-      // Ocean: 45-61 (below sea level)
-      height = Math.round(45 + ((n + 1) * 0.5) * 16);
-      height = Math.min(height, 59); // always underwater
-    } else if (biome === 0) {
-      // Plains: 62-72 (flat, just above sea)
-      height = Math.round(63 + ((n + 1) * 0.5) * 9);
-    } else if (biome === 1) {
-      // Desert: 63-75
-      height = Math.round(63 + ((n + 1) * 0.5) * 12);
-    } else if (biome === 2) {
-      // Forest: 63-80
-      height = Math.round(63 + ((n + 1) * 0.5) * 17);
-    } else {
-      // Mountains: 70-128
-      height = Math.round(70 + ((n + 1) * 0.5) * 58);
+    switch (biome) {
+      case 4: // Ocean — always below sea level
+        height = Math.round(40 + t * 20); // 40-60
+        height = Math.min(height, 60);
+        break;
+      case 0: // Plains — nearly flat, just above sea
+        height = Math.round(63 + t * 6);  // 63-69
+        break;
+      case 1: // Desert — slightly rolling sand dunes
+        height = Math.round(63 + t * 10); // 63-73
+        break;
+      case 2: // Forest — rolling hills
+        height = Math.round(63 + t * 20); // 63-83
+        break;
+      case 3: // Mountains — dramatic peaks
+        height = Math.round(68 + t * 70); // 68-138
+        break;
+      default:
+        height = Math.round(63 + t * 8);
     }
 
-    return Math.max(1, Math.min(height, 254));
+    return Math.max(1, Math.min(height, 250));
   }
 
   private getCaveNoise(x: number, y: number, z: number): number {
-    // Spaghetti caves: two noise fields, cave where both are near 0
-    const n1 = this.noise2D2(x * 0.06 + y * 0.05, z * 0.06);
-    const n2 = this.noise2D(x * 0.07, z * 0.07 + y * 0.05);
-    // Cheese caves: large open areas underground
-    const cheese = this.noise2D2(x * 0.025 + y * 0.03, z * 0.025);
-    // Spaghetti: thin tunnels where both noise values are near 0
+    // Classic MC spaghetti caves: carve where both 2D noise slices near 0
+    const n1 = this.nCave1(x * 0.05 + y * 0.04, z * 0.05);
+    const n2 = this.nCave2(x * 0.05, z * 0.05 + y * 0.04);
     const spaghetti = Math.abs(n1) + Math.abs(n2);
-    // Combine: low spaghetti = tunnel, high cheese = cavern
-    // Deeper caves are more likely (y < 15 increases cave chance)
-    const depthBonus = y < 15 ? (15 - y) * 0.008 : 0;
-    if (spaghetti < 0.15 + depthBonus) return 1.0; // spaghetti tunnel
-    if (cheese > 0.6 && y < 20) return 1.0; // cheese cavern
+    if (spaghetti < 0.12) return 1.0;
     return 0.0;
   }
 
@@ -347,14 +354,13 @@ export class World {
             }
           }
 
-          // Ore veins (stone only, underground)
+          // Ore veins — dedicated noise, no interference with height/caves
           if (type === 3 && y < h - 4) {
-            const vn = (ox: number, oz: number) =>
-              this.noise2D2(wx * 0.18 + ox, wz * 0.18 + oz + y * 0.18);
-            if      (y <= 16 && vn(100,100) > 0.72) type = 61; // Diamond (rare, y≤16)
-            else if (y <= 32 && vn(200,200) > 0.65) type = 13; // Gold (y≤32)
-            else if (y <= 64 && vn(300,300) > 0.58) type = 14; // Iron (y≤64)
-            else if (y <= 128 && vn(400,400) > 0.55) type = 15; // Coal (y≤128)
+            const ov = this.nOre(wx * 0.15 + y * 0.13, wz * 0.15);
+            if      (y <= 16  && ov > 0.74) type = 61; // Diamond   rare,  y≤16
+            else if (y <= 32  && ov > 0.68) type = 13; // Gold      uncommon, y≤32
+            else if (y <= 64  && ov > 0.60) type = 14; // Iron      common, y≤64
+            else if (y <= 128 && ov > 0.55) type = 15; // Coal      very common
           }
 
           setBlock(y, type);
