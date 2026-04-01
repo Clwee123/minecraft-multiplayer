@@ -586,6 +586,9 @@ async function startGame(name: string) {
     setTimeout(() => document.body.requestPointerLock(), 200);
   }
 
+  // Start ambient background music after a brief delay
+  setTimeout(() => sounds.startAmbientMusic("day"), 3000);
+
   // Player callbacks
   player.onHealthChanged = hp => ui.updateHearts(hp, player.maxHealth);
   player.setDeathCause = (cause) => { lastDeathCause = cause; };
@@ -1465,7 +1468,10 @@ function animate() {
     caveAmbientTimer += dt;
     if (caveAmbientTimer > 30) {
       caveAmbientTimer = 0;
-      if (player.position.y < 10) sounds.playAmbient("cave");
+      if (player.position.y < 10) {
+        sounds.playAmbient("cave");
+        sounds.setAmbientMood("cave");
+      }
     }
 
     // Update fishing bobber
@@ -1655,10 +1661,12 @@ function animate() {
     if (prevDayTime < 0.22 && dayTime >= 0.22) {
       ui.addChatMessage("", "Dawn breaks...", true);
       sounds.playAmbient("birds");
+      sounds.setAmbientMood("day");
     }
     if (prevDayTime < 0.73 && dayTime >= 0.73) {
       ui.addChatMessage("", "Night falls... watch out for monsters!", true);
       sounds.playAmbient("wind");
+      sounds.setAmbientMood("night");
     }
     if (prevDayTime < 0.95 && dayTime >= 0.95) {
       // Chance to spawn extra zombies/skeletons at midnight

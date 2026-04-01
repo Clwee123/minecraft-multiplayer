@@ -31,8 +31,31 @@
 - Bubble particles rising from player
 
 ## Goal 3: Ambient Particles & Head Bob
-**Status**: TODO
+**Status**: DONE
 - Floating dust motes in sunlight (small bright particles drifting slowly)
 - Fireflies at night near grass (small yellow emissive particles)
 - Subtle head bob when walking for immersion
 - Camera tilt when sprinting
+
+---
+
+## Goal 4: Ambient Background Music System
+**Status**: IN PROGRESS
+- Procedural ambient music during gameplay (calm pads, piano-like tones)
+- Different moods for day vs night
+- Underground/cave ambient droning sounds
+- Smooth crossfading between tracks
+
+## Goal 5: Improved Crosshair & Block Selection UI
+**Status**: TODO
+- Animated crosshair that expands when breaking blocks
+- Block breaking progress bar on the crosshair
+- Hotbar item tooltip with block icon preview
+- Smoother hotbar scroll animation
+
+## Goal 6: Vignette & Post-Processing Effects
+**Status**: TODO
+- Screen vignette (dark edges) for immersion
+- Low-health red vignette pulse
+- Damage flash effect (red tint)
+- Speed lines when sprinting

@@ -271,4 +271,94 @@ export class SoundManager {
   isMusicPlaying(): boolean {
     return this.musicActive;
   }
+
+  // ── Ambient background music ─────────────────────────────────────────────────
+
+  private ambientActive = false;
+  private ambientTimeout: ReturnType<typeof setTimeout> | null = null;
+  private ambientGain: GainNode | null = null;
+
+  /**
+   * Start ambient background music that plays calm, procedural tones.
+   * mood: "day" = warm major keys, "night" = cool minor keys, "cave" = low droning
+   */
+  startAmbientMusic(mood: "day" | "night" | "cave" = "day") {
+    if (this.ambientActive) return;
+    this.ambientActive = true;
+
+    const ctx = this.getCtx();
+    this.ambientGain = ctx.createGain();
+    this.ambientGain.gain.value = 0;
+    this.ambientGain.gain.linearRampToValueAtTime(0.08, ctx.currentTime + 2);
+    this.ambientGain.connect(ctx.destination);
+
+    // Pentatonic scales for different moods
+    const scales: Record<string, number[]> = {
+      day:   [261, 293, 329, 392, 440, 523, 587, 659], // C major pentatonic-ish
+      night: [220, 247, 262, 330, 349, 440, 494, 523], // A minor
+      cave:  [110, 130, 147, 165, 196, 220, 247, 262], // low rumble
+    };
+    const notes = scales[mood] || scales.day;
+
+    // Play a gentle pad tone
+    const playPad = () => {
+      if (!this.ambientActive || !this.ambientGain) return;
+      const ctx = this.getCtx();
+
+      // Pick 2-3 notes for a chord
+      const chordSize = 2 + Math.floor(Math.random() * 2);
+      for (let c = 0; c < chordSize; c++) {
+        const note = notes[Math.floor(Math.random() * notes.length)];
+        const osc = ctx.createOscillator();
+        const noteGain = ctx.createGain();
+
+        osc.type = mood === "cave" ? "sine" : (Math.random() > 0.5 ? "sine" : "triangle");
+        osc.frequency.value = note * (mood === "cave" ? 0.5 : 1);
+
+        // Slow attack, long sustain, slow release
+        const duration = 3 + Math.random() * 4;
+        noteGain.gain.setValueAtTime(0, ctx.currentTime);
+        noteGain.gain.linearRampToValueAtTime(0.06 + Math.random() * 0.04, ctx.currentTime + duration * 0.3);
+        noteGain.gain.linearRampToValueAtTime(0, ctx.currentTime + duration);
+
+        // Slight detune for warmth
+        osc.detune.value = (Math.random() - 0.5) * 10;
+
+        osc.connect(noteGain);
+        noteGain.connect(this.ambientGain);
+        osc.start();
+        osc.stop(ctx.currentTime + duration + 0.1);
+      }
+
+      // Schedule next chord
+      const nextDelay = 4000 + Math.random() * 6000;
+      this.ambientTimeout = setTimeout(playPad, nextDelay);
+    };
+
+    // Start after a short delay
+    this.ambientTimeout = setTimeout(playPad, 2000);
+  }
+
+  stopAmbientMusic() {
+    this.ambientActive = false;
+    if (this.ambientTimeout) {
+      clearTimeout(this.ambientTimeout);
+      this.ambientTimeout = null;
+    }
+    if (this.ambientGain) {
+      const ctx = this.getCtx();
+      this.ambientGain.gain.linearRampToValueAtTime(0, ctx.currentTime + 1);
+      this.ambientGain = null;
+    }
+  }
+
+  setAmbientMood(mood: "day" | "night" | "cave") {
+    if (!this.ambientActive) {
+      this.startAmbientMusic(mood);
+      return;
+    }
+    // Restart with new mood
+    this.stopAmbientMusic();
+    setTimeout(() => this.startAmbientMusic(mood), 1500);
+  }
 }
