@@ -4,16 +4,14 @@ import { BLOCK_TYPES } from "./blocks";
 import { getBlockMaterial, getBlockMaterials } from "./BlockTextures";
 
 const CHUNK_SIZE   = 16;
-const WORLD_HEIGHT = 40;
-const SEA_LEVEL    = 8;
+const WORLD_HEIGHT = 256; // MC 1.8: 0-255
+const SEA_LEVEL    = 62;  // MC 1.8: sea level at y=62
 
-// Integer key packing using safe JS integers (no bitwise overflow)
-// Supports x,z in [-2048, 2047], y in [0, 127]
-// Uses multiplication not bitwise OR to avoid 32-bit overflow issues
-const KEY_X_OFFSET = 8192;  // supports x in [-8192, 8191]
-const KEY_Z_OFFSET = 8192;  // supports z in [-8192, 8191]
-const KEY_Y_MULT   = 16384; // x+8192 fits in [0, 16383] (14 bits)
-const KEY_Z_MULT   = 16384 * 128; // y in [0, 127] (7 bits)
+// Integer key packing — supports x,z in [-4096, 4095], y in [0, 255]
+const KEY_X_OFFSET = 4096;
+const KEY_Z_OFFSET = 4096;
+const KEY_Y_MULT   = 8192;        // x+4096 in [0,8191] = 13 bits
+const KEY_Z_MULT   = 8192 * 256;  // y in [0,255] = 8 bits
 function key(x: number, y: number, z: number): number {
   return (x + KEY_X_OFFSET) + y * KEY_Y_MULT + (z + KEY_Z_OFFSET) * KEY_Z_MULT;
 }
@@ -29,7 +27,7 @@ export class World {
   private instanceIndex: Map<number, number> = new Map(); // intKey -> instance index in its type's mesh
   private instanceRevIndex: Map<string, number> = new Map(); // "type:idx" -> intKey
   private instanceCount: Map<number, number> = new Map(); // blockType -> current count
-  private static readonly MAX_INSTANCES = 32000; // enough for R=5 chunks
+  private static readonly MAX_INSTANCES = 60000; // MC-height terrain needs more
 
   private chestInventory: Map<string, number[]> = new Map();
   private visibilityTimer = 0;
@@ -67,32 +65,49 @@ export class World {
   // ── Biome system ──────────────────────────────────────────────────────────
 
   getBiome(x: number, z: number): number {
-    const b = this.biomeNoise(x * 0.005, z * 0.005); // very low frequency noise for biomes
-    if (b < -0.4) return 4; // ocean
-    if (b < -0.1) return 0; // plains
-    if (b < 0.2)  return 2; // forest
-    if (b < 0.5)  return 1; // desert
+    const b = this.biomeNoise(x * 0.003, z * 0.003);
+    if (b < -0.45) return 4; // ocean
+    if (b < -0.1)  return 0; // plains
+    if (b < 0.2)   return 2; // forest
+    if (b < 0.45)  return 1; // desert
     return 3; // mountains
   }
 
-  // ── Terrain height ─────────────────────────────────────────────────────────
+  // ── Terrain height — MC 1.8 style ─────────────────────────────────────────
+  // Multi-octave noise producing terrain in range ~55-130 (sea level 62)
 
   private getHeight(wx: number, wz: number): number {
     const biome = this.getBiome(wx, wz);
-    const n1 = this.noise2D(wx * 0.035, wz * 0.035);
-    const n2 = this.noise2D(wx * 0.09,  wz * 0.09)  * 0.35;
-    const n3 = this.noise2D(wx * 0.018, wz * 0.018) * 0.65;
-    const n  = (n1 + n2 + n3) / 2;
 
-    // Adjust height range based on biome
-    let height = 0;
-    if (biome === 0) height = Math.floor(SEA_LEVEL + n * 5); // plains: 10-14
-    else if (biome === 1) height = Math.floor(SEA_LEVEL - 2 + n * 4); // desert: 8-12
-    else if (biome === 2) height = Math.floor(SEA_LEVEL + n * 8); // forest: 12-18
-    else if (biome === 3) height = Math.floor(SEA_LEVEL + 4 + n * 15); // mountains: 20-35
-    else if (biome === 4) height = Math.floor(SEA_LEVEL - 3 + n * 3); // ocean: 5-8
+    // Continental base shape (very low frequency)
+    const base = this.noise2D(wx * 0.008, wz * 0.008);
+    // Mid-frequency detail
+    const mid  = this.noise2D(wx * 0.025, wz * 0.025) * 0.5;
+    // Fine detail
+    const fine = this.noise2D2(wx * 0.08,  wz * 0.08)  * 0.2;
+    // Combined noise in range ~-1..1
+    const n = (base + mid + fine) / 1.7;
 
-    return height;
+    let height: number;
+    if (biome === 4) {
+      // Ocean: 45-61 (below sea level)
+      height = Math.round(45 + ((n + 1) * 0.5) * 16);
+      height = Math.min(height, 59); // always underwater
+    } else if (biome === 0) {
+      // Plains: 62-72 (flat, just above sea)
+      height = Math.round(63 + ((n + 1) * 0.5) * 9);
+    } else if (biome === 1) {
+      // Desert: 63-75
+      height = Math.round(63 + ((n + 1) * 0.5) * 12);
+    } else if (biome === 2) {
+      // Forest: 63-80
+      height = Math.round(63 + ((n + 1) * 0.5) * 17);
+    } else {
+      // Mountains: 70-128
+      height = Math.round(70 + ((n + 1) * 0.5) * 58);
+    }
+
+    return Math.max(1, Math.min(height, 254));
   }
 
   private getCaveNoise(x: number, y: number, z: number): number {
@@ -176,7 +191,7 @@ export class World {
   }
 
   private generateTerrain() {
-    const R = 3; // render distance in chunks (reduced from 4 for performance)
+    const R = 4; // render distance in chunks — 4 = 9x9 chunk grid
 
     // Pass 1: build a raw voxel map without adding to scene (integer keys)
     const rawBlocks = new Map<number, number>();
@@ -292,61 +307,60 @@ export class World {
         const wz = cz * CHUNK_SIZE + lz;
         const h  = this.getHeight(wx, wz);
         const biome = this.getBiome(wx, wz);
-        const isRiver = this.isRiver(wx, wz);
+        // Beach: within 2 of sea level on non-ocean biomes
+        const isBeach = biome !== 4 && h >= SEA_LEVEL - 2 && h <= SEA_LEVEL + 2;
+        // Snow cap: mountains above y=100
+        const isSnow = biome === 3 && h > 100;
 
         const setBlock = (y: number, type: number) => {
           rawBlocks.set(key(wx, y, wz), type);
           rawCoords.push([wx, y, wz]);
         };
 
+        // Bedrock y=0-4, then stone to surface with biome layers
         for (let y = 0; y <= h; y++) {
-          // Cave carving — skip blocks in cave regions
-          if (y > 0 && y < h - 1 && this.getCaveNoise(wx, y, wz) > 0.5) continue;
+          // Cave carving
+          if (y > 4 && y < h - 1 && this.getCaveNoise(wx, y, wz) > 0.5) continue;
 
           let type: number;
 
-          if (isRiver && y === 10 && h < SEA_LEVEL + 2) {
-            type = 7;
-          } else if (biome === 1) { // Desert
-            if (y === h) type = 4;
-            else if (y >= h - 2) type = 4;
-            else if (y <= 3) type = 18;
-            else type = 49;
-          } else if (biome === 3) { // Mountains
-            if (y === h) type = (h > 28) ? 20 : 1;
-            else if (y >= h - 2) type = 2;
-            else if (y <= 3) type = 18;
-            else type = 3;
-          } else if (biome === 4) { // Ocean
-            if (y <= 3) type = 18;
-            else type = 3;
-          } else { // Plains, Forest
-            if (y === h) type = 1;
-            else if (y >= h - 3) type = 2;
-            else if (y <= 3) type = 18;
-            else type = 3;
+          if (y <= 4) {
+            type = 3; // bedrock/stone base
+          } else if (biome === 1 || isBeach) {
+            // Desert / beach: all sand on top
+            if (y === h)         type = 4; // sand top
+            else if (y >= h - 3) type = 4; // sand layers
+            else                 type = 3; // stone
+          } else if (biome === 4) {
+            // Ocean floor: gravel/sand
+            if (y === h)         type = 12; // gravel
+            else if (y >= h - 1) type = 4;  // sand
+            else                 type = 3;
+          } else {
+            // Plains / Forest / Mountains
+            if (y === h) {
+              type = isSnow ? 20 : 1; // grass or snow
+            } else if (y >= h - 4) {
+              type = 2; // dirt
+            } else {
+              type = 3; // stone
+            }
           }
 
-          // Ore veins — use noise to create clusters instead of random single blocks
-          if (type === 3) {
-            // Vein noise: each ore type uses offset coordinates for unique patterns
+          // Ore veins (stone only, underground)
+          if (type === 3 && y < h - 4) {
             const vn = (ox: number, oz: number) =>
-              this.noise2D2(wx * 0.15 + ox, wz * 0.15 + oz + y * 0.15);
-            if (y <= 8 && vn(1000, 1000) > 0.65)       type = 61; // Diamond: rare, deep
-            else if (y <= 12 && vn(2000, 2000) > 0.55)  type = 13; // Gold: y<12
-            else if (y <= 25 && vn(3000, 3000) > 0.5)   type = 14; // Iron: common
-            else if (vn(4000, 4000) > 0.5)               type = 15; // Coal: everywhere
-            else if (y <= 20 && vn(5000, 5000) > 0.55)  type = 74; // Copper: mid-depth
-            else if (y <= 15 && vn(6000, 6000) > 0.6)   type = 75; // Lapis: uncommon
-            else if (y <= 5 && Math.random() < 0.005)    type = 19; // Glowstone: very deep
+              this.noise2D2(wx * 0.18 + ox, wz * 0.18 + oz + y * 0.18);
+            if      (y <= 16 && vn(100,100) > 0.72) type = 61; // Diamond (rare, y≤16)
+            else if (y <= 32 && vn(200,200) > 0.65) type = 13; // Gold (y≤32)
+            else if (y <= 64 && vn(300,300) > 0.58) type = 14; // Iron (y≤64)
+            else if (y <= 128 && vn(400,400) > 0.55) type = 15; // Coal (y≤128)
           }
-
-          if (type === 3 && y >= 3 && Math.random() < 0.008) type = 12; // Gravel
 
           setBlock(y, type);
         }
 
-        // Water fill
+        // Water fill for ocean / underwater land
         if (h < SEA_LEVEL) {
           for (let y = h + 1; y <= SEA_LEVEL; y++) {
             setBlock(y, 7);
@@ -372,46 +386,20 @@ export class World {
         const wz = cz * CHUNK_SIZE + lz;
         const h  = this.getHeight(wx, wz);
         const biome = this.getBiome(wx, wz);
+        if (h <= SEA_LEVEL) continue; // no decorations underwater
 
         if (biome === 0) { // Plains
-          if (h > SEA_LEVEL && h < SEA_LEVEL + 9 && Math.random() < 0.04) {
-            this.placeBlock(wx, h + 1, wz, 51, false);
-          }
-          if (h > SEA_LEVEL && h < SEA_LEVEL + 9 && Math.random() < 0.015) {
-            this.placeTree(wx, h + 1, wz);
-          }
+          if (Math.random() < 0.025) this.placeBlock(wx, h + 1, wz, 51, false); // flowers
+          if (Math.random() < 0.008) this.placeTree(wx, h + 1, wz); // sparse trees
         } else if (biome === 1) { // Desert
-          if (h > SEA_LEVEL && Math.random() < 0.06) {
-            if (Math.random() < 0.5) {
-              this.placeBlock(wx, h + 1, wz, 50, false);
-            } else {
-              this.placeBlock(wx, h + 1, wz, 52, false);
-            }
-          }
-          // Palm trees - rare, near sea level in desert
-          if (h > SEA_LEVEL && h < SEA_LEVEL + 4 && Math.random() < 0.008) {
-            this.placePalmTree(wx, h + 1, wz);
-          }
-        } else if (biome === 2) { // Forest
-          if (h > SEA_LEVEL && h < SEA_LEVEL + 9 && Math.random() < 0.08) {
-            // Mix of oak and birch in forest
-            if (Math.random() < 0.35) {
-              this.placeBirchTree(wx, h + 1, wz);
-            } else {
-              this.placeTree(wx, h + 1, wz);
-            }
-          }
-          if (h > SEA_LEVEL && h < SEA_LEVEL + 9 && Math.random() < 0.05) {
-            this.placeBlock(wx, h + 1, wz, 51, false);
-          }
+          if (Math.random() < 0.04) this.placeBlock(wx, h + 1, wz, 50, false); // cactus
+          if (Math.random() < 0.03) this.placeBlock(wx, h + 1, wz, 52, false); // dead bush
+        } else if (biome === 2) { // Forest — dense trees
+          if (Math.random() < 0.10) this.placeTree(wx, h + 1, wz);
+          if (Math.random() < 0.03) this.placeBlock(wx, h + 1, wz, 51, false);
         } else if (biome === 3) { // Mountains
-          if (h > SEA_LEVEL + 5 && Math.random() < 0.03) {
-            this.placeRocks(wx, h + 1, wz);
-          }
-          // Pine trees at lower mountain elevations
-          if (h > SEA_LEVEL && h < SEA_LEVEL + 12 && Math.random() < 0.04) {
-            this.placePineTree(wx, h + 1, wz);
-          }
+          if (h < 100 && Math.random() < 0.04) this.placePineTree(wx, h + 1, wz);
+          if (Math.random() < 0.02) this.placeRocks(wx, h + 1, wz);
         }
       }
     }
@@ -755,11 +743,13 @@ export class World {
 
   /** Y of the top face of the highest non-liquid solid block at (x, z). */
   getSurfaceHeight(x: number, z: number): number {
-    for (let y = WORLD_HEIGHT + 5; y >= 0; y--) {
+    // Scan down from max world height
+    for (let y = 200; y >= 0; y--) {
       const type = this.blockData.get(key(x, y, z));
-      if (type !== undefined && type !== 7 && type !== 9 && type !== 21) return y;
+      if (type !== undefined && type !== 0 && type !== 7 && type !== 9 && type !== 21) return y;
     }
-    return SEA_LEVEL;
+    // Fallback: use noise height
+    return this.getHeight(x, z);
   }
 
   getSpawnHeight(x: number, z: number, radius = 2): number {

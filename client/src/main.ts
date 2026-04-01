@@ -38,7 +38,7 @@ window.addEventListener("resize", () => {
 
 const scene  = new THREE.Scene();
 scene.background = null; // sky dome renders the background
-scene.fog        = new THREE.Fog(0x87ceeb, 55, 96); // reduced far from 160 to match render distance
+scene.fog        = new THREE.Fog(0x87ceeb, 80, 140); // MC-style fog, render distance R=4 chunks
 
 const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 500);
 
