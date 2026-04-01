@@ -77,6 +77,11 @@ export class Player {
   private prevXZ      = new THREE.Vector2();
   thirdPerson         = false;
 
+  // Head bob state
+  private headBobPhase = 0;
+  private headBobIntensity = 0;
+  private cameraRoll = 0;
+
   // First-person arm
   private fpArm: THREE.Group | null = null;
   private fpArmGroup: THREE.Group | null = null; // attached to camera
@@ -718,9 +723,33 @@ export class Player {
       this.camera.lookAt(this.position.x, this.position.y - 0.3, this.position.z);
     } else {
       this.camera.position.copy(this.position);
+
+      // Head bob — calculate movement speed without allocating
+      const _dx = this.position.x - this.prevXZ.x;
+      const _dz = this.position.z - this.prevXZ.y;
+      const moveSpeed = Math.sqrt(_dx * _dx + _dz * _dz) * 60; // approximate per-second speed
+
+      const sprinting = this.keys["ControlLeft"] && this.gameMode === "survival";
+      const bobTarget = (this.onGround && moveSpeed > 0.5) ? Math.min(moveSpeed / 6, 1.0) : 0;
+      this.headBobIntensity += (bobTarget - this.headBobIntensity) * 0.1;
+
+      if (this.headBobIntensity > 0.01) {
+        const bobSpeed = sprinting ? 14 : 10;
+        this.headBobPhase += bobSpeed * (1 / 60); // assume ~60fps tick
+        const bobX = Math.sin(this.headBobPhase) * 0.015 * this.headBobIntensity;
+        const bobY = Math.abs(Math.sin(this.headBobPhase * 2)) * 0.02 * this.headBobIntensity;
+        this.camera.position.x += bobX;
+        this.camera.position.y += bobY;
+      }
+
+      // Sprint camera tilt (subtle roll)
+      const tiltTarget = sprinting && moveSpeed > 1 ? 0.015 : 0;
+      this.cameraRoll += (tiltTarget - this.cameraRoll) * 0.08;
+
       this.camera.rotation.order = "YXZ";
       this.camera.rotation.y = this.yaw;
       this.camera.rotation.x = this.pitch;
+      this.camera.rotation.z = this.cameraRoll;
     }
   }
 

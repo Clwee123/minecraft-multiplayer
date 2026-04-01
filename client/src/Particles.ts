@@ -118,6 +118,33 @@ export class Particles {
     }
   }
 
+  /** Floating dust mote in sunlight — slow drift, warm color. */
+  dustMote(x: number, y: number, z: number) {
+    this.acquire(
+      x, y, z,
+      0xffeecc,
+      (Math.random() - 0.5) * 0.2,
+      0.05 + Math.random() * 0.15,
+      (Math.random() - 0.5) * 0.2,
+      3.0 + Math.random() * 2.0,
+      0.3,
+    );
+  }
+
+  /** Firefly — small emissive yellow-green, slow random drift. */
+  firefly(x: number, y: number, z: number) {
+    this.acquire(
+      x, y, z,
+      0xaaff44,
+      (Math.random() - 0.5) * 0.5,
+      (Math.random() - 0.5) * 0.3,
+      (Math.random() - 0.5) * 0.5,
+      2.5 + Math.random() * 2.0,
+      0.4,
+      true, // emissive
+    );
+  }
+
   /** Underwater bubble particles rising from player. */
   bubbles(x: number, y: number, z: number, count = 3) {
     for (let i = 0; i < count; i++) {

@@ -24,7 +24,7 @@
 - Sun/moon halos
 
 ## Goal 2: Underwater Visual Effects
-**Status**: TODO
+**Status**: DONE
 - Blue-green color overlay when camera is below water level
 - Reduced fog distance underwater
 - Distortion/waviness post-processing effect (simple UV offset)

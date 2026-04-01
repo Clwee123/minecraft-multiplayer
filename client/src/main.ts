@@ -351,6 +351,7 @@ let lastDeathPos = new THREE.Vector3();
 // ── Campfire timer ──────────────────────────────────────────────────────────────
 
 let campfireTimer = 0;
+let ambientParticleTimer = 0;
 let prevWaterState = false;
 
 // ── Command handler ───────────────────────────────────────────────────────────
@@ -1401,6 +1402,40 @@ function animate() {
       mobManager.update(dt);
     }
     particles.update(dt);
+
+    // Ambient particles — dust motes in sunlight, fireflies at night
+    ambientParticleTimer += dt;
+    if (ambientParticleTimer > 0.5) {
+      ambientParticleTimer = 0;
+      const sunAngle = (dayTime - 0.25) * Math.PI * 2;
+      const sunUp = Math.sin(sunAngle);
+
+      if (sunUp > 0.2) {
+        // Daytime: floating dust motes in sunlight
+        for (let i = 0; i < 2; i++) {
+          const ox = (Math.random() - 0.5) * 16;
+          const oy = Math.random() * 6 + 1;
+          const oz = (Math.random() - 0.5) * 16;
+          particles.dustMote(
+            player.position.x + ox,
+            player.position.y + oy,
+            player.position.z + oz,
+          );
+        }
+      } else if (sunUp < -0.1) {
+        // Nighttime: fireflies near ground
+        for (let i = 0; i < 3; i++) {
+          const ox = (Math.random() - 0.5) * 20;
+          const oz = (Math.random() - 0.5) * 20;
+          particles.firefly(
+            player.position.x + ox,
+            player.position.y - 1 + Math.random() * 3,
+            player.position.z + oz,
+          );
+        }
+      }
+    }
+
     tickWater(now / 1000);
     weather.update(dt, player.position, (scene.fog as THREE.Fog).color);
     itemDrops.update(dt, player.position);
