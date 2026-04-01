@@ -21,6 +21,11 @@ export class UI {
   private craftingPanel: HTMLElement | null = null;
   private inventoryPanel: HTMLElement | null = null;
   private xpBarEl: HTMLElement | null = null;
+  private xpLevelEl: HTMLElement | null = null;
+  private dayCounterEl: HTMLElement | null = null;
+  private dayNotifyEl: HTMLElement | null = null;
+  private _lastLevel = -1;
+  private _lastDay = -1;
   private debugScreenEl: HTMLElement | null = null;
   private debugVisible = false;
 
@@ -282,9 +287,10 @@ export class UI {
     this.hungerEl.style.display = hideBars ? "none" : "flex";
   }
 
-  // ── XP Bar ────────────────────────────────────────────────────────────────
+  // ── XP Bar (polished) ──────────────────────────────────────────────────────
 
   private buildXPBar() {
+    // XP bar container
     this.xpBarEl = document.createElement("div");
     this.xpBarEl.id = "xp-bar";
     this.xpBarEl.style.cssText = `
@@ -293,38 +299,86 @@ export class UI {
       left: 50%;
       transform: translateX(-50%);
       width: 300px;
-      height: 8px;
-      background: #000;
-      border: 1px solid #555;
+      height: 6px;
+      background: rgba(0,0,0,0.7);
+      border: 1px solid #333;
+      border-radius: 3px;
       z-index: 100;
+      overflow: hidden;
+      box-shadow: 0 0 4px rgba(0,0,0,0.5);
     `;
     const barFill = document.createElement("div");
     barFill.id = "xp-bar-fill";
     barFill.style.cssText = `
       width: 0%;
       height: 100%;
-      background: #88ff44;
-      transition: width 0.1s;
+      background: linear-gradient(180deg, #a8ff44, #66cc22);
+      transition: width 0.3s ease-out;
+      border-radius: 3px;
+      box-shadow: 0 0 6px rgba(136, 255, 68, 0.4);
     `;
     this.xpBarEl.appendChild(barFill);
 
+    // Level number badge (centered above bar)
     const levelLabel = document.createElement("div");
     levelLabel.id = "xp-level";
-    levelLabel.textContent = "Level 0";
+    levelLabel.textContent = "0";
     levelLabel.style.cssText = `
       position: absolute;
-      bottom: 10px;
+      bottom: 67px;
       left: 50%;
       transform: translateX(-50%);
       color: #88ff44;
-      font-family: Arial, sans-serif;
-      font-size: 14px;
+      font-family: 'Courier New', monospace;
+      font-size: 13px;
       font-weight: bold;
       z-index: 100;
+      text-shadow: 0 0 4px rgba(136,255,68,0.5), 1px 1px 0 #000;
+      transition: transform 0.2s ease-out, color 0.3s;
+    `;
+    this.xpLevelEl = levelLabel;
+
+    // Day counter (top-center)
+    this.dayCounterEl = document.createElement("div");
+    this.dayCounterEl.id = "day-counter";
+    this.dayCounterEl.textContent = "Day 1";
+    this.dayCounterEl.style.cssText = `
+      position: absolute;
+      top: 8px;
+      left: 50%;
+      transform: translateX(-50%);
+      color: rgba(255,255,255,0.7);
+      font-family: 'Courier New', monospace;
+      font-size: 13px;
+      font-weight: bold;
+      z-index: 100;
+      text-shadow: 1px 1px 2px rgba(0,0,0,0.8);
+      pointer-events: none;
+    `;
+
+    // Day transition notification (center screen, fades out)
+    this.dayNotifyEl = document.createElement("div");
+    this.dayNotifyEl.id = "day-notify";
+    this.dayNotifyEl.style.cssText = `
+      position: absolute;
+      top: 30%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      color: rgba(255,255,200,0.9);
+      font-family: 'Courier New', monospace;
+      font-size: 22px;
+      font-weight: bold;
+      z-index: 200;
+      text-shadow: 0 0 8px rgba(255,200,50,0.5), 2px 2px 0 rgba(0,0,0,0.8);
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 1.5s ease-out;
     `;
 
     document.body.appendChild(this.xpBarEl);
     document.body.appendChild(levelLabel);
+    document.body.appendChild(this.dayCounterEl);
+    document.body.appendChild(this.dayNotifyEl);
   }
 
   updateXP(xp: number, level: number) {
@@ -334,8 +388,43 @@ export class UI {
     const percent = Math.min(100, (xpInLevel / xpForLevel) * 100);
     const barFill = this.xpBarEl.querySelector("#xp-bar-fill") as HTMLElement;
     if (barFill) barFill.style.width = percent + "%";
-    const levelLabel = document.querySelector("#xp-level") as HTMLElement;
-    if (levelLabel) levelLabel.textContent = `Level ${level}`;
+
+    if (this.xpLevelEl) {
+      this.xpLevelEl.textContent = `${level}`;
+      // Level-up glow animation
+      if (level > this._lastLevel && this._lastLevel >= 0) {
+        this.xpLevelEl.style.transform = "translateX(-50%) scale(1.5)";
+        this.xpLevelEl.style.color = "#ffff44";
+        // Glow the bar too
+        if (barFill) barFill.style.boxShadow = "0 0 16px rgba(255,255,68,0.8)";
+        setTimeout(() => {
+          if (this.xpLevelEl) {
+            this.xpLevelEl.style.transform = "translateX(-50%) scale(1)";
+            this.xpLevelEl.style.color = "#88ff44";
+          }
+          if (barFill) barFill.style.boxShadow = "0 0 6px rgba(136,255,68,0.4)";
+        }, 500);
+      }
+      this._lastLevel = level;
+    }
+  }
+
+  updateDayCounter(day: number) {
+    if (day === this._lastDay) return;
+    if (this.dayCounterEl) {
+      this.dayCounterEl.textContent = `Day ${day}`;
+    }
+    // Show notification on day change (skip first)
+    if (this._lastDay >= 1 && this.dayNotifyEl) {
+      this.dayNotifyEl.textContent = `Day ${day}`;
+      this.dayNotifyEl.style.opacity = "1";
+      this.dayNotifyEl.style.transition = "none"; // reset
+      // Force reflow then fade out
+      void this.dayNotifyEl.offsetWidth;
+      this.dayNotifyEl.style.transition = "opacity 2.5s ease-out";
+      this.dayNotifyEl.style.opacity = "0";
+    }
+    this._lastDay = day;
   }
 
   // ── Inventory ─────────────────────────────────────────────────────────────
@@ -1401,6 +1490,8 @@ Blocks: ${info.blockCount}`;
     this.chatMsgsEl.style.display = "none";
     this.blockNameEl.style.display = "none";
     if (this.xpBarEl) this.xpBarEl.style.display = "none";
+    if (this.xpLevelEl) this.xpLevelEl.style.display = "none";
+    if (this.dayCounterEl) this.dayCounterEl.style.display = "none";
   }
 
   showHUD(): void {
@@ -1414,5 +1505,7 @@ Blocks: ${info.blockCount}`;
     this.chatMsgsEl.style.display = "block";
     this.blockNameEl.style.display = "block";
     if (this.xpBarEl) this.xpBarEl.style.display = "block";
+    if (this.xpLevelEl) this.xpLevelEl.style.display = "block";
+    if (this.dayCounterEl) this.dayCounterEl.style.display = "block";
   }
 }

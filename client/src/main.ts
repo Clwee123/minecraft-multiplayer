@@ -225,6 +225,7 @@ const world     = new World(scene);
 const player    = new Player(camera, world, scene);
 scene.add(camera); // needed so fp arm (camera child) renders
 const ui        = new UI();
+ui.updateDayCounter(dayCount);
 
 // ── Mobile controls (touch joystick + look + buttons) ────────────────────────
 let mobileControls: MobileControls | null = null;
@@ -259,6 +260,9 @@ let dragonMob: any = null;
 
 let xp = 0;
 let xpLevel = 0;
+
+// ── Day Counter ──────────────────────────────────────────────────────────────
+let dayCount = 1;
 
 // ── Achievement System ────────────────────────────────────────────────────────
 
@@ -1807,6 +1811,8 @@ function animate() {
 
     // ── Day/Night ambient events ───────────────────────────────────────────────
     if (prevDayTime < 0.22 && dayTime >= 0.22) {
+      dayCount++;
+      ui.updateDayCounter(dayCount);
       ui.addChatMessage("", "Dawn breaks...", true);
       sounds.playAmbient("birds");
       sounds.setAmbientMood("day");

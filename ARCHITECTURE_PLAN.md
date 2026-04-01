@@ -143,7 +143,7 @@
 ---
 
 ## Goal 20: Block Highlight Outline
-**Status**: IN PROGRESS
+**Status**: DONE
 - Show a wireframe cube outline around the block the player is looking at
 - Outline color changes based on whether the block can be broken
 - Smooth fade-in/out when switching targets
