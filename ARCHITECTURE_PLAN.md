@@ -63,7 +63,7 @@
 ---
 
 ## Goal 7: Improved Water Rendering
-**Status**: IN PROGRESS
+**Status**: DONE
 - Animated water surface with vertex displacement (wave effect)
 - Water surface reflection/sheen
 - Semi-transparent water blocks with depth-fade

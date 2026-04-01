@@ -81,22 +81,38 @@ scene.add(moonMesh);
 const skyDome = new SkyDome();
 scene.add(skyDome.mesh);
 
-// Clouds (simple flat boxes drifting)
-const clouds: THREE.Mesh[] = [];
-const cloudMat = new THREE.MeshLambertMaterial({ color: 0xffffff, transparent: true, opacity: 0.82 });
-for (let i = 0; i < 18; i++) {
-  const w   = 8  + Math.random() * 14;
-  const d   = 5  + Math.random() * 8;
-  const geo = new THREE.BoxGeometry(w, 1.2, d);
-  const c   = new THREE.Mesh(geo, cloudMat);
-  c.position.set(
-    (Math.random() - 0.5) * 200,
-    28 + Math.random() * 8,
-    (Math.random() - 0.5) * 200,
+// Clouds — layered box clusters for volumetric look
+const clouds: THREE.Group[] = [];
+const cloudMat = new THREE.MeshLambertMaterial({
+  color: 0xffffff, transparent: true, opacity: 0.78,
+  depthWrite: false,
+});
+for (let i = 0; i < 24; i++) {
+  const group = new THREE.Group();
+  // Each cloud is a cluster of 3-6 overlapping boxes
+  const clusterSize = 3 + Math.floor(Math.random() * 4);
+  for (let j = 0; j < clusterSize; j++) {
+    const w = 4 + Math.random() * 8;
+    const d = 3 + Math.random() * 6;
+    const h = 0.8 + Math.random() * 0.8;
+    const geo = new THREE.BoxGeometry(w, h, d);
+    const piece = new THREE.Mesh(geo, cloudMat);
+    piece.position.set(
+      (Math.random() - 0.5) * 12,
+      (Math.random() - 0.5) * 1.5,
+      (Math.random() - 0.5) * 8,
+    );
+    piece.castShadow = false;
+    piece.receiveShadow = false;
+    group.add(piece);
+  }
+  group.position.set(
+    (Math.random() - 0.5) * 250,
+    30 + Math.random() * 10,
+    (Math.random() - 0.5) * 250,
   );
-  c.castShadow = false;
-  scene.add(c);
-  clouds.push(c);
+  scene.add(group);
+  clouds.push(group);
 }
 
 // ── Lighting ──────────────────────────────────────────────────────────────────
@@ -142,7 +158,7 @@ function updateDayNight(dt: number) {
 
   // Cloud drift every frame
   for (const c of clouds) {
-    c.position.x = ((c.position.x + 0.015 * dt * 20) % 200) - 100;
+    c.position.x = ((c.position.x + 0.015 * dt * 20 + 125) % 250) - 125;
   }
 
   // Sky/lighting updates — throttle to every 3 frames (imperceptible at 60fps)
@@ -199,9 +215,8 @@ function updateDayNight(dt: number) {
   sunMesh.visible  =  isSunUp;
   moonMesh.visible = !isSunUp;
 
-  for (const c of clouds) {
-    (c.material as THREE.MeshLambertMaterial).opacity = ambientIntensity > 0.2 ? 0.82 : 0;
-  }
+  // Hide clouds at night, show during day — use shared material opacity
+  cloudMat.opacity = ambientIntensity > 0.2 ? 0.78 : 0;
 }
 
 // ── Core objects ──────────────────────────────────────────────────────────────
