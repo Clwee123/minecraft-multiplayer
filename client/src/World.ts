@@ -23,6 +23,7 @@ export class World {
   // ── Instance mesh system ────────────────────────────────────────────────
   private instancedMeshes: Map<number, THREE.InstancedMesh> = new Map();
   private instanceCount:   Map<number, number>              = new Map();
+  private _dirtyMeshes:  Set<number>                         = new Set(); // types needing GPU upload
   private instanceIndex:   Map<number, number>              = new Map(); // intKey -> meshIdx
   private instanceRevIndex: Map<string, number>             = new Map(); // "type:idx" -> intKey
   private blockData:       Map<number, number>              = new Map(); // intKey -> blockType
@@ -256,23 +257,31 @@ export class World {
   }
 
   // ── Dynamic chunk loading ─────────────────────────────────────────────────
+  /** Generate new chunks around player — processes ONE chunk per call to avoid frame stutter. */
   generateAroundPlayer(px: number, pz: number) {
     const R   = 3;
     const cx0 = Math.floor(px / CHUNK_SIZE);
     const cz0 = Math.floor(pz / CHUNK_SIZE);
 
-    const rawBlocks = new Map<number, number>();
-    const rawCoords: Array<[number,number,number]> = [];
-
+    // Find ONE ungenerated chunk (closest first)
+    let bestCx = 0, bestCz = 0, bestDist = Infinity, found = false;
     for (let cx = cx0-R; cx <= cx0+R; cx++) {
       for (let cz = cz0-R; cz <= cz0+R; cz++) {
-        const ck = `${cx},${cz}`;
-        if (this.generatedChunks.has(ck)) continue;
-        this.generatedChunks.add(ck);
-        this.generateChunkRaw(cx, cz, rawBlocks, rawCoords);
+        if (this.generatedChunks.has(`${cx},${cz}`)) continue;
+        const d = (cx-cx0)*(cx-cx0) + (cz-cz0)*(cz-cz0);
+        if (d < bestDist) { bestDist = d; bestCx = cx; bestCz = cz; found = true; }
       }
     }
+    if (!found) return; // all chunks already generated
 
+    const ck = `${bestCx},${bestCz}`;
+    this.generatedChunks.add(ck);
+
+    const rawBlocks = new Map<number, number>();
+    const rawCoords: Array<[number,number,number]> = [];
+    this.generateChunkRaw(bestCx, bestCz, rawBlocks, rawCoords);
+
+    // Face-cull pass for this chunk
     for (const [x, y, z] of rawCoords) {
       const k    = key(x, y, z);
       const type = rawBlocks.get(k)!;
@@ -289,13 +298,11 @@ export class World {
       else this.blockData.set(k, type);
     }
 
-    for (let cx = cx0-R; cx <= cx0+R; cx++) {
-      for (let cz = cz0-R; cz <= cz0+R; cz++) {
-        const dk = `${cx},${cz}_dec`;
-        if (this.generatedChunks.has(dk)) continue;
-        this.generatedChunks.add(dk);
-        this.generateChunkDecorations(cx, cz, rawBlocks);
-      }
+    // Decorations for this chunk
+    const dk = `${bestCx},${bestCz}_dec`;
+    if (!this.generatedChunks.has(dk)) {
+      this.generatedChunks.add(dk);
+      this.generateChunkDecorations(bestCx, bestCz, rawBlocks);
     }
   }
 
@@ -383,7 +390,7 @@ export class World {
     World._mat4.setPosition(x + 0.5, y + yOff, z + 0.5);
     mesh.setMatrixAt(idx, World._mat4);
     mesh.count = idx + 1;
-    mesh.instanceMatrix.needsUpdate = true;
+    this._dirtyMeshes.add(type); // batch GPU upload
 
     this.instanceIndex.set(k, idx);
     this.instanceRevIndex.set(`${type}:${idx}`, k);
@@ -429,7 +436,7 @@ export class World {
     World._mat4.setPosition(x + 0.5, y + 0.5, z + 0.5);
     mesh.setMatrixAt(idx, World._mat4);
     mesh.count = idx + 1;
-    mesh.instanceMatrix.needsUpdate = true;
+    this._dirtyMeshes.add(type);
     this.instanceIndex.set(k, idx);
     this.instanceRevIndex.set(`${type}:${idx}`, k);
     this.instanceCount.set(type, idx + 1);
@@ -777,6 +784,16 @@ export class World {
   }
 
   // ── Save/Load system ──────────────────────────────────────────────────────
+
+
+  /** Call once per frame to flush all dirty instance matrices to GPU in one batch. */
+  flushDirtyMeshes() {
+    for (const type of this._dirtyMeshes) {
+      const mesh = this.instancedMeshes.get(type);
+      if (mesh) mesh.instanceMatrix.needsUpdate = true;
+    }
+    this._dirtyMeshes.clear();
+  }
 
   saveToStorage(playerState?: {
     inventory: number[]; invCount: number[];

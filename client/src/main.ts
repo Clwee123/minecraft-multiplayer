@@ -1954,15 +1954,11 @@ function animate() {
       }
     }
 
-    // Dynamic chunk loading — every 3s in singleplayer
+    // Dynamic chunk loading — 1 chunk per frame, no stutter
     if (isSingleplayer) {
+      world.generateAroundPlayer(player.position.x, player.position.z);
+      // Also update minimap timer
       minimapTimer += dt;
-      if (minimapTimer > 4) {
-        minimapTimer = 0;
-        // Generate chunks async-ish: defer to next frame to avoid main thread stall
-        const px = player.position.x, pz = player.position.z;
-        setTimeout(() => world.generateAroundPlayer(px, pz), 0);
-      }
     }
     updateDayNight(dt);
 
@@ -2543,6 +2539,7 @@ function animate() {
     camera.position.y += shakeY;
   }
 
+  world.flushDirtyMeshes(); // batch GPU matrix uploads
   renderer.render(scene, camera);
 
   // Reset clear color if it was flashed
