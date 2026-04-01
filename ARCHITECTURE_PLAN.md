@@ -106,12 +106,24 @@
 ---
 
 ## Goal 15: Smooth Camera Transition on Death/Respawn
-**Status**: TODO
+**Status**: DONE
 - Camera slowly rotates on death (death cam effect)
 - Fade to black on respawn, fade back in at spawn
 
 ## Goal 16: Biome-Specific Fog Colors
 **Status**: DONE
+
+---
+
+## Goal 17: Sprint Speed Lines Effect
+**Status**: IN PROGRESS
+- White radial lines on screen edges when sprinting
+- Intensity increases with sprint duration
+
+## Goal 18: Improved Hotbar with Tooltip Preview
+**Status**: TODO
+- Show block name tooltip on hotbar hover
+- Selected slot glow animation
 - Desert biome: warm sandy fog
 - Ocean biome: blue-tinted fog
 - Forest biome: slightly green-tinted fog

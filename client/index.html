@@ -436,6 +436,12 @@
   </div>
 
   <!-- ── SCREEN OVERLAYS ──────────────────────────────────────────── -->
+  <div id="speedLines" style="
+    position:fixed;inset:0;z-index:8;pointer-events:none;
+    background:radial-gradient(ellipse at center,transparent 50%,rgba(255,255,255,0.08) 100%);
+    opacity:0;transition:opacity 0.3s ease;
+    mix-blend-mode:screen;
+  "></div>
   <div id="screenFade" style="
     position:fixed;inset:0;z-index:200;pointer-events:none;
     background:#000;opacity:0;transition:opacity 0.5s ease;

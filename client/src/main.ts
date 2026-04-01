@@ -588,6 +588,7 @@ const WATER_FOG_COLOR = new THREE.Color(0x0a3c64);
 
 // ── Post-processing overlays ────────────────────────────────────────────────
 const damageFlash       = document.getElementById("damageFlash")!;
+const speedLinesEl      = document.getElementById("speedLines")!;
 const lowHealthVignette = document.getElementById("lowHealthVignette")!;
 let damageFlashTimer = 0;
 let prevPlayerHealth = 40;
@@ -1836,6 +1837,10 @@ function animate() {
     ui.updateTime(dayTime);
     updatePostEffects(dt, player.health, player.maxHealth);
     updateCrosshair(player.getBreakProgress());
+
+    // Speed lines when sprinting
+    const isSprinting = (player as any).keys?.["ControlLeft"] && player.velocity.lengthSq() > 4;
+    speedLinesEl.style.opacity = isSprinting ? "0.7" : "0";
 
     // Center sun/moon/clouds around player
     sunMesh.position.x  += (player.position.x - sunMesh.position.x) * 0.02;
