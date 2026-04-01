@@ -139,3 +139,27 @@
 - Volumetric-ish flat clouds with noise-based shapes
 - Clouds cast soft shadows on terrain
 - Cloud density varies with weather
+
+---
+
+## Goal 20: Block Highlight Outline
+**Status**: IN PROGRESS
+- Show a wireframe cube outline around the block the player is looking at
+- Outline color changes based on whether the block can be broken
+- Smooth fade-in/out when switching targets
+- Works in all game modes
+
+## Goal 21: Experience Bar Polish & Day Counter HUD
+**Status**: PENDING
+- Polished XP bar with level number, smooth fill animation, glow on level-up
+- Day counter display showing survived days (Day 1, Day 2, etc.)
+- Day transition notification ("Day 2 has begun")
+- Compact HUD placement
+
+## Goal 22: Chest Inventory UI
+**Status**: PENDING
+- Open chest with right-click interaction
+- Grid-based chest inventory (27 slots like Minecraft)
+- Click to move items between chest and player hotbar
+- Visual chest open/close animation
+- Items persist per-chest in world data

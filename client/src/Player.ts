@@ -59,6 +59,11 @@ export class Player {
   selectedBlockType = 1;
   private raycaster = new THREE.Raycaster();
   highlightMesh: THREE.Mesh;
+  // Block outline (EdgesGeometry for clean cube outline)
+  private outlineMesh: THREE.LineSegments;
+  private outlineOpacity = 0; // smooth fade in/out
+  private outlineTarget  = 0; // 1 when block targeted, 0 otherwise
+  private _lastOutlineKey = ""; // "x,y,z" of last targeted block
 
   // Block breaking animation
   private breakProgress = 0;
@@ -170,11 +175,22 @@ export class Player {
 
     const geo = new THREE.BoxGeometry(1.02, 1.02, 1.02);
     const mat = new THREE.MeshBasicMaterial({
-      color: 0x000000, wireframe: true, transparent: true, opacity: 0.45,
+      color: 0x000000, wireframe: true, transparent: true, opacity: 0.0,
     });
     this.highlightMesh = new THREE.Mesh(geo, mat);
     this.highlightMesh.visible = false;
     scene.add(this.highlightMesh);
+
+    // Clean block outline using EdgesGeometry (12 edges of a cube)
+    const outlineGeo = new THREE.EdgesGeometry(new THREE.BoxGeometry(1.005, 1.005, 1.005));
+    const outlineMat = new THREE.LineBasicMaterial({
+      color: 0x000000, transparent: true, opacity: 0.0, linewidth: 1,
+      depthTest: true,
+    });
+    this.outlineMesh = new THREE.LineSegments(outlineGeo, outlineMat);
+    this.outlineMesh.visible = false;
+    this.outlineMesh.renderOrder = 999;
+    scene.add(this.outlineMesh);
 
     this.selfModel = this.buildModel(scene);
     this.selfModel.visible = false;
@@ -805,15 +821,46 @@ export class Player {
   private updateHighlight() {
     const hit = this.raycast();
     if (hit) {
-      // Use pre-allocated vec — no heap allocation
-      this.highlightMesh.position.set(
-        hit.blockX + 0.5,
-        hit.blockY + 0.5,
-        hit.blockZ + 0.5,
-      );
-      this.highlightMesh.visible = true;
+      const bx = hit.blockX + 0.5;
+      const by = hit.blockY + 0.5;
+      const bz = hit.blockZ + 0.5;
+      this.highlightMesh.position.set(bx, by, bz);
+      this.highlightMesh.visible = false; // hide old wireframe, use outline instead
+
+      // Position outline
+      this.outlineMesh.position.set(bx, by, bz);
+      this.outlineTarget = 1;
+
+      // Detect target change for instant feedback
+      const key = `${hit.blockX},${hit.blockY},${hit.blockZ}`;
+      if (key !== this._lastOutlineKey) {
+        this._lastOutlineKey = key;
+        this.outlineOpacity = 0.35; // instant partial show on new target
+      }
     } else {
       this.highlightMesh.visible = false;
+      this.outlineTarget = 0;
+      this._lastOutlineKey = "";
+    }
+
+    // Smooth fade for outline
+    const fadeSpeed = 8;
+    const dt = 1 / 60; // approximate frame dt for highlight update
+    if (this.outlineTarget > 0) {
+      this.outlineOpacity = Math.min(1, this.outlineOpacity + fadeSpeed * dt);
+    } else {
+      this.outlineOpacity = Math.max(0, this.outlineOpacity - fadeSpeed * dt);
+    }
+    const mat = this.outlineMesh.material as THREE.LineBasicMaterial;
+    mat.opacity = this.outlineOpacity * 0.6;
+    this.outlineMesh.visible = this.outlineOpacity > 0.01;
+
+    // Color: black normally, red-ish for bedrock/unbreakable in survival
+    if (hit && this.gameMode === "survival") {
+      const bt = this.world.getBlockType(hit.blockX, hit.blockY, hit.blockZ);
+      mat.color.setHex(bt === 12 ? 0xff3333 : 0x000000); // bedrock = red
+    } else {
+      mat.color.setHex(0x000000);
     }
   }
 
