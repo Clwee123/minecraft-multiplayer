@@ -89,6 +89,10 @@ export const BLOCK_TYPES: Record<number, {
   76: { name: "Copper Ingot",   color: 0xdd8844, solid: false },
   77: { name: "Lapis Lazuli",   color: 0x2255cc, solid: false },
   78: { name: "Ladder",          color: 0xc8a464, solid: false, transparent: true },
+  79: { name: "Oak Fence",       color: 0xc8a464, transparent: true },
+  80: { name: "Fence Gate",      color: 0xc8a464, transparent: true, solid: false },
+  81: { name: "Stone Bricks",    color: 0x7a7a7a },
+  82: { name: "Mossy Stone Bricks", color: 0x5a7a5a },
 
   // ── Crafting materials & tools ────────────────────────────────────────────
   280: { name: "Stick",             color: 0xc8a464, solid: false },

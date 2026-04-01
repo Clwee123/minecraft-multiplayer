@@ -1005,6 +1005,10 @@ async function startGame(name: string) {
       74: { item: 76, count: [2,3] },      // copper ore -> 2-3 copper ingot
       75: { item: 77, count: [4,8] },      // lapis ore -> 4-8 lapis lazuli
       78: { item: 78, count: 1 },          // ladder -> ladder
+      79: { item: 79, count: 1 },          // fence -> fence
+      80: { item: 80, count: 1 },          // fence gate -> fence gate
+      81: { item: 81, count: 1 },          // stone bricks
+      82: { item: 82, count: 1 },          // mossy stone bricks
     };
     const dropDef = drops[b.type];
     if (dropDef) {
@@ -1614,6 +1618,9 @@ async function startGame(name: string) {
     planks_to_slab:   { ingredients: { 10: 3 },          output: { type: 10,  count: 4 } },
     sand_to_glass:    { ingredients: { 4: 1 },            output: { type: 9,   count: 1 } },
     ladder:           { ingredients: { 280: 7 },           output: { type: 78,  count: 3 } },
+    oak_fence:        { ingredients: { 10: 4, 280: 2 },   output: { type: 79,  count: 3 } },
+    fence_gate:       { ingredients: { 280: 4, 10: 2 },   output: { type: 80,  count: 1 } },
+    stone_bricks:     { ingredients: { 3: 4 },             output: { type: 81,  count: 4 } },
   };
 
   ui.onCraft = (recipeId) => {

@@ -202,3 +202,10 @@
 - Ore veins using noise-based clusters instead of random single blocks
 - Added copper ore and lapis lazuli ore with drops
 - Better ore depth distribution matching Minecraft conventions
+
+## Goal 28: Ladder Block & Climbing
+**Status**: DONE
+- Ladder block type (transparent, non-solid, climbable)
+- Space to climb up, Shift to climb down
+- Reduced horizontal speed on ladder for stability
+- Crafting recipe: 7 sticks -> 3 ladders

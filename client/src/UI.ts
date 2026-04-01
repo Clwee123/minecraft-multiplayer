@@ -686,6 +686,9 @@ export class UI {
       { id: "planks_to_slab",     name: "Wood Slabs (×4)",      ingredients: { 10: 3 },              output: { type: 10, count: 4 } },
       { id: "sand_to_glass",      name: "Glass (via furnace)",  ingredients: { 4: 1 },               output: { type: 9, count: 1 } },
       { id: "ladder",              name: "Ladder (×3)",          ingredients: { 280: 7 },             output: { type: 78, count: 3 } },
+      { id: "oak_fence",           name: "Oak Fence (×3)",       ingredients: { 10: 4, 280: 2 },     output: { type: 79, count: 3 } },
+      { id: "fence_gate",          name: "Fence Gate",           ingredients: { 280: 4, 10: 2 },     output: { type: 80, count: 1 } },
+      { id: "stone_bricks",        name: "Stone Bricks (×4)",    ingredients: { 3: 4 },               output: { type: 81, count: 4 } },
     ];
 
     this.craftingPanel = document.createElement("div");
@@ -716,6 +719,7 @@ export class UI {
     const itemNames: Record<number, string> = {
       5: "Oak Log", 10: "Oak Planks", 11: "Cobblestone", 62: "Iron Ingot",
       64: "Coal", 280: "Stick", 65: "Diamond", 63: "Gold Ingot",
+      3: "Stone", 4: "Sand",
     };
 
     for (const recipe of RECIPES) {

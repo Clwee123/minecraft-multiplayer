@@ -169,7 +169,7 @@ export class World {
   // ── World generation ───────────────────────────────────────────────────────
 
   // Transparent/non-solid block types that don't occlude neighbors
-  private static readonly TRANSPARENT_TYPES = new Set([7, 9, 21, 50, 51, 52, 56, 57, 58, 78]);
+  private static readonly TRANSPARENT_TYPES = new Set([7, 9, 21, 50, 51, 52, 56, 57, 58, 78, 79, 80]);
 
   private static isOpaque(type: number): boolean {
     return type > 0 && !World.TRANSPARENT_TYPES.has(type);
@@ -809,7 +809,9 @@ export class World {
           const isCeiling = dy === roomHeight - 1;
 
           if (isWall || isFloor || isCeiling) {
-            this.placeBlock(x, y, z, 17, true); // mossy stone
+            // Mix stone bricks with mossy variants for dungeon atmosphere
+            const dungeonBlock = Math.random() < 0.3 ? 82 : 81; // 30% mossy stone bricks
+            this.placeBlock(x, y, z, dungeonBlock, true);
           } else {
             this.removeBlock(x, y, z); // carve out interior
           }
