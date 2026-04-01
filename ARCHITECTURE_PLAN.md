@@ -157,7 +157,7 @@
 - Compact HUD placement
 
 ## Goal 22: Chest Inventory UI
-**Status**: PENDING
+**Status**: DONE
 - Open chest with right-click interaction
 - Grid-based chest inventory (27 slots like Minecraft)
 - Click to move items between chest and player hotbar
