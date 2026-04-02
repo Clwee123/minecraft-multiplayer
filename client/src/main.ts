@@ -1941,7 +1941,7 @@ async function startGame(name: string) {
           player.takeDamage(actualDamage);
           sounds.play("hurt");
           ui.updateHearts(player.health, player.maxHealth);
-          if (player.health <= 0) { stats.increment("deaths"); ui.showDeath(); }
+          if (player.health <= 0) { stats.increment("deaths"); ui.showDeath(lastDeathCause, lastDeathPos.x, lastDeathPos.y, lastDeathPos.z, xpLevel); }
         }
       },
       getPlayerPos: () => player.position,
@@ -2015,7 +2015,7 @@ async function startGame(name: string) {
       },
       onPlayerDied: (name) => {
         ui.addChatMessage("", `☠ ${name} was slain!`, true);
-        if (name === currentPlayerName) { stats.increment("deaths"); ui.showDeath(); }
+        if (name === currentPlayerName) { stats.increment("deaths"); ui.showDeath("Killed by another player", player.position.x, player.position.y, player.position.z, xpLevel); }
       },
     }, serverAddr);
 

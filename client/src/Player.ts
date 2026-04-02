@@ -165,6 +165,9 @@ export class Player {
   }
 
   getYaw(): number { return this.yaw; }
+  isSneaking(): boolean {
+    return (this.keys["ShiftLeft"] || this.keys["ShiftRight"]) && this.gameMode === "survival" && this.onGround;
+  }
 
   /** Expose keys map so mobile controls can inject key states */
   getKeys(): Record<string, boolean> { return this.keys; }
@@ -746,7 +749,8 @@ export class Player {
     if (this.keys["KeyD"]) move.add(right);
 
     const sprinting = this.keys["ControlLeft"] && this.gameMode === "survival";
-    let speed = sprinting ? MOVE_SPEED * SPRINT_MULT : MOVE_SPEED;
+    const sneaking  = (this.keys["ShiftLeft"] || this.keys["ShiftRight"]) && this.gameMode === "survival" && this.onGround;
+    let speed = sprinting ? MOVE_SPEED * SPRINT_MULT : sneaking ? MOVE_SPEED * 0.3 : MOVE_SPEED;
     if (this.gameMode === "creative") speed = this.flying ? FLY_SPEED : MOVE_SPEED * 1.2;
     if (this.gameMode === "spectator") speed = FLY_SPEED * 1.5; // spectators move faster
     if (this.speedBonus > 0) speed *= (1 + this.speedBonus); // Speed enchantment
@@ -788,6 +792,7 @@ export class Player {
       this.camera.lookAt(this.position.x, this.position.y - 0.3, this.position.z);
     } else {
       this.camera.position.copy(this.position);
+      if (this.isSneaking()) this.camera.position.y -= 0.4; // crouch lowers camera
 
       // Head bob — calculate movement speed without allocating
       const _dx = this.position.x - this.prevXZ.x;
