@@ -339,31 +339,6 @@ export class World {
     return mesh;
   }
 
-  // ── Dungeon gen (preserved) ───────────────────────────────────────────────
-  private generateDungeons() {
-    this.generateDungeon(-40, -40);
-    this.generateDungeon(50, 30);
-  }
-  private generateDungeon(cx: number, cz: number) {
-    const surfaceY = this.getSurfaceHeight(cx, cz);
-    const roomY    = surfaceY - 8;
-    if (roomY < 10) return;
-    const w = 9, th = 5, d = 9;
-    for (let x = cx; x < cx+w; x++) {
-      for (let y = roomY; y < roomY+th; y++) {
-        for (let z = cz; z < cz+d; z++) {
-          if (x === cx || x === cx+w-1 || y === roomY || y === roomY+th-1 || z === cz || z === cz+d-1) {
-            this.placeBlock(x, y, z, y === roomY ? 11 : 3, false);
-          } else {
-            this.removeBlock(x, y, z);
-          }
-        }
-      }
-    }
-    // Spawner
-    this.placeBlock(cx + Math.floor(w/2), roomY+1, cz + Math.floor(d/2), 48, false);
-  }
-
   placeBlock(x: number, y: number, z: number, type: number, overwrite = true) {
     const k = key(x, y, z);
 
