@@ -486,6 +486,14 @@ function handleCommand(cmd: string, playerName: string): boolean {
     ui.addChatMessage("", "Teleported to spawn.", true);
     return true;
   }
+  if (base === "/enchant") {
+    const type = parts[1]?.toLowerCase();
+    if (type === "sharpness") { enchants.sharpness = 1; ui.addChatMessage("", "✨ Sharpness I applied!", true); }
+    else if (type === "protection") { enchants.protection = 1; ui.addChatMessage("", "✨ Protection I applied!", true); }
+    else if (type === "speed") { enchants.speed = 1; player.speedBonus = Math.max(player.speedBonus, 0.2); ui.addChatMessage("", "✨ Speed I applied!", true); }
+    else ui.addChatMessage("", "Usage: /enchant sharpness|protection|speed", true);
+    return true;
+  }
   if (base === "/list") {
     if (isSingleplayer) { ui.addChatMessage("", "Singleplayer — no other players online.", true); return true; }
     const names = mp?.getOnlinePlayerNames() ?? [];
@@ -880,6 +888,7 @@ function detectObsidianFrame(
 const damageFlash       = document.getElementById("damageFlash")!;
 const speedLinesEl      = document.getElementById("speedLines")!;
 const compassLabelEl    = document.getElementById("compassLabel") as HTMLElement | null;
+const minimapEl         = document.getElementById("minimap") as HTMLElement | null;
 const lowHealthVignette = document.getElementById("lowHealthVignette")!;
 let damageFlashTimer = 0;
 let prevPlayerHealth = 40;
@@ -1472,6 +1481,35 @@ async function startGame(name: string) {
           }
         }
 
+        if (enchantBlock && enchantBlock.type === 99) { // Brewing Stand
+          // Simple brewing: nether wart + water bottle → awkward potion base, then add ingredient
+          const BREW_RECIPES: Array<{ ingredient: number; base: number; output: number; name: string }> = [
+            { ingredient: 64 /* coal = blaze powder */, base: 0, output: 91, name: "Strength Potion" },
+            { ingredient: 12 /* gravel = sugar */,     base: 0, output: 92, name: "Speed Potion" },
+            { ingredient: 2  /* dirt = fermented */,   base: 0, output: 96, name: "Night Vision Potion" },
+            { ingredient: 20 /* snow = pufferfish */,  base: 0, output: 97, name: "Jump Boost Potion" },
+            { ingredient: 3  /* stone = turtle shell */, base: 0, output: 98, name: "Resistance Potion" },
+          ];
+          const choices = BREW_RECIPES.map((r, i) => `${i+1}. ${r.name} (needs 1x ${getBlockName(r.ingredient)})`).join("\n");
+          const pick = window.prompt(`Brewing Stand\nChoose recipe:\n${choices}\n\nEnter number (or cancel):`, "");
+          if (pick) {
+            const idx = parseInt(pick) - 1;
+            const recipe = BREW_RECIPES[idx];
+            if (recipe) {
+              if (invCountOf(recipe.ingredient) < 1) {
+                ui.addChatMessage("", `Need 1x ${getBlockName(recipe.ingredient)} to brew!`, true);
+              } else {
+                invRemoveItem(recipe.ingredient, 1);
+                invAddItem(recipe.output, 1);
+                ui.updateHotbarFromInventory(inventory, invCount);
+                ui.addChatMessage("", `🧪 Brewed: ${recipe.name}!`, true);
+                sounds.play("eat");
+              }
+            }
+          }
+          return;
+        }
+
         if (enchantBlock && enchantBlock.type === 94) { // Anvil
           // Simple rename: prompt for new item name (cosmetic)
           const selectedType = player.selectedBlockType;
@@ -1965,6 +2003,7 @@ async function startGame(name: string) {
     iron_boots:       { ingredients: { 62: 4 },          output: { type: 38,  count: 1 } },
     saddle:           { ingredients: { 95: 7 },           output: { type: 93,  count: 1 } }, // 7 leather → saddle
     anvil:            { ingredients: { 62: 4 },           output: { type: 94,  count: 1 } }, // 4 iron ingot → anvil
+    brewing_stand:    { ingredients: { 62: 1, 3: 3 },    output: { type: 99,  count: 1 } }, // 1 iron + 3 stone → brewing stand
     crafting_table:   { ingredients: { 10: 4 },          output: { type: 22,  count: 1 } },
     furnace:          { ingredients: { 11: 8 },          output: { type: 23,  count: 1 } },
     chest:            { ingredients: { 10: 8 },          output: { type: 31,  count: 1 } },
@@ -2610,6 +2649,20 @@ function animate() {
       }
       minimap.update(dt, player.position, player.getYaw(), _minimapPlayersBuf, _minimapMobsBuf);
     }
+    // Map item held → expand minimap to show terrain overview
+    if (minimapEl) {
+      const mapHeld = player.selectedBlockType === 60 && invCountOf(60) > 0;
+      minimapEl.style.transition = "width 0.2s,height 0.2s,transform 0.2s";
+      if (mapHeld) {
+        minimapEl.style.width = "300px";
+        minimapEl.style.height = "300px";
+        minimapEl.style.transform = "none";
+      } else {
+        minimapEl.style.width = "";
+        minimapEl.style.height = "";
+        minimapEl.style.transform = "";
+      }
+    }
 
     // Update compass label — facing direction + spawn bearing
     if (compassLabelEl) {
@@ -2826,13 +2879,14 @@ function animate() {
       isUnderwater = eyeInWater;
       underwaterOverlay.style.opacity = isUnderwater ? "1" : "0";
       if (isUnderwater) achievements.trigger("deep_dive");
-      if (!isUnderwater) airSupply = 15.0; // surfaced — restore air
+      if (!isUnderwater) { airSupply = 15.0; ui.updateAirSupply(15, 15); } // surfaced — restore air, hide bubbles
     }
 
     if (isUnderwater) {
       // Air supply — 15s before drowning, then 1hp/s damage
       if (player.gameMode === "survival") {
         airSupply = Math.max(0, airSupply - dt);
+        ui.updateAirSupply(airSupply, 15);
         if (airSupply <= 0) {
           regenTimer += dt;
           if (regenTimer > 1.0) {

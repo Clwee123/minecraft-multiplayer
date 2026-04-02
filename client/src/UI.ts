@@ -253,6 +253,27 @@ export class UI {
     }
   }
 
+  // ── Air supply bubbles ────────────────────────────────────────────────────
+  private airBubblesEl = document.getElementById("airBubbles");
+
+  updateAirSupply(air: number, maxAir: number) {
+    if (!this.airBubblesEl) return;
+    const totalBubbles = 10;
+    const filled = Math.round((air / maxAir) * totalBubbles);
+    if (air >= maxAir) { this.airBubblesEl.style.display = "none"; return; }
+    this.airBubblesEl.style.display = "flex";
+    this.airBubblesEl.innerHTML = "";
+    for (let i = 0; i < totalBubbles; i++) {
+      const b = document.createElement("span");
+      b.style.cssText = `
+        display:inline-block;width:10px;height:10px;border-radius:50%;
+        background:${i < filled ? "#55aaff" : "rgba(85,170,255,0.2)"};
+        border:1px solid #2277cc;
+      `;
+      this.airBubblesEl.appendChild(b);
+    }
+  }
+
   // ── Time display ──────────────────────────────────────────────────────────
 
   /** dayTime: 0-1 float (0=midnight, 0.25=dawn, 0.5=noon, 0.75=dusk) */
