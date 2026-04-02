@@ -53,6 +53,9 @@ export class MobManager {
   private arrows: Arrow[] = [];
   dayTime: number = 0.5; // 0 = midnight, 0.25 = sunrise, 0.5 = noon, 0.75 = sunset, 1.0 = midnight
 
+  // Horse mounting
+  mountedMobId: string | null = null;
+
   // Raycaster for mob-player attack detection
   private attackCooldown = 0;
 
@@ -1022,6 +1025,36 @@ export class MobManager {
 
   getMob(id: string): Mob | undefined {
     return this.mobs.get(id)?.mob;
+  }
+
+  /** Try to mount a horse mob near playerPos. Returns true if mounted. */
+  tryMount(playerPos: THREE.Vector3): boolean {
+    for (const [id, lm] of this.mobs) {
+      if (lm.data.type !== "horse" || !lm.mob.alive) continue;
+      const dx = lm.data.x - playerPos.x;
+      const dz = lm.data.z - playerPos.z;
+      if (dx * dx + dz * dz < 4) { // 2 block range
+        this.mountedMobId = id;
+        lm.data.state = "mounted";
+        return true;
+      }
+    }
+    return false;
+  }
+
+  dismount() { this.mountedMobId = null; }
+
+  /** Update mounted horse position to follow player input direction. */
+  updateMount(playerPos: THREE.Vector3, playerYaw: number, moving: boolean, dt: number) {
+    if (!this.mountedMobId) return;
+    const lm = this.mobs.get(this.mountedMobId);
+    if (!lm || !lm.mob.alive) { this.mountedMobId = null; return; }
+    const HORSE_SPEED = 9.0;
+    lm.data.x = playerPos.x;
+    lm.data.z = playerPos.z;
+    lm.data.rotY = playerYaw;
+    lm.mob.targetPos.set(lm.data.x, lm.data.y, lm.data.z);
+    lm.mob.group.position.set(lm.data.x, lm.data.y, lm.data.z);
   }
 
   getMobCount(): number { return this.mobs.size; }

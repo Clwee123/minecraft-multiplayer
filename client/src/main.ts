@@ -1527,6 +1527,23 @@ async function startGame(name: string) {
     }
   });
 
+  // R key — mount/dismount horse
+  document.addEventListener("keydown", e => {
+    if ((e.key === "r" || e.key === "R") && document.pointerLockElement && !ui.isChatOpen()) {
+      if (mobManager?.mountedMobId) {
+        mobManager.dismount();
+        player.speedBonus = enchants.speed > 0 ? 0.2 : 0; // restore speed from enchant only
+        ui.addChatMessage("", "Dismounted.", true);
+      } else {
+        const mounted = mobManager?.tryMount(player.position);
+        if (mounted) {
+          player.speedBonus = 1.0; // horses are ~2x speed
+          ui.addChatMessage("", "Mounted horse! R to dismount.", true);
+        }
+      }
+    }
+  });
+
   // F3 key for debug screen
   document.addEventListener("keydown", e => {
     if (e.key === "F3" || e.key === "f3") {
@@ -2139,6 +2156,10 @@ function animate() {
     if (mobManager) {
       mobManager.dayTime = dayTime;
       mobManager.update(dt);
+      // Sync mounted horse to player position
+      if (mobManager.mountedMobId) {
+        mobManager.updateMount(player.position, player.getYaw(), true, dt);
+      }
     }
     particles.update(dt);
 
