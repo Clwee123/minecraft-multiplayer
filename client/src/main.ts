@@ -1353,8 +1353,23 @@ async function startGame(name: string) {
             ];
             ui.showTradeUI(trades);
             ui.onTrade = (tradeIndex) => {
-              // Handle trade
-              ui.addChatMessage("", "Trade accepted!", true);
+              const trade = trades[tradeIndex];
+              if (!trade) return;
+              // Parse give: "N ItemName" format where give is a count string — item type embedded
+              // Trades are barter-only: just give wheat(45)/iron ore(14)/wood(5)/compass(39), receive item
+              const TRADE_GIVE_TYPE: Record<number, number> = { 0: 45, 1: 14, 2: 5, 3: 39 };
+              const TRADE_GIVE_COUNT: Record<number, number> = { 0: 5, 1: 3, 2: 10, 3: 1 };
+              const TRADE_RECEIVE_TYPE: Record<number, number> = { 0: 0 /* bread */, 1: 36, 2: 33, 3: 46 };
+              const giveType = TRADE_GIVE_TYPE[tradeIndex];
+              const giveCount = TRADE_GIVE_COUNT[tradeIndex];
+              const recvType = TRADE_RECEIVE_TYPE[tradeIndex];
+              if (giveType && invRemoveItem(giveType, giveCount)) {
+                if (recvType > 0) invAddItem(recvType, 1);
+                ui.addChatMessage("", `Trade: gave ${trade.giveName}, received ${trade.receiveName}!`, true);
+                sounds.play("place");
+              } else {
+                ui.addChatMessage("", `Need ${trade.giveName} to trade!`, true);
+              }
             };
             return;
           }
