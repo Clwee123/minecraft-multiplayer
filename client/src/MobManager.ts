@@ -71,7 +71,7 @@ export class MobManager {
 
   spawnMob(type: MobType, x: number, y: number, z: number, id?: string): Mob {
     const mobId    = id ?? uid();
-    const maxHp    = type === "zombie" ? 20 : type === "creeper" ? 20 : type === "skeleton" ? 20 : type === "witherskeleton" ? 40 : type === "chicken" ? 4 : type === "cow" ? 16 : type === "sheep" ? 12 : type === "horse" ? 30 : type === "villager" ? 20 : type === "enderdragon" ? 200 : type === "spider" ? 16 : type === "wolf" ? 20 : type === "cat" ? 10 : type === "phantom" ? 20 : type === "slime" ? 16 : 10;
+    const maxHp    = type === "zombie" ? 20 : type === "creeper" ? 20 : type === "skeleton" ? 20 : type === "witherskeleton" ? 40 : type === "chicken" ? 4 : type === "cow" ? 16 : type === "sheep" ? 12 : type === "horse" ? 30 : type === "villager" ? 20 : type === "enderdragon" ? 200 : type === "spider" ? 16 : type === "wolf" ? 20 : type === "cat" ? 10 : type === "phantom" ? 20 : type === "slime" ? 16 : type === "warden" ? 500 : type === "allay" ? 20 : type === "frog" ? 10 : type === "strider" ? 20 : type === "axolotl" ? 14 : 10;
     const data: MobData = {
       id: mobId, type, x, y, z,
       rotY:      rnd(0, Math.PI * 2),
@@ -85,7 +85,7 @@ export class MobManager {
     return mob;
   }
 
-  private static HOSTILE_TYPES: Set<MobType> = new Set(["zombie", "skeleton", "creeper", "spider", "witherskeleton", "phantom"]);
+  private static HOSTILE_TYPES: Set<MobType> = new Set(["zombie", "skeleton", "creeper", "spider", "witherskeleton", "phantom", "warden"]);
   private static UNDEAD_TYPES: Set<MobType> = new Set(["zombie", "skeleton", "witherskeleton", "phantom"]);
 
   spawnRandom(cx: number, cz: number) {
@@ -434,6 +434,17 @@ export class MobManager {
         this.catAI(lm, dt, distSq, dx2, dz2, playerPos);
       } else if (d.type === "slime") {
         this.slimeAI(lm, dt, distSq, dx2, dz2, playerPos);
+      } else if (d.type === "warden") {
+        this.wardenAI(lm, dt, distSq, dx2, dz2, playerPos);
+      } else if (d.type === "allay" || d.type === "axolotl") {
+        // Follow player closely (passive/friendly)
+        if (distSq > 9) { d.rotY = Math.atan2(dx2, dz2); d.x += Math.sin(d.rotY)*2.5*dt; d.z += Math.cos(d.rotY)*2.5*dt; }
+      } else if (d.type === "frog") {
+        // Hop randomly, eat mini-slimes nearby
+        this.animalAI(lm, dt, distSq, dx2, dz2, 2.5);
+      } else if (d.type === "strider") {
+        // Walk on lava — same as horse wander
+        this.animalAI(lm, dt, distSq, dx2, dz2, 3.5);
       }
     }
 
@@ -1016,6 +1027,29 @@ export class MobManager {
       d.z += Math.cos(d.rotY) * 3 * dt;
     }
   }
+
+  private wardenAI(lm: LocalMob, dt: number, playerDistSq: number, dx: number, dz: number, playerPos: THREE.Vector3) {
+    const d = lm.data;
+    const SPEED = 3.5;
+    if (playerDistSq < 20 * 20) { // aggro within 20 blocks (vibration detection)
+      d.rotY = Math.atan2(dx, dz);
+      d.x += Math.sin(d.rotY) * SPEED * dt;
+      d.z += Math.cos(d.rotY) * SPEED * dt;
+      lm.aggro = true;
+      // Sonic boom attack at close range
+      if (playerDistSq < 3 * 3 && (lm.hitCooldown ?? 0) <= 0) {
+        this.cb.onPlayerDamage(15); // warden hits hard (15 damage)
+        lm.hitCooldown = 3.0;
+        // Blind effect signaled via extra-high damage for UI to interpret
+        this.onWardenBlind?.();
+      }
+    } else {
+      lm.aggro = false;
+      this.animalAI(lm, dt, playerDistSq, dx, dz, 1.5); // slow idle wander
+    }
+  }
+
+  onWardenBlind?: () => void; // callback to apply blindness effect
 
   private slimeAI(lm: LocalMob, dt: number, playerDistSq: number, dx: number, dz: number, playerPos: THREE.Vector3) {
     const d = lm.data;

@@ -1565,7 +1565,7 @@ async function startGame(name: string) {
         itemDrops.spawnFromMob(mobData.type, mobData.targetPos.x, mobData.targetPos.y, mobData.targetPos.z);
         // Spawn XP orbs
         const xpTable: Record<string, number> = {
-          "pig": 3, "chicken": 2, "cow": 5, "sheep": 3,
+          "pig": 3, "chicken": 2, "cow": 5, "sheep": 3, "warden": 50, "allay": 5, "frog": 3, "strider": 4, "axolotl": 6,
           "zombie": 8, "skeleton": 10, "creeper": 5, "horse": 10, "villager": 0, "enderdragon": 100,
           "phantom": 6, "slime": 4, "witherskeleton": 8, "spider": 5, "wolf": 4, "cat": 0,
         };
@@ -2537,6 +2537,12 @@ async function startGame(name: string) {
       },
     }, true);
     mobManager.onBurnParticle = (x, y, z) => particles.magic(x, y, z, 1);
+    mobManager.onWardenBlind = () => {
+      // Apply darkness/blind: desaturate screen for 5s
+      renderer.domElement.style.filter = "brightness(0.1)";
+      setTimeout(() => { renderer.domElement.style.filter = ""; }, 5000);
+      ui.addChatMessage("", "⚡ Warden's sonic boom! You're blinded!", true);
+    };
 
     for (let i = 0; i < 10; i++) mobManager.spawnRandom(0, 0);
 
@@ -3063,6 +3069,21 @@ function animate() {
           regenTimer = 0;
           player.takeDamage(2);
           ui.updateHearts(player.health, player.maxHealth);
+        }
+      }
+    }
+
+    // ── Allay/Axolotl healing aura ────────────────────────────────────────────
+    if (isSingleplayer && mobManager && player.gameMode === "survival") {
+      for (const lm of mobManager.iterMobs()) {
+        if (lm.data.type !== "allay" && lm.data.type !== "axolotl") continue;
+        if (!lm.mob.alive) continue;
+        const hdx = lm.data.x - player.position.x, hdz = lm.data.z - player.position.z;
+        if (hdx*hdx + hdz*hdz < 16) { // 4 block range
+          if (player.health < player.maxHealth) {
+            player.health = Math.min(player.maxHealth, player.health + 0.5 * dt);
+            ui.updateHearts(player.health, player.maxHealth);
+          }
         }
       }
     }
