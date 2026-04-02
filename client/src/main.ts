@@ -1219,7 +1219,7 @@ async function startGame(name: string) {
     }
 
     attackRaycaster.setFromCamera(_CENTER_VEC2, camera);
-    const result = mobManager?.tryAttack(attackRaycaster, enchants);
+    const result = mobManager?.tryAttack(attackRaycaster, enchants, potionEffects.strength > 0 ? 4 : 0);
     if (result) {
       sounds.play("hit");
       achievements.trigger("first_mob");
@@ -1777,7 +1777,28 @@ async function startGame(name: string) {
     oak_log: 5, oak_planks: 10, cobblestone: 11, stick: 280,
     dirt: 2, stone: 3, sand: 4, gravel: 12,
     coal: 64, iron_ingot: 62, gold_ingot: 63, diamond: 65,
+    // Potions
+    potion_strength: 83, potion_speed: 84,
   };
+
+  // Potion use on right-click — type 83 = strength, 84 = speed
+  const POTION_DEFS: Record<number, { effect: "strength" | "speed"; duration: number; label: string }> = {
+    83: { effect: "strength", duration: 30, label: "Strength I (+4 dmg, 30s)" },
+    84: { effect: "speed",    duration: 30, label: "Speed I (+30% move, 30s)" },
+  };
+  document.addEventListener("mousedown", e => {
+    if (!document.pointerLockElement || ui.isChatOpen()) return;
+    if (e.button !== 2) return;
+    const potion = POTION_DEFS[player.selectedBlockType];
+    if (!potion) return;
+    if (invRemoveItem(player.selectedBlockType, 1)) {
+      potionEffects[potion.effect] = potion.duration;
+      if (potion.effect === "speed") player.speedBonus = Math.max(player.speedBonus, 0.3);
+      ui.addChatMessage("", `🧪 Drank ${potion.label}!`, true);
+      sounds.play("eat");
+      ui.updateHotbarFromInventory(inventory, invCount);
+    }
+  });
 
   // Setup item pickup callback — adds items to actual inventory
   itemDrops.onPickup = (item) => {
@@ -2348,8 +2369,20 @@ function animate() {
     }
 
     // ── Potion effects ────────────────────────────────────────────────────────
+    const prevStrength = potionEffects.strength;
+    const prevSpeed    = potionEffects.speed;
     potionEffects.strength = Math.max(0, potionEffects.strength - dt);
-    potionEffects.speed = Math.max(0, potionEffects.speed - dt);
+    potionEffects.speed    = Math.max(0, potionEffects.speed    - dt);
+    // Clear speed bonus when speed potion expires (only if not also from enchantment)
+    if (prevSpeed > 0 && potionEffects.speed === 0 && enchants.speed === 0) {
+      player.speedBonus = 0;
+    }
+    if (prevStrength > 0 && potionEffects.strength === 0) {
+      ui.addChatMessage("", "Strength effect wore off.", true);
+    }
+    if (prevSpeed > 0 && potionEffects.speed === 0) {
+      ui.addChatMessage("", "Speed effect wore off.", true);
+    }
 
     // ── Day/Night ambient events ───────────────────────────────────────────────
     if (prevDayTime < 0.22 && dayTime >= 0.22) {

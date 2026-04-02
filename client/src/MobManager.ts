@@ -173,7 +173,7 @@ export class MobManager {
 
   // ── Raycast attack from player (called on left-click) ────────────────────
   // Returns { hit: true, mobId, damage } if a mob was struck
-  tryAttack(raycaster: THREE.Raycaster, enchants?: { sharpness: number; protection: number; speed: number }): { mobId: string; damage: number } | null {
+  tryAttack(raycaster: THREE.Raycaster, enchants?: { sharpness: number; protection: number; speed: number }, strengthBonus = 0): { mobId: string; damage: number } | null {
     if (this.attackCooldown > 0) return null;
     const meshes: THREE.Object3D[] = [];
     const idMap   = new Map<THREE.Object3D, string>();
@@ -197,6 +197,8 @@ export class MobManager {
     if (enchants?.sharpness) {
       damage += 2 * enchants.sharpness;
     }
+    // Apply strength potion
+    if (strengthBonus > 0) damage += strengthBonus;
     lm.mob.health -= damage;
     lm.mob.showDamage(lm.mob.health);
     if (lm.mob.health <= 0) lm.mob.die();
