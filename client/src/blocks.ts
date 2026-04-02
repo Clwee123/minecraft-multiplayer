@@ -129,6 +129,8 @@ export const BLOCK_TYPES: Record<number, {
   118: { name: "Ender Chest",      color: 0x224422, emissive: 0x002200 },
   119: { name: "Shulker Box",      color: 0xaa44aa },
   120: { name: "Respawn Anchor",   color: 0x442266, emissive: 0x220044 },
+  117: { name: "Netherite Ingot",  color: 0x444444, solid: false },
+  122: { name: "Trident",          color: 0x448888, solid: false },
 
   // ── Crafting materials & tools ────────────────────────────────────────────
   280: { name: "Stick",             color: 0xc8a464, solid: false },

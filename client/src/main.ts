@@ -65,6 +65,15 @@ const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerH
 // ── Shield system ─────────────────────────────────────────────────────────────
 let shieldActive = false;
 let shieldDurability = 50;
+// Tool durability — max uses per tool type
+const TOOL_MAX_DURABILITY: Record<number, number> = {
+  268: 59, 272: 131, 267: 250, 276: 1561, 122: 250, // swords/trident
+  270: 59, 274: 131, 257: 250, 278: 1561,             // pickaxes
+  269: 59, 273: 131, 256: 250, 277: 1561,             // shovels
+  271: 59, 275: 131, 258: 250, 279: 1561,             // axes
+  72: 50,                                              // shield
+};
+const toolDurability: Record<number, number> = {}; // per-slot current durability
 const MAX_SHIELD_DURABILITY = 50;
 
 // ── Day/Night cycle ───────────────────────────────────────────────────────────
@@ -1150,6 +1159,63 @@ async function startGame(name: string) {
     };
   }
 
+  // Trident throw (right-click with trident selected)
+  {
+    interface Trident { mesh: THREE.Mesh; vel: THREE.Vector3; life: number; returning: boolean }
+    const tridents: Trident[] = [];
+    const _TRI_GEO = new THREE.CylinderGeometry(0.04, 0.1, 1.2, 5);
+    const _TRI_MAT = new THREE.MeshLambertMaterial({ color: 0x448888 });
+
+    document.addEventListener("mousedown", e => {
+      if (!document.pointerLockElement || ui.isChatOpen()) return;
+      if (e.button !== 2 || player.selectedBlockType !== 122) return;
+      const dir = new THREE.Vector3(0, 0, -1)
+        .applyAxisAngle(new THREE.Vector3(1, 0, 0), player.camera.rotation.x)
+        .applyAxisAngle(new THREE.Vector3(0, 1, 0), player.camera.rotation.y);
+      const mesh = new THREE.Mesh(_TRI_GEO, _TRI_MAT);
+      mesh.position.copy(player.position).add(new THREE.Vector3(0, 0.6, 0));
+      scene.add(mesh);
+      tridents.push({ mesh, vel: dir.multiplyScalar(35), life: 6, returning: false });
+    });
+
+    (window as any).__tickTridents = (dt: number) => {
+      for (let i = tridents.length - 1; i >= 0; i--) {
+        const t = tridents[i];
+        t.life -= dt;
+        if (!t.returning) {
+          t.vel.y -= 10 * dt;
+          t.mesh.position.addScaledVector(t.vel, dt);
+          // Check mob hit
+          if (mobManager) {
+            for (const lm of mobManager.iterMobs()) {
+              if (!lm.mob.alive) continue;
+              const dx = t.mesh.position.x - lm.mob.targetPos.x;
+              const dy = t.mesh.position.y - lm.mob.targetPos.y;
+              const dz = t.mesh.position.z - lm.mob.targetPos.z;
+              if (dx*dx + dy*dy + dz*dz < 1.5) {
+                lm.mob.health -= 9; lm.mob.showDamage(lm.mob.health);
+                if (lm.mob.health <= 0) lm.mob.die();
+                sounds.play("hit");
+                t.returning = true; break;
+              }
+            }
+          }
+          // Check block hit
+          const bx = Math.round(t.mesh.position.x), by = Math.round(t.mesh.position.y), bz = Math.round(t.mesh.position.z);
+          if (world.getBlock(bx, by, bz)) t.returning = true;
+          if (t.life < 3) t.returning = true; // return after 3s regardless
+        } else {
+          // Return to player
+          const toPlayer = player.position.clone().add(new THREE.Vector3(0, 0.6, 0)).sub(t.mesh.position);
+          const dist = toPlayer.length();
+          if (dist < 1.5) { scene.remove(t.mesh); tridents.splice(i, 1); }
+          else { t.mesh.position.addScaledVector(toPlayer.normalize(), Math.min(30 * dt, dist)); }
+        }
+        if (t.life <= 0) { scene.remove(t.mesh); tridents.splice(i, 1); }
+      }
+    };
+  }
+
   // Fishing rod right-click handler
   player.onRightClick = () => {
     if (player.selectedBlockType === 33) { // Fishing Rod
@@ -1404,15 +1470,26 @@ async function startGame(name: string) {
     attackRaycaster.setFromCamera(_CENTER_VEC2, camera);
     // Weapon tier bonus damage
     const WEAPON_BONUS: Record<number, number> = {
-      268: 0, 272: 2, 267: 4, 276: 7, // sword tiers: wood/stone/iron/diamond
-      270: 0, 274: 1, 257: 3, 278: 6, // pickaxe tiers
-      271: 1, 275: 3, 258: 5, 279: 8, // axe tiers (best with axes)
+      268: 0, 272: 2, 267: 4, 276: 7, 122: 9,  // sword/trident tiers
+      270: 0, 274: 1, 257: 3, 278: 6,            // pickaxe tiers
+      271: 1, 275: 3, 258: 5, 279: 8,            // axe tiers
     };
     const weaponBonus = (WEAPON_BONUS[player.selectedBlockType] ?? 0) + (potionEffects.strength > 0 ? 4 : 0);
     const result = mobManager?.tryAttack(attackRaycaster, enchants, weaponBonus);
     if (result) {
       sounds.play("hit");
       achievements.trigger("first_mob");
+      // Drain tool durability
+      if (TOOL_MAX_DURABILITY[player.selectedBlockType]) {
+        const slot = hotbarSlot;
+        if (toolDurability[slot] === undefined) toolDurability[slot] = TOOL_MAX_DURABILITY[player.selectedBlockType];
+        toolDurability[slot] = Math.max(0, (toolDurability[slot] ?? TOOL_MAX_DURABILITY[player.selectedBlockType]) - 1);
+        if (toolDurability[slot] === 0) {
+          ui.addChatMessage("", `⚠ Your ${getBlockName(player.selectedBlockType)} broke!`, true);
+          inventory[slot] = 0; invCount[slot] = 0; toolDurability[slot] = 0;
+          ui.updateHotbarFromInventory(inventory, invCount);
+        }
+      }
       // Check if mob died and spawn drops/XP
       const mobData = mobManager?.getMob(result.mobId);
       if (mobData && !mobData.alive) {
@@ -1538,10 +1615,14 @@ async function startGame(name: string) {
 
         if (enchantBlock && enchantBlock.type === 116) { // Smithing Table — upgrade tools
           const UPGRADES: Record<number, { to: number; needs: number; name: string }> = {
-            270: { to: 274, needs: 11, name: "Stone Pickaxe" }, // wood → stone
-            268: { to: 272, needs: 11, name: "Stone Sword" },
-            274: { to: 257, needs: 62, name: "Iron Pickaxe" }, // stone → iron
-            272: { to: 267, needs: 62, name: "Iron Sword" },
+            270: { to: 274, needs: 11,  name: "Stone Pickaxe"    }, // wood → stone
+            268: { to: 272, needs: 11,  name: "Stone Sword"      },
+            274: { to: 257, needs: 62,  name: "Iron Pickaxe"     }, // stone → iron
+            272: { to: 267, needs: 62,  name: "Iron Sword"       },
+            257: { to: 278, needs: 65,  name: "Diamond Pickaxe"  }, // iron → diamond
+            267: { to: 276, needs: 65,  name: "Diamond Sword"    },
+            278: { to: 278, needs: 117, name: "Netherite Pickaxe"}, // diamond → netherite (same ID for now)
+            276: { to: 276, needs: 117, name: "Netherite Sword"  },
           };
           const held = player.selectedBlockType;
           const upgrade = UPGRADES[held];
@@ -2690,8 +2771,9 @@ function animate() {
       }
     }
 
-    // Update throwables (snowball/egg)
+    // Update throwables (snowball/egg) and tridents
     (window as any).__tickThrowables?.(dt);
+    (window as any).__tickTridents?.(dt);
 
     // Update arrows
     for (let i = playerArrows.length - 1; i >= 0; i--) {
