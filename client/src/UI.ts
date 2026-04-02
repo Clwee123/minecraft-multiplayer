@@ -741,6 +741,8 @@ export class UI {
       { id: "iron_legs",          name: "Iron Leggings",        ingredients: { 62: 7 },              output: { type: 37, count: 1 } },
       { id: "iron_boots",         name: "Iron Boots",           ingredients: { 62: 4 },              output: { type: 38, count: 1 } },
       // ── Blocks ──
+      { id: "saddle",              name: "Saddle",               ingredients: { 95: 7 },              output: { type: 93, count: 1 } },
+      { id: "anvil",               name: "Anvil",                ingredients: { 62: 4 },              output: { type: 94, count: 1 } },
       { id: "crafting_table",     name: "Crafting Table",       hand: true, ingredients: { 10: 4 }, output: { type: 22, count: 1 } },
       { id: "furnace",            name: "Furnace",              ingredients: { 11: 8 },              output: { type: 23, count: 1 } },
       { id: "chest",              name: "Chest",                ingredients: { 10: 8 },              output: { type: 31, count: 1 } },
@@ -781,6 +783,7 @@ export class UI {
     const itemNames: Record<number, string> = {
       5: "Oak Log", 10: "Oak Planks", 11: "Cobblestone", 62: "Iron Ingot",
       64: "Coal", 280: "Stick", 65: "Diamond", 63: "Gold Ingot",
+      95: "Leather", 93: "Saddle", 94: "Anvil",
       3: "Stone", 4: "Sand",
     };
 

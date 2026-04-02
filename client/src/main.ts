@@ -1377,6 +1377,21 @@ async function startGame(name: string) {
           }
         }
 
+        if (enchantBlock && enchantBlock.type === 94) { // Anvil
+          // Simple rename: prompt for new item name (cosmetic)
+          const selectedType = player.selectedBlockType;
+          if (selectedType > 0 && invCountOf(selectedType) > 0) {
+            const currentName = getBlockName(selectedType);
+            const newName = window.prompt(`Rename item (${currentName}):`, currentName);
+            if (newName && newName.trim()) {
+              ui.addChatMessage("", `✏️ Renamed "${currentName}" → "${newName.trim()}" (cosmetic)`, true);
+            }
+          } else {
+            ui.addChatMessage("", "Hold an item in hand to rename it at the anvil.", true);
+          }
+          return;
+        }
+
         if (enchantBlock && enchantBlock.type === 34) { // Bed block type
           // Check if it's night time
           if (dayTime > 0.7 || dayTime < 0.25) {
@@ -1536,6 +1551,11 @@ async function startGame(name: string) {
         player.speedBonus = enchants.speed > 0 ? 0.2 : 0; // restore speed from enchant only
         ui.addChatMessage("", "Dismounted.", true);
       } else {
+        // Require saddle (type 93) in inventory to ride
+        if (invCountOf(93) < 1) {
+          ui.addChatMessage("", "You need a saddle to ride a horse!", true);
+          return;
+        }
         const mounted = mobManager?.tryMount(player.position);
         if (mounted) {
           player.speedBonus = 1.0; // horses are ~2x speed
@@ -1790,6 +1810,8 @@ async function startGame(name: string) {
     iron_chest:       { ingredients: { 62: 8 },          output: { type: 36,  count: 1 } },
     iron_legs:        { ingredients: { 62: 7 },          output: { type: 37,  count: 1 } },
     iron_boots:       { ingredients: { 62: 4 },          output: { type: 38,  count: 1 } },
+    saddle:           { ingredients: { 95: 7 },           output: { type: 93,  count: 1 } }, // 7 leather → saddle
+    anvil:            { ingredients: { 62: 4 },           output: { type: 94,  count: 1 } }, // 4 iron ingot → anvil
     crafting_table:   { ingredients: { 10: 4 },          output: { type: 22,  count: 1 } },
     furnace:          { ingredients: { 11: 8 },          output: { type: 23,  count: 1 } },
     chest:            { ingredients: { 10: 8 },          output: { type: 31,  count: 1 } },
@@ -1882,8 +1904,11 @@ async function startGame(name: string) {
     oak_log: 5, oak_planks: 10, cobblestone: 11, stick: 280,
     dirt: 2, stone: 3, sand: 4, gravel: 12,
     coal: 64, iron_ingot: 62, gold_ingot: 63, diamond: 65,
+    leather: 95,
     // Potions
     potion_strength: 91, potion_speed: 92,
+    // Equipment
+    saddle: 93,
   };
 
   // Potion use on right-click — type 91 = strength, 92 = speed

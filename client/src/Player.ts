@@ -786,9 +786,13 @@ export class Player {
   private updateCamera() {
     if (this.thirdPerson) {
       const dist = 5;
-      const cx = this.position.x + Math.sin(this.yaw) * dist;
-      const cz = this.position.z + Math.cos(this.yaw) * dist;
-      this.camera.position.set(cx, this.position.y + 0.6, cz);
+      const tx = this.position.x + Math.sin(this.yaw) * dist;
+      const tz = this.position.z + Math.cos(this.yaw) * dist;
+      const ty = this.position.y + 0.6;
+      // Smooth follow — lerp 18% per frame toward target
+      this.camera.position.x += (tx - this.camera.position.x) * 0.18;
+      this.camera.position.y += (ty - this.camera.position.y) * 0.18;
+      this.camera.position.z += (tz - this.camera.position.z) * 0.18;
       this.camera.lookAt(this.position.x, this.position.y - 0.3, this.position.z);
     } else {
       this.camera.position.copy(this.position);

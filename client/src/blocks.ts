@@ -103,6 +103,9 @@ export const BLOCK_TYPES: Record<number, {
   90: { name: "Egg",               color: 0xf0e0c0, solid: false },
   91: { name: "Strength Potion",   color: 0xff4444, solid: false },
   92: { name: "Speed Potion",      color: 0x44aaff, solid: false },
+  93: { name: "Saddle",            color: 0x8b4513, solid: false },
+  94: { name: "Anvil",             color: 0x555555 },
+  95: { name: "Leather",           color: 0x8b6914, solid: false },
 
   // ── Crafting materials & tools ────────────────────────────────────────────
   280: { name: "Stick",             color: 0xc8a464, solid: false },

@@ -118,6 +118,7 @@ export const MOB_DROPS: Record<string, Array<{ item: string; chance: number; min
     { item: "leather", chance: 0.8, min: 0, max: 2 },
   ],
   sheep: [{ item: "wool", chance: 1.0, min: 1, max: 3 }],
+  horse: [{ item: "leather", chance: 1.0, min: 1, max: 2 }],
   zombie: [{ item: "bone", chance: 0.5, min: 0, max: 2 }],
   creeper: [{ item: "gunpowder", chance: 1.0, min: 0, max: 2 }],
 };
