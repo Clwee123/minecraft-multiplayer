@@ -29,6 +29,12 @@ renderer.toneMapping       = THREE.NoToneMapping; // disable tone mapping for pe
 renderer.toneMappingExposure = 1.1;
 document.body.appendChild(renderer.domElement);
 
+// Pause time advancement when tab is hidden
+let _tabHidden = false;
+document.addEventListener("visibilitychange", () => {
+  _tabHidden = document.hidden;
+});
+
 // WebGL context loss — show overlay and attempt recovery
 renderer.domElement.addEventListener("webglcontextlost", (e) => {
   e.preventDefault();
@@ -480,6 +486,19 @@ function handleCommand(cmd: string, playerName: string): boolean {
     ui.addChatMessage("", "Teleported to spawn.", true);
     return true;
   }
+  if (base === "/clear") {
+    for (let i = 0; i < 36; i++) { inventory[i] = 0; invCount[i] = 0; }
+    ui.updateHotbarFromInventory(inventory, invCount);
+    ui.addChatMessage("", "Inventory cleared.", true);
+    return true;
+  }
+  if (base === "/effect") {
+    const eff = parts[1]?.toLowerCase();
+    if (eff === "strength") { potionEffects.strength = 30; ui.addChatMessage("", "Applied Strength I (30s)", true); }
+    else if (eff === "speed") { potionEffects.speed = 30; player.speedBonus = Math.max(player.speedBonus, 0.3); ui.addChatMessage("", "Applied Speed I (30s)", true); }
+    else ui.addChatMessage("", "Usage: /effect strength | speed", true);
+    return true;
+  }
   if (base === "/give") {
     // /give <typeId> [count]
     const typeId = parseInt(parts[1] ?? "");
@@ -681,7 +700,7 @@ const underwaterOverlay = document.getElementById("underwaterOverlay")!;
 let isUnderwater     = false;
 let underwaterBubbleTimer = 0;
 const NORMAL_FOG_NEAR = 55;
-const NORMAL_FOG_FAR  = 96;
+let NORMAL_FOG_FAR  = 96; // mutable — allows fog distance slider
 const WATER_FOG_NEAR  = 2;
 const WATER_FOG_FAR   = 20;
 const WATER_FOG_COLOR = new THREE.Color(0x0a3c64);
@@ -1588,6 +1607,7 @@ async function startGame(name: string) {
         settingsPanel.innerHTML = `<h3 style="margin:0 0 14px;color:#ffdd44;text-align:center">⚙ Settings</h3>
           <label>SFX Volume: <input type="range" id="sfxVol" min="0" max="100" value="${Math.round(sounds.sfxVolume*100)}" style="width:120px"></label><br><br>
           <label>Music Volume: <input type="range" id="musVol" min="0" max="100" value="${Math.round(sounds.musicVolume*100)}" style="width:120px"></label><br><br>
+          <label>View Distance: <input type="range" id="fogDist" min="32" max="192" step="16" value="${NORMAL_FOG_FAR}" style="width:120px"></label><br><br>
           <button id="closeSettings" style="width:100%;padding:8px;background:#555;color:#eee;border:none;border-radius:3px;cursor:pointer;">Close [P]</button>`;
         document.body.appendChild(settingsPanel);
         (document.getElementById("sfxVol") as HTMLInputElement).addEventListener("input", ev => {
@@ -1595,6 +1615,9 @@ async function startGame(name: string) {
         });
         (document.getElementById("musVol") as HTMLInputElement).addEventListener("input", ev => {
           sounds.musicVolume = parseInt((ev.target as HTMLInputElement).value) / 100;
+        });
+        (document.getElementById("fogDist") as HTMLInputElement).addEventListener("input", ev => {
+          NORMAL_FOG_FAR = parseInt((ev.target as HTMLInputElement).value);
         });
         document.getElementById("closeSettings")?.addEventListener("click", () => {
           settingsPanel?.remove(); settingsPanel = null; settingsOpen = false;
@@ -2230,7 +2253,7 @@ function animate() {
       // Also update minimap timer
       minimapTimer += dt;
     }
-    updateDayNight(dt);
+    if (!_tabHidden) updateDayNight(dt);
 
     // Biome-specific fog tinting (only when not underwater or in nether)
     if (!isUnderwater && !netherMode) {
@@ -2829,8 +2852,10 @@ function animate() {
       else if (yawDeg < 225) facing = "North (180°)";
       else facing = "East (270°)";
 
-      // Get biome (stub for now)
-      const biome = "Unknown";
+      // Get actual biome name
+      const BIOME_NAMES: Record<number, string> = { 0: "Plains", 1: "Desert", 2: "Forest", 3: "Mountains", 4: "Ocean", 5: "Taiga", 6: "Swamp" };
+      const biomeId = world.getBiome(Math.round(player.position.x), Math.round(player.position.z));
+      const biome = BIOME_NAMES[biomeId] ?? `Biome ${biomeId}`;
 
       // Get block below player — use getBlockType (no object allocation)
       const blockBelowPos = Math.round(player.position.y - 1);
