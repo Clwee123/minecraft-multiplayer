@@ -486,6 +486,34 @@ function handleCommand(cmd: string, playerName: string): boolean {
     ui.addChatMessage("", "Teleported to spawn.", true);
     return true;
   }
+  if (base === "/worldborder") {
+    const size = parseInt(parts[1] ?? "");
+    if (isNaN(size) || size < 10) { ui.addChatMessage("", "Usage: /worldborder <radius> (min 10)", true); return true; }
+    WORLD_BORDER = size;
+    ui.addChatMessage("", `World border set to ±${size} blocks`, true);
+    return true;
+  }
+  if (base === "/gamerule") {
+    const rule = parts[1]?.toLowerCase();
+    const val  = parts[2]?.toLowerCase();
+    if (rule === "domobspawning") {
+      (window as any).__mobSpawningEnabled = val !== "false";
+      ui.addChatMessage("", `doMobSpawning = ${val !== "false"}`, true);
+    } else if (rule === "pvp") {
+      (window as any).__pvpEnabled = val !== "false";
+      ui.addChatMessage("", `pvp = ${val !== "false"}`, true);
+    } else if (rule === "difficulty") {
+      const d = val ?? "normal";
+      (window as any).__difficulty = d;
+      ui.addChatMessage("", `difficulty = ${d}`, true);
+    } else if (rule === "keepinventory") {
+      (window as any).__keepInventory = val !== "false";
+      ui.addChatMessage("", `keepInventory = ${val !== "false"}`, true);
+    } else {
+      ui.addChatMessage("", "Usage: /gamerule domobspawning|pvp|difficulty|keepinventory <true|false|value>", true);
+    }
+    return true;
+  }
   if (base === "/clear") {
     for (let i = 0; i < 36; i++) { inventory[i] = 0; invCount[i] = 0; }
     ui.updateHotbarFromInventory(inventory, invCount);
@@ -701,6 +729,7 @@ let isUnderwater     = false;
 let underwaterBubbleTimer = 0;
 const NORMAL_FOG_NEAR = 55;
 let NORMAL_FOG_FAR  = 96; // mutable — allows fog distance slider
+let WORLD_BORDER    = 500; // blocks from origin before damage kicks in
 const WATER_FOG_NEAR  = 2;
 const WATER_FOG_FAR   = 20;
 const WATER_FOG_COLOR = new THREE.Color(0x0a3c64);
@@ -912,6 +941,11 @@ async function startGame(name: string) {
 
   // Create world + player NOW (atlas is loaded, materials will have real textures)
   if (!world) {
+    // Read seed from input — hash it to a float offset 0-1
+    const seedStr = (document.getElementById("seedInput") as HTMLInputElement)?.value?.trim() || String(Date.now());
+    let _seedHash = 0;
+    for (let i = 0; i < seedStr.length; i++) _seedHash = (_seedHash * 31 + seedStr.charCodeAt(i)) >>> 0;
+    (window as any).__worldSeed = (_seedHash % 100000) / 100000; // 0-1 float
     world  = new World(scene);
     player = new Player(camera, world, scene);
     scene.add(camera);
@@ -1937,6 +1971,13 @@ async function startGame(name: string) {
     screenFade.style.transition = "opacity 0.4s ease";
     screenFade.style.opacity = "1";
     setTimeout(() => {
+      // keepInventory: if false, clear inventory on death
+      if ((window as any).__keepInventory !== true) {
+        for (let _i = 0; _i < 36; _i++) { inventory[_i] = 0; invCount[_i] = 0; }
+        xp = 0; xpLevel = 0;
+        ui.updateHotbarFromInventory(inventory, invCount);
+        ui.updateXP(0, 0);
+      }
       player.respawn();
       hunger = maxHunger;
       ui.updateHearts(player.maxHealth, player.maxHealth);
@@ -2041,7 +2082,12 @@ async function startGame(name: string) {
         lastDeathCause = "You were killed by a mob";
         if (player.gameMode === "survival") {
           let actualDamage = amount;
-          if (enchants.protection > 0) actualDamage = Math.max(1, actualDamage - 3 * enchants.protection); // Protection I: -3 dmg
+          // Difficulty multiplier
+          const _diff = (window as any).__difficulty;
+          if (_diff === "easy") actualDamage = Math.ceil(actualDamage * 0.5);
+          else if (_diff === "hard") actualDamage = Math.ceil(actualDamage * 1.5);
+          else if (_diff === "peaceful") { actualDamage = 0; }
+          if (enchants.protection > 0) actualDamage = Math.max(0, actualDamage - 3 * enchants.protection); // Protection I: -3 dmg
           if (shieldActive && shieldDurability > 0) {
             // Shield reduces damage by 80%
             actualDamage = Math.ceil(actualDamage * 0.2);
@@ -2609,6 +2655,22 @@ function animate() {
       }
     }
 
+    // ── World border damage ───────────────────────────────────────────────────
+    if (player.gameMode === "survival") {
+      const _bx = Math.abs(player.position.x), _bz = Math.abs(player.position.z);
+      if (_bx > WORLD_BORDER || _bz > WORLD_BORDER) {
+        regenTimer += dt;
+        if (regenTimer > 0.5) {
+          regenTimer = 0;
+          lastDeathCause = "You went beyond the world border";
+          player.takeDamage(2);
+          ui.updateHearts(player.health, player.maxHealth);
+          const _over = Math.max(_bx, _bz) - WORLD_BORDER;
+          if (_over < 10) ui.addChatMessage("", `⚠ World border nearby! (${Math.round(WORLD_BORDER - Math.max(_bx,_bz))} blocks)`, true);
+        }
+      }
+    }
+
     // ── Potion effects ────────────────────────────────────────────────────────
     const prevStrength = potionEffects.strength;
     const prevSpeed    = potionEffects.speed;
@@ -2641,7 +2703,7 @@ function animate() {
     }
     if (prevDayTime < 0.95 && dayTime >= 0.95) {
       // Chance to spawn extra zombies/skeletons at midnight
-      if (mobManager && Math.random() < 0.5) {
+      if (mobManager && Math.random() < 0.5 && (window as any).__mobSpawningEnabled !== false) {
         const spawnCount = 3 + Math.floor(Math.random() * 3);
         for (let i = 0; i < spawnCount; i++) {
           const angle = Math.random() * Math.PI * 2;

@@ -36,19 +36,19 @@ export class World {
   private static _rayFace = new THREE.Vector3();
 
   // ── Noise ────────────────────────────────────────────────────────────────
-  // Each noise function has a fixed deterministic seed via alea-style lambda
-  private nH1 = createNoise2D(() => 0.31415);  // continental base
-  private nH2 = createNoise2D(() => 0.62831);  // hill detail
-  private nH3 = createNoise2D(() => 0.94247);  // micro bumps
-  private nH4 = createNoise2D(() => 0.12566);  // very fine
-  private nBio= createNoise2D(() => 0.78539);  // biome
-  private nCv1= createNoise2D(() => 0.52359);  // cave A
-  private nCv2= createNoise2D(() => 0.20943);  // cave B
-  private nOre= createNoise2D(() => 0.41887);  // ore clusters
-  // Legacy aliases (used by dungeon/structure code)
-  private noise2D  = createNoise2D(() => 0.69813);
-  private noise2D2 = createNoise2D(() => 0.87964);
-  private biomeNoise = createNoise2D(() => 0.78539); // same seed as nBio
+  // Each noise function uses a fixed base + optional world seed offset
+  private static _s() { return (typeof (window as any).__worldSeed === "number") ? (window as any).__worldSeed : 0; }
+  private nH1 = createNoise2D(() => 0.31415 + World._s());
+  private nH2 = createNoise2D(() => 0.62831 + World._s());
+  private nH3 = createNoise2D(() => 0.94247 + World._s());
+  private nH4 = createNoise2D(() => 0.12566 + World._s());
+  private nBio= createNoise2D(() => 0.78539 + World._s());
+  private nCv1= createNoise2D(() => 0.52359 + World._s());
+  private nCv2= createNoise2D(() => 0.20943 + World._s());
+  private nOre= createNoise2D(() => 0.41887 + World._s());
+  private noise2D  = createNoise2D(() => 0.69813 + World._s());
+  private noise2D2 = createNoise2D(() => 0.87964 + World._s());
+  private biomeNoise = createNoise2D(() => 0.78539 + World._s());
 
   // Wave 9 torch system
   torchLights: Map<string, THREE.PointLight> = new Map();
