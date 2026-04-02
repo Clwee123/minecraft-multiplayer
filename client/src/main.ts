@@ -2565,9 +2565,26 @@ function animate() {
     moonMesh.position.x += (player.position.x - moonMesh.position.x) * 0.02;
     // skyDome.followCamera() already handled in updateDayNight
 
-    // Thunder flash effect
+    // Thunder flash + lightning damage
     if (weather.isThunderFlashing()) {
       renderer.setClearColor(_thunderColor);
+    }
+    const lightningStrike = weather.consumeLightningStrike();
+    if (lightningStrike && player.gameMode === "survival") {
+      const lx = player.position.x + lightningStrike.x;
+      const lz = player.position.z + lightningStrike.z;
+      const ldx = lx - player.position.x;
+      const ldz = lz - player.position.z;
+      const ldistSq = ldx * ldx + ldz * ldz;
+      if (ldistSq < 25) { // within 5 blocks
+        lastDeathCause = "Struck by lightning";
+        player.takeDamage(5);
+        ui.updateHearts(player.health, player.maxHealth);
+        ui.addChatMessage("", "⚡ You were struck by lightning!", true);
+        sounds.play("hurt");
+      }
+      // Lightning particles at strike point
+      particles.burst(lx, player.position.y, lz, 0); // white particles
     }
 
     // Water splash particles — use getBlockType to avoid {type} object allocation

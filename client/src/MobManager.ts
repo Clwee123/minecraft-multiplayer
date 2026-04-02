@@ -230,7 +230,30 @@ export class MobManager {
       if (lm.hitCooldown > 0) lm.hitCooldown = Math.max(0, lm.hitCooldown - dt);
       lm.mob.update(dt);
 
-      if (!lm.mob.alive) continue;
+      if (!lm.mob.alive) {
+        // Clean up dead mob — remove from scene after death animation finishes
+        if ((lm.mob as any)._deathTimer === undefined) (lm.mob as any)._deathTimer = 1.5; // 1.5s death linger
+        (lm.mob as any)._deathTimer -= dt;
+        if ((lm.mob as any)._deathTimer <= 0) {
+          // Slime splitting: large slime spawns 2 small slimes on death
+          if (lm.data.type === "slime" && !(lm.data as any).isMiniSlime) {
+            for (let s = 0; s < 2; s++) {
+              const offX = (Math.random() - 0.5) * 2;
+              const offZ = (Math.random() - 0.5) * 2;
+              const miniData: any = {
+                id: `slime_mini_${Date.now()}_${s}`,
+                type: "slime", x: lm.data.x + offX, y: lm.data.y, z: lm.data.z + offZ,
+                rotY: Math.random() * Math.PI * 2, state: "idle", health: 4, maxHealth: 4,
+                isMiniSlime: true,
+              };
+              this.addMob(miniData, this.scene);
+            }
+          }
+          lm.mob.dispose(this.scene);
+          this.mobs.delete(id);
+        }
+        continue;
+      }
 
       // Undead mobs burn at dawn when on the surface
       if (this.singleplayer && MobManager.UNDEAD_TYPES.has(lm.data.type)) {

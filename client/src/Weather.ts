@@ -24,6 +24,7 @@ export class Weather {
   private thunderTimer = 0;
   private thunderFlash = false;
   private nextThunder = 15; // seconds until next thunder
+  private _lightningStrike: { x: number; z: number } | null = null;
 
   // Ambient rain sound state
   private rainSoundTimer = 0;
@@ -156,6 +157,11 @@ export class Weather {
         this.thunderFlash = true;
         this.nextThunder = 8 + Math.random() * 20;
         this.thunderTimer = 0.15;
+        // Record lightning strike position (offset from player — passed in via update)
+        this._lightningStrike = {
+          x: (Math.random() - 0.5) * 40,
+          z: (Math.random() - 0.5) * 40,
+        };
         // Play thunder sound
         this.sounds.play("break"); // reuse break sound as thunder rumble
       }
@@ -168,6 +174,13 @@ export class Weather {
 
   isThunderFlashing(): boolean { return this.thunderFlash; }
   isRaining(): boolean { return this.type !== "clear"; }
+
+  /** Returns lightning strike world offset (relative) and clears it. Returns null if no strike this frame. */
+  consumeLightningStrike(): { x: number; z: number } | null {
+    const s = this._lightningStrike;
+    this._lightningStrike = null;
+    return s;
+  }
 
   private startRainAmbient() {
     try {
