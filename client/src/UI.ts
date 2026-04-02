@@ -630,7 +630,7 @@ export class UI {
 
     const commands = [
       "/gamemode", "/time", "/weather", "/help", "/save", "/load", "/tp",
-      "/kill", "/heal", "/feed", "/give", "/god", "/boss", "/achievements",
+      "/kill", "/heal", "/feed", "/give", "/god", "/spawn", "/boss", "/achievements",
       "/stats", "/nether", "/craft", "/tame", "/spectator",
     ];
     const partial = text.slice(1).toLowerCase();
@@ -773,9 +773,21 @@ export class UI {
     this.craftingPanel.appendChild(title);
 
     const sub = document.createElement("div");
-    sub.style.cssText = "color: #aaa; font-size: 11px; text-align: center; margin-bottom: 12px;";
+    sub.style.cssText = "color: #aaa; font-size: 11px; text-align: center; margin-bottom: 8px;";
     sub.textContent = "Right-click crafting table to open. Hand-craftable items marked ✋";
     this.craftingPanel.appendChild(sub);
+
+    // Recipe search filter
+    const searchInput = document.createElement("input");
+    searchInput.type = "text";
+    searchInput.placeholder = "🔍 Search recipes...";
+    searchInput.style.cssText = `
+      width: 100%; box-sizing: border-box; padding: 6px 8px;
+      background: #222; color: #eee; border: 1px solid #555;
+      border-radius: 3px; font-size: 12px; margin-bottom: 10px;
+      outline: none;
+    `;
+    this.craftingPanel.appendChild(searchInput);
 
     const getCount = this.getInvCount ?? (() => 0);
 
@@ -838,7 +850,16 @@ export class UI {
       }
 
       this.craftingPanel!.appendChild(row);
+      row.dataset.recipeName = recipe.name.toLowerCase(); // for search
     }
+
+    // Wire search filter to show/hide rows
+    searchInput.addEventListener("input", () => {
+      const q = searchInput.value.toLowerCase();
+      this.craftingPanel!.querySelectorAll<HTMLElement>("[data-recipe-name]").forEach(el => {
+        el.style.display = (el.dataset.recipeName ?? "").includes(q) ? "" : "none";
+      });
+    });
 
     const closeBtn = document.createElement("button");
     closeBtn.style.cssText = `

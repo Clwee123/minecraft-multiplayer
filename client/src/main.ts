@@ -460,6 +460,12 @@ function handleCommand(cmd: string, playerName: string): boolean {
     ui.addChatMessage("", player.gameMode === "creative" ? "God mode ON (creative)" : "God mode OFF (survival)", true);
     return true;
   }
+  if (base === "/spawn") {
+    player.position.x = 0; player.position.z = 0;
+    player.position.y = (world as any).getSurfaceHeight ? (world as any).getSurfaceHeight(0, 0) + 2 : 30;
+    ui.addChatMessage("", "Teleported to spawn.", true);
+    return true;
+  }
   if (base === "/give") {
     // /give <typeId> [count]
     const typeId = parseInt(parts[1] ?? "");
@@ -626,6 +632,7 @@ function handleCommand(cmd: string, playerName: string): boolean {
       "/tp <x> <z>",
       "/give <typeId> [count]",
       "/god - toggle creative/survival",
+      "/spawn - teleport to world spawn",
       "/craft",
       "/weather clear | rain | thunder",
       "/nether enter | exit",
