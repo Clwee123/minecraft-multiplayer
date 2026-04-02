@@ -486,6 +486,12 @@ function handleCommand(cmd: string, playerName: string): boolean {
     ui.addChatMessage("", "Teleported to spawn.", true);
     return true;
   }
+  if (base === "/scoreboard") {
+    ui.showScoreboard(stats.getAll(), dayCount);
+    document.exitPointerLock();
+    ui.addChatMessage("", "Press O or close button to dismiss.", true);
+    return true;
+  }
   if (base === "/worldborder") {
     const size = parseInt(parts[1] ?? "");
     if (isNaN(size) || size < 10) { ui.addChatMessage("", "Usage: /worldborder <radius> (min 10)", true); return true; }
@@ -1621,6 +1627,24 @@ async function startGame(name: string) {
     }
   });
 
+  // Middle-click — pick block (creative mode)
+  document.addEventListener("mousedown", e => {
+    if (e.button !== 1 || !document.pointerLockElement || player.gameMode !== "creative") return;
+    e.preventDefault();
+    const targetType = player.getTargetBlockType();
+    if (targetType && targetType > 0) {
+      // Find slot with this type or put in current hotbar slot
+      let slot = inventory.findIndex((v, i) => v === targetType && i < 9);
+      if (slot < 0) {
+        slot = hotbarSlot;
+        inventory[slot] = targetType;
+        invCount[slot] = 64;
+        ui.updateHotbarFromInventory(inventory, invCount);
+      }
+      updateHotbarSlot(slot);
+    }
+  });
+
   // P key — settings panel (volume sliders)
   {
     let settingsOpen = false;
@@ -2140,6 +2164,7 @@ async function startGame(name: string) {
         witherTimer = WITHER_DURATION;
       },
     }, true);
+    mobManager.onBurnParticle = (x, y, z) => particles.magic(x, y, z, 1);
 
     for (let i = 0; i < 10; i++) mobManager.spawnRandom(0, 0);
 

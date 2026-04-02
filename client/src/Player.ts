@@ -172,6 +172,11 @@ export class Player {
   /** Expose keys map so mobile controls can inject key states */
   getKeys(): Record<string, boolean> { return this.keys; }
   getBreakProgress(): number { return this.breakTarget ? this.breakProgress : 0; }
+  getTargetBlockType(): number | null {
+    if (!this._lastHit) return null;
+    const b = this.world.getBlock(this._lastHit.blockX, this._lastHit.blockY, this._lastHit.blockZ);
+    return b ? b.type : null;
+  }
 
   /** Trigger a one-shot break from external (mobile button) */
   breakBlockNow(): void { this.breakBlock(); }

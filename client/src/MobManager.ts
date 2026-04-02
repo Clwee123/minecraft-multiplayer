@@ -55,6 +55,7 @@ export class MobManager {
 
   // Horse mounting
   mountedMobId: string | null = null;
+  onBurnParticle?: (x: number, y: number, z: number) => void;
 
   // Raycaster for mob-player attack detection
   private attackCooldown = 0;
@@ -267,9 +268,10 @@ export class MobManager {
             // Burn: deal 4 damage per second
             lm.mob.health -= 4 * dt;
             lm.mob.showDamage(lm.mob.health);
-            if (lm.mob.health <= 0) {
-              lm.mob.die();
-              continue;
+            // Fire particles — emit every ~0.3s
+            if (!lm.mob.alive) { lm.mob.die(); continue; }
+            if (Math.random() < dt * 3) {
+              this.onBurnParticle?.(lm.data.x, lm.data.y + 1, lm.data.z);
             }
           }
         }
