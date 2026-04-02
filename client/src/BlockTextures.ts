@@ -180,9 +180,9 @@ function getWaterMat(): THREE.MeshLambertMaterial {
     map: _waterTex,
     transparent: true,
     opacity: 0.78,
-    depthWrite: true,
+    depthWrite: false, // prevent water from occluding things behind it at shallow angles
     alphaTest: 0,
-    side: THREE.FrontSide,
+    side: THREE.DoubleSide, // render from below too (no sky bleed-through)
   });
   return _waterMat;
 }
