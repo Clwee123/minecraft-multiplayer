@@ -1730,14 +1730,19 @@ async function startGame(name: string) {
   // Smelting callback
   ui.onSmelt = (inputType: number, fuelType: number) => {
     const output = smeltRecipes.get(inputType);
-    if (output) {
-      // Consume input from inventory (simplified: just add to inventory for now)
-      inventory.push(output);
-      ui.addChatMessage("", `Smelted: ${getBlockName(output)}`, true);
-      sounds.play("eat");
-      return output;
-    }
-    return null;
+    if (!output) return null;
+    // Need 1x input and 1x fuel in inventory
+    const VALID_FUELS = new Set([64, 5, 10, 280]); // coal, log, planks, stick
+    const hasFuel = VALID_FUELS.has(fuelType) && invCountOf(fuelType) > 0;
+    if (!hasFuel) { ui.addChatMessage("", "Need fuel (coal, wood) to smelt!", true); return null; }
+    if (invCountOf(inputType) < 1) { ui.addChatMessage("", "No input item to smelt!", true); return null; }
+    invRemoveItem(inputType, 1);
+    invRemoveItem(fuelType, 1);
+    invAddItem(output, 1);
+    ui.updateHotbarFromInventory(inventory, invCount);
+    ui.addChatMessage("", `Smelted: ${getBlockName(output)}`, true);
+    sounds.play("eat");
+    return output;
   };
 
   // Expose inventory count to UI for crafting display

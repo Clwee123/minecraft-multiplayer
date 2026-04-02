@@ -831,14 +831,39 @@ export class MobManager {
         d.z += Math.cos(d.rotY) * 1.5 * dt;
       }
     } else {
-      // Tamed: follow player if far
-      if (playerDistSq > 25) { // 5^2=25
-        d.rotY = Math.atan2(dx, dz);
-        d.x += Math.sin(d.rotY) * speed * dt;
-        d.z += Math.cos(d.rotY) * speed * dt;
-        d.state = "following";
-      } else {
-        d.state = "sitting";
+      // Tamed: attack nearby hostile mobs first, then follow player
+      let attacked = false;
+      for (const [otherId, other] of this.mobs) {
+        if (!other.mob.alive) continue;
+        if (!MobManager.HOSTILE_TYPES.has(other.data.type as any)) continue;
+        const odx = other.data.x - d.x;
+        const odz = other.data.z - d.z;
+        const odistSq = odx * odx + odz * odz;
+        if (odistSq < 64) { // 8 block aggro range
+          d.rotY = Math.atan2(odx, odz);
+          d.x += Math.sin(d.rotY) * speed * 1.2 * dt;
+          d.z += Math.cos(d.rotY) * speed * 1.2 * dt;
+          d.state = "following";
+          if (odistSq < 2.25 && (lm.hitCooldown ?? 0) <= 0) { // 1.5^2
+            other.mob.health -= 4; // wolf bite
+            other.mob.showDamage(other.mob.health);
+            if (other.mob.health <= 0) other.mob.die();
+            lm.hitCooldown = 1.5;
+          }
+          attacked = true;
+          break;
+        }
+      }
+      if (!attacked) {
+        // Follow player if far, otherwise sit
+        if (playerDistSq > 25) { // 5^2=25
+          d.rotY = Math.atan2(dx, dz);
+          d.x += Math.sin(d.rotY) * speed * dt;
+          d.z += Math.cos(d.rotY) * speed * dt;
+          d.state = "following";
+        } else {
+          d.state = "sitting";
+        }
       }
     }
   }
