@@ -1168,6 +1168,7 @@ async function startGame(name: string) {
         ui.addChatMessage("", "Applied Protection I (+3 armor)!", true);
       } else if (type === "speed") {
         enchants.speed = 1;
+        player.speedBonus = 0.2; // +20% movement
         ui.addChatMessage("", "Applied Speed I (+20% movement)!", true);
       }
       sounds.play("eat");
@@ -1790,9 +1791,10 @@ async function startGame(name: string) {
         lastDeathCause = "You were killed by a mob";
         if (player.gameMode === "survival") {
           let actualDamage = amount;
+          if (enchants.protection > 0) actualDamage = Math.max(1, actualDamage - 3 * enchants.protection); // Protection I: -3 dmg
           if (shieldActive && shieldDurability > 0) {
             // Shield reduces damage by 80%
-            actualDamage = Math.ceil(amount * 0.2);
+            actualDamage = Math.ceil(actualDamage * 0.2);
             shieldDurability--;
           }
           player.takeDamage(actualDamage);

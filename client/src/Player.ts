@@ -39,6 +39,7 @@ export class Player {
   invincible  = 0;
   private spawnGrace = 0; // seconds of invincibility after spawning
   armor       = 0;
+  speedBonus  = 0; // multiplier bonus from enchantments (0 = no bonus, 0.2 = +20%)
 
   private fallStartY   = 0;
   private wasOnGround  = false;
@@ -748,6 +749,7 @@ export class Player {
     let speed = sprinting ? MOVE_SPEED * SPRINT_MULT : MOVE_SPEED;
     if (this.gameMode === "creative") speed = this.flying ? FLY_SPEED : MOVE_SPEED * 1.2;
     if (this.gameMode === "spectator") speed = FLY_SPEED * 1.5; // spectators move faster
+    if (this.speedBonus > 0) speed *= (1 + this.speedBonus); // Speed enchantment
     // Swimming reduces speed to 60% of normal
     if (this.inWater) speed *= 0.6;
 
