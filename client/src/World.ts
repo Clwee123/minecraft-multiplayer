@@ -737,8 +737,17 @@ export class World {
     for (const [x, z] of corners) {
       const chestY = roomY + 1;
       this.placeBlock(x, chestY, z, 31, true); // chest
-      // Fill with random loot
-      const loot = Array.from({ length: 27 }, () => Math.floor(Math.random() * 31));
+      // Fill with randomized dungeon loot (meaningful items)
+      const DUNGEON_LOOT = [64, 62, 65, 63, 280, 268, 270, 274, 267, 257, 5, 10, 56, 11, 3];
+      const loot = new Array(27).fill(0);
+      const slots = Math.floor(Math.random() * 8) + 4; // 4-11 filled slots
+      const usedSlots = new Set<number>();
+      for (let s = 0; s < slots; s++) {
+        let slot: number;
+        do { slot = Math.floor(Math.random() * 27); } while (usedSlots.has(slot));
+        usedSlots.add(slot);
+        loot[slot] = DUNGEON_LOOT[Math.floor(Math.random() * DUNGEON_LOOT.length)];
+      }
       this.setChestInventory(x, chestY, z, loot);
     }
 
