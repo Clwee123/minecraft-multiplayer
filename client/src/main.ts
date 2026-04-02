@@ -1402,7 +1402,14 @@ async function startGame(name: string) {
     }
 
     attackRaycaster.setFromCamera(_CENTER_VEC2, camera);
-    const result = mobManager?.tryAttack(attackRaycaster, enchants, potionEffects.strength > 0 ? 4 : 0);
+    // Weapon tier bonus damage
+    const WEAPON_BONUS: Record<number, number> = {
+      268: 0, 272: 2, 267: 4, 276: 7, // sword tiers: wood/stone/iron/diamond
+      270: 0, 274: 1, 257: 3, 278: 6, // pickaxe tiers
+      271: 1, 275: 3, 258: 5, 279: 8, // axe tiers (best with axes)
+    };
+    const weaponBonus = (WEAPON_BONUS[player.selectedBlockType] ?? 0) + (potionEffects.strength > 0 ? 4 : 0);
+    const result = mobManager?.tryAttack(attackRaycaster, enchants, weaponBonus);
     if (result) {
       sounds.play("hit");
       achievements.trigger("first_mob");
@@ -1481,6 +1488,26 @@ async function startGame(name: string) {
             ui.addChatMessage("", "You need 5+ XP levels to enchant!", true);
             return;
           }
+        }
+
+        if (enchantBlock && enchantBlock.type === 118) { // Ender Chest — personal persistent storage
+          const raw = localStorage.getItem("mc_ender_chest") ?? "[]";
+          const enderSlots: number[] = JSON.parse(raw).length === 27 ? JSON.parse(raw) : new Array(27).fill(0);
+          const hotbarCopy = inventory.slice(0, 9);
+          ui.showChestUI(enderSlots, hotbarCopy);
+          ui.onChestClose = () => {
+            localStorage.setItem("mc_ender_chest", JSON.stringify(enderSlots));
+          };
+          sounds.play("place");
+          return;
+        }
+
+        if (enchantBlock && enchantBlock.type === 120) { // Respawn Anchor
+          const key = `${enchantHit.x},${enchantHit.y},${enchantHit.z}`;
+          (window as any).__respawnAnchor = { x: enchantHit.x, y: enchantHit.y + 1, z: enchantHit.z };
+          ui.addChatMessage("", `⚓ Respawn anchor set at (${enchantHit.x}, ${enchantHit.y}, ${enchantHit.z})`, true);
+          sounds.play("place");
+          return;
         }
 
         if (enchantBlock && enchantBlock.type === 112) { // Sculk Sensor
@@ -1940,7 +1967,7 @@ async function startGame(name: string) {
             const by = Math.floor(player.position.y) + y;
             const bz = Math.floor(player.position.z) + z;
             const block = world.getBlock(bx, by, bz);
-            if (block && (block.type === 31 || block.type === 113)) { // Chest or Barrel
+            if (block && (block.type === 31 || block.type === 113 || block.type === 119)) { // Chest, Barrel, or Shulker Box
               const dist = player.position.distanceTo(_blockDistVec.set(bx + 0.5, by + 0.5, bz + 0.5));
               if (dist <= 5) {
                 chestPos = [bx, by, bz];
@@ -2098,6 +2125,9 @@ async function startGame(name: string) {
     iron_pickaxe:     { ingredients: { 62: 3, 280: 2 }, output: { type: 257, count: 1 } },
     iron_sword:       { ingredients: { 62: 2, 280: 1 }, output: { type: 267, count: 1 } },
     iron_axe:         { ingredients: { 62: 3, 280: 2 }, output: { type: 258, count: 1 } },
+    diamond_sword:    { ingredients: { 65: 2, 280: 1 }, output: { type: 276, count: 1 } },
+    diamond_pickaxe:  { ingredients: { 65: 3, 280: 2 }, output: { type: 278, count: 1 } },
+    diamond_axe:      { ingredients: { 65: 3, 280: 2 }, output: { type: 279, count: 1 } },
     iron_helmet:      { ingredients: { 62: 5 },          output: { type: 35,  count: 1 } },
     iron_chest:       { ingredients: { 62: 8 },          output: { type: 36,  count: 1 } },
     iron_legs:        { ingredients: { 62: 7 },          output: { type: 37,  count: 1 } },
@@ -2117,6 +2147,9 @@ async function startGame(name: string) {
     cauldron:         { ingredients: { 62: 7 },         output: { type: 114, count: 1 } }, // 7 iron
     loom:             { ingredients: { 5: 2, 280: 2 }, output: { type: 115, count: 1 } }, // planks+sticks
     smithing_table:   { ingredients: { 62: 2, 5: 4 },  output: { type: 116, count: 1 } }, // iron+planks
+    ender_chest:      { ingredients: { 18: 8, 65: 1 }, output: { type: 118, count: 1 } }, // obsidian+diamond
+    shulker_box:      { ingredients: { 31: 2, 26: 4 }, output: { type: 119, count: 1 } }, // chest+wool
+    respawn_anchor:   { ingredients: { 19: 6, 65: 3 }, output: { type: 120, count: 1 } }, // glowstone+diamond
     crafting_table:   { ingredients: { 10: 4 },          output: { type: 22,  count: 1 } },
     furnace:          { ingredients: { 11: 8 },          output: { type: 23,  count: 1 } },
     chest:            { ingredients: { 10: 8 },          output: { type: 31,  count: 1 } },
@@ -2165,6 +2198,9 @@ async function startGame(name: string) {
         ui.updateHotbarFromInventory(inventory, invCount);
         ui.updateXP(0, 0);
       }
+      // Respawn anchor overrides spawn position
+      const _anchor = (window as any).__respawnAnchor;
+      if (_anchor) { player.position.set(_anchor.x, _anchor.y + 1, _anchor.z); }
       player.respawn();
       hunger = maxHunger;
       ui.updateHearts(player.maxHealth, player.maxHealth);

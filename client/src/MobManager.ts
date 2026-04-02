@@ -196,6 +196,7 @@ export class MobManager {
     if (!mobId) return null;
 
     const lm     = this.mobs.get(mobId)!;
+    // Base damage depends on held weapon type (passed via strengthBonus as weapon tier bonus)
     let damage = 5;
     // Apply sharpness enchantment
     if (enchants?.sharpness) {

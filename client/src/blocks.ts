@@ -126,6 +126,9 @@ export const BLOCK_TYPES: Record<number, {
   114: { name: "Cauldron",         color: 0x444444 },
   115: { name: "Loom",             color: 0xc8a464 },
   116: { name: "Smithing Table",   color: 0x445566 },
+  118: { name: "Ender Chest",      color: 0x224422, emissive: 0x002200 },
+  119: { name: "Shulker Box",      color: 0xaa44aa },
+  120: { name: "Respawn Anchor",   color: 0x442266, emissive: 0x220044 },
 
   // ── Crafting materials & tools ────────────────────────────────────────────
   280: { name: "Stick",             color: 0xc8a464, solid: false },
@@ -143,6 +146,11 @@ export const BLOCK_TYPES: Record<number, {
   257: { name: "Iron Pickaxe",      color: 0xdddddd, solid: false },
   258: { name: "Iron Axe",          color: 0xdddddd, solid: false },
   267: { name: "Iron Sword",        color: 0xdddddd, solid: false },
+  // Diamond tools
+  276: { name: "Diamond Sword",     color: 0x44ffee, solid: false },
+  277: { name: "Diamond Shovel",    color: 0x44ffee, solid: false },
+  278: { name: "Diamond Pickaxe",   color: 0x44ffee, solid: false },
+  279: { name: "Diamond Axe",       color: 0x44ffee, solid: false },
 };
 
 // Hotbar presets — what shows in the 8 hotbar slots by default
