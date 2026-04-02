@@ -1595,6 +1595,8 @@ async function startGame(name: string) {
           "pillager": 10, "drowned": 8, "husk": 8, "stray": 10, "ravager": 20,
           "bat": 0, "enderman": 12, "blaze": 10, "ghast": 5, "irongolem": 25, "snowgolem": 3,
           "vindicator": 10, "vex": 3, "zoglin": 10, "hoglin": 8, "piglin": 5,
+          "fox": 2, "panda": 3, "ocelot": 2, "mooshroom": 5, "llama": 4,
+          "zombievillager": 5, "wanderingtrader": 0, "giant": 50, "zombiehorse": 3, "skeletonhorse": 3,
           "magmacube": 4, "silverfish": 5, "elderguardian": 50, "witch": 10, "evoker": 20,
           "zombie": 8, "skeleton": 10, "creeper": 5, "horse": 10, "villager": 0, "enderdragon": 100,
           "phantom": 6, "slime": 4, "witherskeleton": 8, "spider": 5, "wolf": 4, "cat": 0,
@@ -2625,6 +2627,10 @@ async function startGame(name: string) {
       hunger = Math.max(0, hunger - 3); // husk drains 3 hunger
       ui.updateHunger(hunger, maxHunger);
       ui.addChatMessage("", "🧟 Husk inflicts hunger!", true);
+    };
+    mobManager.onPandaSneeze = (x, y, z) => {
+      particles.burst(x, y, z, 4); // white sneeze particles
+      sounds.play("eat");
     };
     mobManager.onGhastFireball = (x, y, z) => {
       // Ghast fireball explodes on impact near player

@@ -81,7 +81,7 @@ export class MobManager {
 
   spawnMob(type: MobType, x: number, y: number, z: number, id?: string): Mob {
     const mobId    = id ?? uid();
-    const maxHp    = type === "zombie" ? 20 : type === "creeper" ? 20 : type === "skeleton" ? 20 : type === "witherskeleton" ? 40 : type === "chicken" ? 4 : type === "cow" ? 16 : type === "sheep" ? 12 : type === "horse" ? 30 : type === "villager" ? 20 : type === "enderdragon" ? 200 : type === "spider" ? 16 : type === "wolf" ? 20 : type === "cat" ? 10 : type === "phantom" ? 20 : type === "slime" ? 16 : type === "warden" ? 500 : type === "allay" ? 20 : type === "frog" ? 10 : type === "strider" ? 20 : type === "axolotl" ? 14 : type === "pillager" ? 24 : type === "drowned" ? 20 : type === "husk" ? 20 : type === "stray" ? 20 : type === "ravager" ? 100 : type === "irongolem" ? 100 : type === "snowgolem" ? 20 : type === "bat" ? 6 : type === "enderman" ? 40 : type === "blaze" ? 20 : type === "ghast" ? 10 : type === "magmacube" ? 30 : type === "silverfish" ? 8 : type === "elderguardian" ? 80 : type === "witch" ? 26 : type === "evoker" ? 24 : type === "vindicator" ? 24 : type === "vex" ? 14 : type === "zoglin" ? 40 : type === "hoglin" ? 40 : type === "piglin" ? 16 : type === "zombievillager" ? 20 : type === "wanderingtrader" ? 20 : type === "giant" ? 100 : type === "zombiehorse" ? 15 : type === "skeletonhorse" ? 15 : 10;
+    const maxHp    = type === "zombie" ? 20 : type === "creeper" ? 20 : type === "skeleton" ? 20 : type === "witherskeleton" ? 40 : type === "chicken" ? 4 : type === "cow" ? 16 : type === "sheep" ? 12 : type === "horse" ? 30 : type === "villager" ? 20 : type === "enderdragon" ? 200 : type === "spider" ? 16 : type === "wolf" ? 20 : type === "cat" ? 10 : type === "phantom" ? 20 : type === "slime" ? 16 : type === "warden" ? 500 : type === "allay" ? 20 : type === "frog" ? 10 : type === "strider" ? 20 : type === "axolotl" ? 14 : type === "pillager" ? 24 : type === "drowned" ? 20 : type === "husk" ? 20 : type === "stray" ? 20 : type === "ravager" ? 100 : type === "irongolem" ? 100 : type === "snowgolem" ? 20 : type === "bat" ? 6 : type === "enderman" ? 40 : type === "blaze" ? 20 : type === "ghast" ? 10 : type === "magmacube" ? 30 : type === "silverfish" ? 8 : type === "elderguardian" ? 80 : type === "witch" ? 26 : type === "evoker" ? 24 : type === "vindicator" ? 24 : type === "vex" ? 14 : type === "zoglin" ? 40 : type === "hoglin" ? 40 : type === "piglin" ? 16 : type === "zombievillager" ? 20 : type === "wanderingtrader" ? 20 : type === "giant" ? 100 : type === "zombiehorse" ? 15 : type === "skeletonhorse" ? 15 : type === "fox" ? 10 : type === "panda" ? 20 : type === "ocelot" ? 10 : type === "mooshroom" ? 16 : type === "llama" ? 22 : 10;
     const data: MobData = {
       id: mobId, type, x, y, z,
       rotY:      rnd(0, Math.PI * 2),
@@ -645,9 +645,51 @@ export class MobManager {
           this.animalAI(lm, dt, distSq, dx2, dz2, 1.0);
         }
       } else if (d.type === "zombiehorse" || d.type === "skeletonhorse") {
-        // Passive horse AI — wander, flee from hostiles
-        const SPEED = d.type === "zombiehorse" ? 4.5 : 5.0;
         this.horseAI(lm, dt, distSq, dx2, dz2, playerPos);
+      } else if (d.type === "fox") {
+        // Flee from player, sprint away fast
+        if (distSq < 10 * 10) {
+          d.rotY = Math.atan2(dx2, dz2) + Math.PI;
+          d.x += Math.sin(d.rotY) * 6 * dt;
+          d.z += Math.cos(d.rotY) * 6 * dt;
+          d.state = "fleeing";
+        } else {
+          this.animalAI(lm, dt, distSq, dx2, dz2, 2.5);
+        }
+      } else if (d.type === "panda") {
+        // Very slow wander, rarely moves
+        lm.timer -= dt;
+        if (lm.timer <= 0) {
+          lm.timer = 4 + Math.random() * 6;
+          if (Math.random() < 0.15) {
+            // Sneeze — emit particles (handled via callback)
+            this.onPandaSneeze?.(d.x, d.y + 1, d.z);
+          }
+          d.rotY += (Math.random() - 0.5) * Math.PI;
+        }
+        if (d.state !== "fleeing") {
+          d.x += Math.sin(d.rotY) * 0.8 * dt;
+          d.z += Math.cos(d.rotY) * 0.8 * dt;
+        }
+      } else if (d.type === "ocelot") {
+        // Flee until tamed (no taming mechanic — just always flees)
+        if (distSq < 12 * 12) {
+          d.rotY = Math.atan2(dx2, dz2) + Math.PI;
+          d.x += Math.sin(d.rotY) * 5 * dt;
+          d.z += Math.cos(d.rotY) * 5 * dt;
+        } else {
+          this.animalAI(lm, dt, distSq, dx2, dz2, 1.5);
+        }
+      } else if (d.type === "mooshroom") {
+        // Cow variant, same wander
+        this.animalAI(lm, dt, distSq, dx2, dz2, 1.8);
+      } else if (d.type === "llama") {
+        // Neutral; spit when player close
+        if (distSq < 6 * 6 && (lm.hitCooldown ?? 0) <= 0) {
+          this.shootArrow(d.x, d.y + 1, d.z, playerPos, "llama" as any);
+          lm.hitCooldown = 3.0;
+        }
+        this.animalAI(lm, dt, distSq, dx2, dz2, 2.5);
       }
     }
 
@@ -1444,6 +1486,7 @@ export class MobManager {
   }
 
   onGhastFireball?: (x: number, y: number, z: number) => void;
+  onPandaSneeze?:  (x: number, y: number, z: number) => void;
 
   private wardenAI(lm: LocalMob, dt: number, playerDistSq: number, dx: number, dz: number, playerPos: THREE.Vector3) {
     const d = lm.data;
