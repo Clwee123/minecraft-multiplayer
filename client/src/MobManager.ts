@@ -80,7 +80,7 @@ export class MobManager {
 
   spawnMob(type: MobType, x: number, y: number, z: number, id?: string): Mob {
     const mobId    = id ?? uid();
-    const maxHp    = type === "zombie" ? 20 : type === "creeper" ? 20 : type === "skeleton" ? 20 : type === "witherskeleton" ? 40 : type === "chicken" ? 4 : type === "cow" ? 16 : type === "sheep" ? 12 : type === "horse" ? 30 : type === "villager" ? 20 : type === "enderdragon" ? 200 : type === "spider" ? 16 : type === "wolf" ? 20 : type === "cat" ? 10 : type === "phantom" ? 20 : type === "slime" ? 16 : type === "warden" ? 500 : type === "allay" ? 20 : type === "frog" ? 10 : type === "strider" ? 20 : type === "axolotl" ? 14 : type === "pillager" ? 24 : type === "drowned" ? 20 : type === "husk" ? 20 : type === "stray" ? 20 : type === "ravager" ? 100 : type === "irongolem" ? 100 : type === "snowgolem" ? 20 : 10;
+    const maxHp    = type === "zombie" ? 20 : type === "creeper" ? 20 : type === "skeleton" ? 20 : type === "witherskeleton" ? 40 : type === "chicken" ? 4 : type === "cow" ? 16 : type === "sheep" ? 12 : type === "horse" ? 30 : type === "villager" ? 20 : type === "enderdragon" ? 200 : type === "spider" ? 16 : type === "wolf" ? 20 : type === "cat" ? 10 : type === "phantom" ? 20 : type === "slime" ? 16 : type === "warden" ? 500 : type === "allay" ? 20 : type === "frog" ? 10 : type === "strider" ? 20 : type === "axolotl" ? 14 : type === "pillager" ? 24 : type === "drowned" ? 20 : type === "husk" ? 20 : type === "stray" ? 20 : type === "ravager" ? 100 : type === "irongolem" ? 100 : type === "snowgolem" ? 20 : type === "bat" ? 6 : type === "enderman" ? 40 : type === "blaze" ? 20 : type === "ghast" ? 10 : 10;
     const data: MobData = {
       id: mobId, type, x, y, z,
       rotY:      rnd(0, Math.PI * 2),
@@ -94,7 +94,7 @@ export class MobManager {
     return mob;
   }
 
-  private static HOSTILE_TYPES: Set<MobType> = new Set(["zombie", "skeleton", "creeper", "spider", "witherskeleton", "phantom", "warden", "pillager", "drowned", "husk", "stray", "ravager"]);
+  private static HOSTILE_TYPES: Set<MobType> = new Set(["zombie", "skeleton", "creeper", "spider", "witherskeleton", "phantom", "warden", "pillager", "drowned", "husk", "stray", "ravager", "blaze", "ghast"]);
   private static UNDEAD_TYPES: Set<MobType> = new Set(["zombie", "skeleton", "witherskeleton", "phantom", "drowned", "husk", "stray"]);
 
   spawnRandom(cx: number, cz: number) {
@@ -322,6 +322,7 @@ export class MobManager {
         this.cb.onPlayerDamage(1); // arrow: 3→1
         if (arrow.shooterType === "stray") this.onStrayArrow?.(); // slowness
         if (arrow.shooterType === "pillager") this.cb.onPlayerDamage(1); // pillager does extra dmg
+        if (arrow.shooterType === "blaze" || arrow.shooterType === "ghast") this.cb.onPlayerDamage(2); // fire dmg
         this.scene.remove(arrow.mesh);
         this.arrows.splice(i, 1);
       } else if (arrow.life <= 0) {
@@ -484,6 +485,20 @@ export class MobManager {
         this.skeletonAI(lm, dt, distSq, dx2, dz2, playerPos); // uses skeleton AI (ranged)
       } else if (d.type === "ravager") {
         this.ravagerAI(lm, dt, distSq, dx2, dz2, playerPos);
+      } else if (d.type === "bat") {
+        // Passive cave-dweller — erratic flight, flee from player
+        lm.data.y += Math.sin(Date.now() * 0.001 + distSq) * dt * 2;
+        if (distSq < 6 * 6) {
+          d.rotY = Math.atan2(dx2, dz2) + Math.PI;
+          d.x += Math.sin(d.rotY) * 4 * dt;
+          d.z += Math.cos(d.rotY) * 4 * dt;
+        }
+      } else if (d.type === "enderman") {
+        this.endermanAI(lm, dt, distSq, dx2, dz2, playerPos);
+      } else if (d.type === "blaze") {
+        this.blazeAI(lm, dt, distSq, dx2, dz2, playerPos);
+      } else if (d.type === "ghast") {
+        this.ghastAI(lm, dt, distSq, dx2, dz2, playerPos);
       } else if (d.type === "warden") {
         this.wardenAI(lm, dt, distSq, dx2, dz2, playerPos);
       } else if (d.type === "allay" || d.type === "axolotl") {
@@ -1231,6 +1246,70 @@ export class MobManager {
       this.animalAI(lm, dt, playerDistSq, dx, dz, 2.0);
     }
   }
+
+  private endermanAI(lm: LocalMob, dt: number, playerDistSq: number, dx: number, dz: number, playerPos: THREE.Vector3) {
+    const d = lm.data;
+    if (playerDistSq < 16 * 16) {
+      lm.aggro = true;
+      d.rotY = Math.atan2(dx, dz);
+      d.x += Math.sin(d.rotY) * 4.5 * dt;
+      d.z += Math.cos(d.rotY) * 4.5 * dt;
+      if (playerDistSq < 2 * 2 && (lm.hitCooldown ?? 0) <= 0) {
+        this.cb.onPlayerDamage(7);
+        lm.hitCooldown = 1.5;
+        // Teleport away after hitting
+        d.x = playerPos.x + (Math.random() - 0.5) * 20;
+        d.z = playerPos.z + (Math.random() - 0.5) * 20;
+      }
+    } else {
+      lm.aggro = false;
+      this.animalAI(lm, dt, playerDistSq, dx, dz, 2.0);
+    }
+  }
+
+  private blazeAI(lm: LocalMob, dt: number, playerDistSq: number, dx: number, dz: number, playerPos: THREE.Vector3) {
+    const d = lm.data;
+    // Hover at fixed height + strafe
+    d.y = (this.world as any).getSurfaceHeight
+      ? (this.world as any).getSurfaceHeight(Math.round(d.x), Math.round(d.z)) + 6
+      : d.y;
+    if (playerDistSq < 20 * 20) {
+      lm.aggro = true;
+      lm.shootTimer = (lm.shootTimer ?? 0) - dt;
+      if (lm.shootTimer <= 0) {
+        this.shootArrow(d.x, d.y, d.z, playerPos, "blaze");
+        lm.shootTimer = 2.5;
+      }
+    } else {
+      lm.aggro = false;
+    }
+  }
+
+  private ghastAI(lm: LocalMob, dt: number, playerDistSq: number, dx: number, dz: number, playerPos: THREE.Vector3) {
+    const d = lm.data;
+    // Float very high
+    d.y = (this.world as any).getSurfaceHeight
+      ? (this.world as any).getSurfaceHeight(Math.round(d.x), Math.round(d.z)) + 20
+      : d.y;
+    if (playerDistSq < 30 * 30) {
+      lm.aggro = true;
+      lm.shootTimer = (lm.shootTimer ?? 0) - dt;
+      if (lm.shootTimer <= 0) {
+        // Shoot fireball (bigger arrow) - reuse arrow with extra damage callback
+        this.shootArrow(d.x, d.y, d.z, playerPos, "ghast");
+        lm.shootTimer = 4.0;
+        this.onGhastFireball?.(d.x, d.y, d.z);
+      }
+      // Drift away from player slowly
+      d.rotY = Math.atan2(dx, dz) + Math.PI;
+      d.x += Math.sin(d.rotY) * 1.5 * dt;
+      d.z += Math.cos(d.rotY) * 1.5 * dt;
+    } else {
+      lm.aggro = false;
+    }
+  }
+
+  onGhastFireball?: (x: number, y: number, z: number) => void;
 
   private wardenAI(lm: LocalMob, dt: number, playerDistSq: number, dx: number, dz: number, playerPos: THREE.Vector3) {
     const d = lm.data;

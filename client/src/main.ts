@@ -1579,6 +1579,7 @@ async function startGame(name: string) {
         const xpTable: Record<string, number> = {
           "pig": 3, "chicken": 2, "cow": 5, "sheep": 3, "warden": 50, "allay": 5, "frog": 3, "strider": 4, "axolotl": 6,
           "pillager": 10, "drowned": 8, "husk": 8, "stray": 10, "ravager": 20,
+          "bat": 0, "enderman": 12, "blaze": 10, "ghast": 5, "irongolem": 25, "snowgolem": 3,
           "zombie": 8, "skeleton": 10, "creeper": 5, "horse": 10, "villager": 0, "enderdragon": 100,
           "phantom": 6, "slime": 4, "witherskeleton": 8, "spider": 5, "wolf": 4, "cat": 0,
           "irongolem": 10, "snowgolem": 5,
@@ -2555,6 +2556,14 @@ async function startGame(name: string) {
       hunger = Math.max(0, hunger - 3); // husk drains 3 hunger
       ui.updateHunger(hunger, maxHunger);
       ui.addChatMessage("", "🧟 Husk inflicts hunger!", true);
+    };
+    mobManager.onGhastFireball = (x, y, z) => {
+      // Ghast fireball explodes on impact near player
+      const dx = player.position.x - x, dz = player.position.z - z;
+      if (dx * dx + dz * dz < 15 * 15) {
+        particles.explosion(x, y, z, 25);
+        sounds.play("break");
+      }
     };
     mobManager.onStrayArrow = () => {
       // Stray inflicts slowness: reduce speedBonus temporarily
