@@ -157,12 +157,15 @@
 
     #hud{position:fixed;inset:0;pointer-events:none;z-index:10;display:none}
 
-    /* Crosshair */
+    /* Crosshair with break progress */
 
     #crosshair{
       position:absolute;top:50%;left:50%;
       transform:translate(-50%,-50%);width:22px;height:22px;
+      transition:width 0.1s ease,height 0.1s ease;
     }
+
+    #crosshair.breaking{width:28px;height:28px}
 
     #crosshair::before,#crosshair::after{
       content:'';position:absolute;
@@ -173,6 +176,17 @@
     #crosshair::before{width:2px;height:100%;left:50%;transform:translateX(-50%)}
 
     #crosshair::after {width:100%;height:2px;top:50%;transform:translateY(-50%)}
+
+    #breakProgress{
+      position:absolute;top:50%;left:50%;
+      transform:translate(-50%,-50%);
+      width:30px;height:30px;
+      border-radius:50%;
+      border:2px solid transparent;
+      box-sizing:border-box;
+      pointer-events:none;
+      transition:opacity 0.15s;
+    }
 
     /* Hotbar */
 
@@ -194,12 +208,25 @@
       transition:border-color 0.1s, background 0.1s;
     }
 
+    @keyframes slotGlow {
+      0%,100% { box-shadow:inset 0 0 8px rgba(255,255,255,0.1), 0 0 6px rgba(255,255,255,0.1); }
+      50% { box-shadow:inset 0 0 12px rgba(255,255,255,0.2), 0 0 10px rgba(255,255,255,0.15); }
+    }
+
     .hotbar-slot.active{
       border-color:#fff;background:rgba(255,255,255,0.18);
-      box-shadow:inset 0 0 8px rgba(255,255,255,0.1);
+      animation:slotGlow 2s ease-in-out infinite;
     }
 
     .slot-icon{width:26px;height:26px;border-radius:2px;margin-bottom:2px}
+
+    #hotbarTooltip{
+      position:absolute;bottom:90px;left:50%;transform:translateX(-50%);
+      background:rgba(0,0,0,0.8);border:1px solid rgba(255,255,255,0.3);
+      border-radius:4px;padding:4px 12px;color:#fff;font-size:0.75rem;
+      pointer-events:none;opacity:0;transition:opacity 0.2s ease;
+      white-space:nowrap;z-index:20;
+    }
 
     /* Hearts */
 
@@ -352,17 +379,29 @@
 
     /* ── DEATH SCREEN ────────────────────────────────────────────────── */
 
+    @keyframes deathFadeIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+
+    @keyframes deathTitleSlide {
+      from { transform: translateY(-30px) scale(1.3); opacity: 0; }
+      to { transform: translateY(0) scale(1); opacity: 1; }
+    }
+
     #deathScreen{
       display:none;position:fixed;inset:0;
       background:rgba(100,0,0,0.6);
       flex-direction:column;align-items:center;justify-content:center;
       z-index:150;pointer-events:all;
+      animation:deathFadeIn 0.5s ease-out;
     }
 
     #deathScreen h2{
-      color:#ff4444;font-size:3rem;margin-bottom:10px;
+      color:#ff4444;margin-bottom:10px;
       text-shadow:0 0 30px #ff0000, 2px 2px 0 #440000;
       font-family:'Press Start 2P',monospace;font-size:2rem;
+      animation:deathTitleSlide 0.6s ease-out 0.2s both;
     }
 
     #deathScreen p{color:#ffaaaa;font-size:0.95rem;margin-bottom:30px}
@@ -420,7 +459,7 @@
       background: rgba(255, 255, 255, 0.5);
     }
   </style>
-  <script type="module" crossorigin src="/assets/index--ztyd4W9.js"></script>
+  <script type="module" crossorigin src="/assets/index-2NFOZ12Y.js"></script>
 </head>
 <body>
 
@@ -429,6 +468,7 @@
     <div class="login-box">
       <div class="mc-title">⛏ MINECRAFT JS</div>
       <p class="mc-subtitle">Three.js · Colyseus · WebGL</p>
+      <p id="buildStamp" style="color:#556655;font-size:0.65rem;margin:2px 0 8px 0;font-family:monospace;letter-spacing:0.5px;">build: 2026-04-01 22:17 UTC</p>
 
       <input id="nameInput" class="mc-input" type="text"
              placeholder="Enter your username…" maxlength="24" autocomplete="off"/>
@@ -454,6 +494,13 @@
 
       <button class="play-btn" id="playBtn">▶  PLAY</button>
 
+      <div id="loadingBar" style="display:none;margin:12px 0;">
+        <div style="background:rgba(255,255,255,0.1);border-radius:4px;height:6px;overflow:hidden;">
+          <div id="loadingProgress" style="width:0%;height:100%;background:linear-gradient(90deg,#4caf50,#8bc34a);transition:width 0.3s ease;border-radius:4px;"></div>
+        </div>
+        <p id="loadingText" style="color:#8a9a8a;font-size:0.7rem;margin-top:6px;">Loading textures...</p>
+      </div>
+
       <p class="help-hint">
         <strong>Move</strong> WASD &nbsp;·&nbsp;
         <strong>Jump</strong> Space &nbsp;·&nbsp;
@@ -470,7 +517,9 @@
   <!-- ── HUD ──────────────────────────────────────────────────────── -->
   <div id="hud">
     <div id="crosshair"></div>
+    <div id="breakProgress"></div>
     <div id="hotbar"></div>
+    <div id="hotbarTooltip"></div>
     <div id="hearts"></div>
     <div id="hunger"></div>
     <div id="timeDisplay"></div>
@@ -486,6 +535,62 @@
     <div id="minimap"></div>
     <div id="compassLabel">N</div>
   </div>
+
+  <!-- ── SCREEN OVERLAYS ──────────────────────────────────────────── -->
+  <div id="speedLines" style="
+    position:fixed;inset:0;z-index:8;pointer-events:none;
+    background:radial-gradient(ellipse at center,transparent 50%,rgba(255,255,255,0.08) 100%);
+    opacity:0;transition:opacity 0.3s ease;
+    mix-blend-mode:screen;
+  "></div>
+  <div id="screenFade" style="
+    position:fixed;inset:0;z-index:200;pointer-events:none;
+    background:#000;opacity:0;transition:opacity 0.5s ease;
+  "></div>
+  <div id="vignette" style="
+    position:fixed;inset:0;z-index:8;pointer-events:none;
+    background:radial-gradient(ellipse at center,transparent 55%,rgba(0,0,0,0.5) 100%);
+  "></div>
+  <div id="damageFlash" style="
+    position:fixed;inset:0;z-index:11;pointer-events:none;
+    background:radial-gradient(ellipse at center,rgba(180,0,0,0.3) 0%,rgba(120,0,0,0.6) 100%);
+    opacity:0;transition:opacity 0.08s ease-in;
+  "></div>
+  <div id="lowHealthVignette" style="
+    position:fixed;inset:0;z-index:9;pointer-events:none;
+    background:radial-gradient(ellipse at center,transparent 30%,rgba(120,0,0,0.6) 100%);
+    opacity:0;transition:opacity 0.5s ease;
+  "></div>
+  <div id="underwaterOverlay" style="
+    position:fixed;inset:0;z-index:9;pointer-events:none;
+    background:radial-gradient(ellipse at center,rgba(10,60,100,0.45) 0%,rgba(5,30,60,0.7) 100%);
+    opacity:0;transition:opacity 0.4s ease;
+  "></div>
+  <div id="portalOverlay" style="
+    position:fixed;inset:0;z-index:10;pointer-events:none;
+    opacity:0;transition:opacity 0.3s ease;
+    overflow:hidden;
+  ">
+    <div style="position:absolute;inset:-20%;width:140%;height:140%;
+      background:radial-gradient(ellipse at center,rgba(119,34,204,0.0) 20%,rgba(60,10,120,0.5) 60%,rgba(30,0,60,0.8) 100%);
+      animation:portalSwirl 3s linear infinite;
+    "></div>
+    <div style="position:absolute;inset:0;
+      background:radial-gradient(ellipse at center,rgba(153,51,255,0.15) 0%,transparent 50%);
+      animation:portalPulse 1.5s ease-in-out infinite alternate;
+    "></div>
+  </div>
+  <style>
+    @keyframes portalSwirl {
+      0% { transform:rotate(0deg) scale(1); }
+      50% { transform:rotate(180deg) scale(1.05); }
+      100% { transform:rotate(360deg) scale(1); }
+    }
+    @keyframes portalPulse {
+      0% { opacity:0.6; }
+      100% { opacity:1; }
+    }
+  </style>
 
   <!-- ── DEATH SCREEN ─────────────────────────────────────────────── -->
   <div id="deathScreen">
@@ -510,7 +615,7 @@
     // On VPS: nginx on port 80 proxies to Colyseus:8471 (avoids blocked ports + enables WSS later)
     const _defaultAddr = (location.hostname === 'localhost' || location.hostname === '127.0.0.1')
       ? 'localhost:8471'
-      : '159.223.140.36';
+      : (location.protocol === 'https:' ? location.hostname : '159.223.140.36');
     document.getElementById('serverInput').value = _defaultAddr;
     window.__getServerAddr  = () => {
       const v = document.getElementById('serverInput').value.trim();
