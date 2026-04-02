@@ -540,21 +540,40 @@ export class UI {
 
   // ── Chat ──────────────────────────────────────────────────────────────────
 
+  private chatHistory: string[] = [];
+  private chatHistoryIdx = -1;
+
   private setupChat() {
     this.chatInput.addEventListener("keydown", e => {
       if (e.key === "Enter") {
         const text = this.chatInput.value.trim();
         if (text) {
-          if (text.startsWith("/")) {
-            this.onChat?.(text);
-          } else {
-            this.onChat?.(text);
-          }
+          this.chatHistory.unshift(text); // newest first
+          if (this.chatHistory.length > 50) this.chatHistory.pop();
+          this.chatHistoryIdx = -1;
+          this.onChat?.(text);
         }
         this.closeChatInput();
         e.stopPropagation();
+        return;
       }
-      if (e.key === "Escape") this.closeChatInput();
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        if (this.chatHistory.length > 0) {
+          this.chatHistoryIdx = Math.min(this.chatHistoryIdx + 1, this.chatHistory.length - 1);
+          this.chatInput.value = this.chatHistory[this.chatHistoryIdx];
+        }
+        e.stopPropagation();
+        return;
+      }
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        this.chatHistoryIdx = Math.max(this.chatHistoryIdx - 1, -1);
+        this.chatInput.value = this.chatHistoryIdx >= 0 ? this.chatHistory[this.chatHistoryIdx] : "";
+        e.stopPropagation();
+        return;
+      }
+      if (e.key === "Escape") { this.closeChatInput(); e.stopPropagation(); return; }
       if (e.key === "Tab") {
         e.preventDefault();
         this.tabCompleteChat();
@@ -587,6 +606,7 @@ export class UI {
   openChatInput() {
     this.chatInput.classList.add("visible");
     this.chatInput.value = "";
+    this.chatHistoryIdx = -1;
     this.chatInput.focus();
   }
 
