@@ -1483,6 +1483,54 @@ async function startGame(name: string) {
           }
         }
 
+        if (enchantBlock && enchantBlock.type === 112) { // Sculk Sensor
+          const dist = Math.sqrt(
+            (player.position.x - enchantHit.x) ** 2 + (player.position.z - enchantHit.z) ** 2
+          );
+          const vibration = Math.round(Math.max(0, 15 - dist));
+          ui.addChatMessage("", `📡 Sculk Sensor: vibration strength ${vibration}/15`, true);
+          sounds.playNote(220 + vibration * 20); // low rumble tone
+          return;
+        }
+
+        if (enchantBlock && enchantBlock.type === 114) { // Cauldron
+          if (weather.isRaining()) {
+            invAddItem(7, 1); // give water block
+            ui.updateHotbarFromInventory(inventory, invCount);
+            ui.addChatMessage("", "🪣 Collected rain water from cauldron!", true);
+          } else {
+            ui.addChatMessage("", "🪣 Cauldron is empty. Place outside during rain to fill.", true);
+          }
+          return;
+        }
+
+        if (enchantBlock && enchantBlock.type === 115) { // Loom — banner patterns
+          ui.addChatMessage("", "🧵 Loom: No banner crafting implemented yet (place wool + dye).", true);
+          return;
+        }
+
+        if (enchantBlock && enchantBlock.type === 116) { // Smithing Table — upgrade tools
+          const UPGRADES: Record<number, { to: number; needs: number; name: string }> = {
+            270: { to: 274, needs: 11, name: "Stone Pickaxe" }, // wood → stone
+            268: { to: 272, needs: 11, name: "Stone Sword" },
+            274: { to: 257, needs: 62, name: "Iron Pickaxe" }, // stone → iron
+            272: { to: 267, needs: 62, name: "Iron Sword" },
+          };
+          const held = player.selectedBlockType;
+          const upgrade = UPGRADES[held];
+          if (upgrade && invCountOf(upgrade.needs) >= 2) {
+            invRemoveItem(held, 1); invRemoveItem(upgrade.needs, 2);
+            invAddItem(upgrade.to, 1);
+            ui.updateHotbarFromInventory(inventory, invCount);
+            ui.addChatMessage("", `⚒ Upgraded to ${upgrade.name}!`, true);
+          } else if (upgrade) {
+            ui.addChatMessage("", `Need 2x ${getBlockName(upgrade.needs)} to upgrade.`, true);
+          } else {
+            ui.addChatMessage("", "Hold a wooden/stone tool to upgrade it.", true);
+          }
+          return;
+        }
+
         if (enchantBlock && enchantBlock.type === 110) { // Button
           sounds.playNote(523.25); // C5 click
           ui.addChatMessage("", "🔲 Click!", true);
@@ -1892,7 +1940,7 @@ async function startGame(name: string) {
             const by = Math.floor(player.position.y) + y;
             const bz = Math.floor(player.position.z) + z;
             const block = world.getBlock(bx, by, bz);
-            if (block && block.type === 31) { // Chest
+            if (block && (block.type === 31 || block.type === 113)) { // Chest or Barrel
               const dist = player.position.distanceTo(_blockDistVec.set(bx + 0.5, by + 0.5, bz + 0.5));
               if (dist <= 5) {
                 chestPos = [bx, by, bz];
@@ -2064,6 +2112,11 @@ async function startGame(name: string) {
     tripwire_hook:    { ingredients: { 62: 1, 280: 1 }, output: { type: 109, count: 2 } }, // iron+stick → 2 tripwire
     button:           { ingredients: { 11: 1 },         output: { type: 110, count: 1 } }, // cobblestone → button
     daylight_sensor:  { ingredients: { 9: 3, 64: 3 },  output: { type: 111, count: 1 } }, // glass+coal
+    sculk_sensor:     { ingredients: { 62: 2, 9: 3 },  output: { type: 112, count: 1 } }, // iron+glass
+    barrel:           { ingredients: { 5: 6, 280: 2 }, output: { type: 113, count: 1 } }, // planks+sticks
+    cauldron:         { ingredients: { 62: 7 },         output: { type: 114, count: 1 } }, // 7 iron
+    loom:             { ingredients: { 5: 2, 280: 2 }, output: { type: 115, count: 1 } }, // planks+sticks
+    smithing_table:   { ingredients: { 62: 2, 5: 4 },  output: { type: 116, count: 1 } }, // iron+planks
     crafting_table:   { ingredients: { 10: 4 },          output: { type: 22,  count: 1 } },
     furnace:          { ingredients: { 11: 8 },          output: { type: 23,  count: 1 } },
     chest:            { ingredients: { 10: 8 },          output: { type: 31,  count: 1 } },
@@ -2806,6 +2859,20 @@ function animate() {
           regenTimer = 0;
           player.takeDamage(2);
           ui.updateHearts(player.health, player.maxHealth);
+        }
+      }
+    }
+
+    // ── Sculk sensor vibration pulses ─────────────────────────────────────────
+    if (isSingleplayer && Math.random() < dt * 0.5) {
+      const _sx = Math.round(player.position.x), _sz = Math.round(player.position.z);
+      for (let dx = -8; dx <= 8; dx += 4) {
+        for (let dz = -8; dz <= 8; dz += 4) {
+          const bx = _sx + dx, bz = _sz + dz;
+          const by = Math.round(player.position.y);
+          if (world.getBlockType(bx, by, bz) === 112 || world.getBlockType(bx, by - 1, bz) === 112) {
+            particles.magic(bx, by + 0.5, bz, 1);
+          }
         }
       }
     }

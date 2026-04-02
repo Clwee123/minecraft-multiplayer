@@ -121,6 +121,11 @@ export const BLOCK_TYPES: Record<number, {
   109: { name: "Tripwire",         color: 0xeeeeee, solid: false, transparent: true },
   110: { name: "Button",           color: 0xaaaaaa, solid: false },
   111: { name: "Daylight Sensor",  color: 0xddcc88 },
+  112: { name: "Sculk Sensor",     color: 0x1a4466, emissive: 0x002244 },
+  113: { name: "Barrel",           color: 0x8b6914 },
+  114: { name: "Cauldron",         color: 0x444444 },
+  115: { name: "Loom",             color: 0xc8a464 },
+  116: { name: "Smithing Table",   color: 0x445566 },
 
   // ── Crafting materials & tools ────────────────────────────────────────────
   280: { name: "Stick",             color: 0xc8a464, solid: false },
