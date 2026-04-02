@@ -1,3 +1,4 @@
+declare const __BUILD_TIME__: string;
 import * as THREE from "three";
 import { preloadAtlas, tickWater } from "./BlockTextures";
 import { World }              from "./World";
@@ -27,6 +28,19 @@ renderer.shadowMap.enabled = false; // disabled for performance
 renderer.toneMapping       = THREE.NoToneMapping; // disable tone mapping for perf
 renderer.toneMappingExposure = 1.1;
 document.body.appendChild(renderer.domElement);
+
+// WebGL context loss — show overlay and attempt recovery
+renderer.domElement.addEventListener("webglcontextlost", (e) => {
+  e.preventDefault();
+  const overlay = document.createElement("div");
+  overlay.id = "glLostOverlay";
+  overlay.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,0.85);color:#fff;display:flex;align-items:center;justify-content:center;z-index:9999;font-size:1.2rem;font-family:monospace;";
+  overlay.textContent = "⚠ WebGL context lost — attempting to restore...";
+  document.body.appendChild(overlay);
+}, false);
+renderer.domElement.addEventListener("webglcontextrestored", () => {
+  document.getElementById("glLostOverlay")?.remove();
+}, false);
 
 window.addEventListener("resize", () => {
   camera.aspect = window.innerWidth / window.innerHeight;
@@ -656,6 +670,10 @@ function handleCommand(cmd: string, playerName: string): boolean {
 const loginScreen = document.getElementById("loginScreen")!;
 const nameInput   = document.getElementById("nameInput") as HTMLInputElement;
 const playBtn     = document.getElementById("playBtn")!;
+
+// Update build stamp with actual compile time
+{ const _bs = document.getElementById("buildStamp"); if (_bs) _bs.textContent = `build: ${__BUILD_TIME__}`; }
+
 const hud         = document.getElementById("hud")!;
 const underwaterOverlay = document.getElementById("underwaterOverlay")!;
 
@@ -2024,6 +2042,10 @@ async function startGame(name: string) {
 
     ui.addChatMessage("", `Welcome, ${currentPlayerName}! 🌍 Singleplayer`, true);
     ui.addChatMessage("", "T=chat · F5=3rd person · Ctrl=sprint · /help", true);
+    // Staggered tutorial hints for new players
+    setTimeout(() => ui.addChatMessage("", "💡 WASD=move · Space=jump · E=inventory/interact", true), 3000);
+    setTimeout(() => ui.addChatMessage("", "💡 Left-click=break block · Right-click=place/use", true), 6000);
+    setTimeout(() => ui.addChatMessage("", "💡 Shift=sneak · R=mount horse · Ctrl=sprint", true), 9000);
 
   } else {
     // Use VPS backend in production, localhost in dev

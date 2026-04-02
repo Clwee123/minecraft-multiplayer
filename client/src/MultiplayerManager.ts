@@ -27,6 +27,8 @@ export class MultiplayerManager {
     x: number; y: number; z: number;
     rotY: number; rotX: number; onGround: boolean;
   };
+  private _playerName = "";
+  private _reconnectDelay = 2000; // ms, doubles on each failure (max 30s)
 
   constructor(scene: THREE.Scene, world: World, cb: MPCallbacks, serverAddr: string) {
     this.scene  = scene;
@@ -42,16 +44,31 @@ export class MultiplayerManager {
   setMobManager(m: MobManager) { this.mobs = m; }
 
   async join(playerName: string) {
+    this._playerName = playerName;
+    this._reconnectDelay = 2000;
+    await this._doJoin();
+  }
+
+  private async _doJoin() {
     this.cb.onStatusChange("connecting");
     try {
-      this.room = await this.client.joinOrCreate<any>("game_room", { name: playerName });
+      this.room = await this.client.joinOrCreate<any>("game_room", { name: this._playerName });
       this.cb.onStatusChange("connected");
+      this._reconnectDelay = 2000; // reset on success
       this.setupHandlers();
       this.startSendPosition();
     } catch (err) {
       console.error("[MP] Connection failed:", err);
       this.cb.onStatusChange("disconnected");
+      this._scheduleReconnect();
     }
+  }
+
+  private _scheduleReconnect() {
+    const delay = this._reconnectDelay;
+    this._reconnectDelay = Math.min(this._reconnectDelay * 2, 30000);
+    console.log(`[MP] Reconnecting in ${delay}ms...`);
+    setTimeout(() => this._doJoin(), delay);
   }
 
   private setupHandlers() {
@@ -143,6 +160,8 @@ export class MultiplayerManager {
     this.room.onLeave(() => {
       this.cb.onStatusChange("disconnected");
       this.stopSendPosition();
+      // Auto-reconnect after unexpected disconnect
+      this._scheduleReconnect();
     });
   }
 
