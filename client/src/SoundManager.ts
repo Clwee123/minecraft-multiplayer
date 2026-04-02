@@ -16,6 +16,8 @@ export class SoundManager {
   private ctx: AudioContext | null = null;
   private musicActive = false;
   private musicTimeout: ReturnType<typeof setTimeout> | null = null;
+  sfxVolume  = 1.0; // 0–1 master SFX multiplier
+  musicVolume = 0.6; // 0–1 music multiplier
 
   private getCtx(): AudioContext {
     if (!this.ctx) this.ctx = new AudioContext();
@@ -24,6 +26,7 @@ export class SoundManager {
   }
 
   play(sound: SoundName, volume = 1.0) {
+    volume *= this.sfxVolume;
     try {
       switch (sound) {
         case "break":   this.playBreak(volume);   break;

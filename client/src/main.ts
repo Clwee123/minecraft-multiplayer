@@ -1568,6 +1568,42 @@ async function startGame(name: string) {
     }
   });
 
+  // P key — settings panel (volume sliders)
+  {
+    let settingsOpen = false;
+    let settingsPanel: HTMLElement | null = null;
+    document.addEventListener("keydown", e => {
+      if ((e.key === "p" || e.key === "P") && !ui.isChatOpen()) {
+        if (settingsOpen && settingsPanel) {
+          settingsPanel.remove(); settingsPanel = null; settingsOpen = false;
+          if (document.pointerLockElement === null) document.body.requestPointerLock();
+          return;
+        }
+        document.exitPointerLock();
+        settingsOpen = true;
+        settingsPanel = document.createElement("div");
+        settingsPanel.style.cssText = `position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);
+          background:#2a2a2a;border:2px solid #555;padding:20px;z-index:2000;border-radius:6px;
+          color:#eee;font-family:monospace;min-width:260px;`;
+        settingsPanel.innerHTML = `<h3 style="margin:0 0 14px;color:#ffdd44;text-align:center">⚙ Settings</h3>
+          <label>SFX Volume: <input type="range" id="sfxVol" min="0" max="100" value="${Math.round(sounds.sfxVolume*100)}" style="width:120px"></label><br><br>
+          <label>Music Volume: <input type="range" id="musVol" min="0" max="100" value="${Math.round(sounds.musicVolume*100)}" style="width:120px"></label><br><br>
+          <button id="closeSettings" style="width:100%;padding:8px;background:#555;color:#eee;border:none;border-radius:3px;cursor:pointer;">Close [P]</button>`;
+        document.body.appendChild(settingsPanel);
+        (document.getElementById("sfxVol") as HTMLInputElement).addEventListener("input", ev => {
+          sounds.sfxVolume = parseInt((ev.target as HTMLInputElement).value) / 100;
+        });
+        (document.getElementById("musVol") as HTMLInputElement).addEventListener("input", ev => {
+          sounds.musicVolume = parseInt((ev.target as HTMLInputElement).value) / 100;
+        });
+        document.getElementById("closeSettings")?.addEventListener("click", () => {
+          settingsPanel?.remove(); settingsPanel = null; settingsOpen = false;
+          document.body.requestPointerLock();
+        });
+      }
+    });
+  }
+
   // R key — mount/dismount horse
   document.addEventListener("keydown", e => {
     if ((e.key === "r" || e.key === "R") && document.pointerLockElement && !ui.isChatOpen()) {
