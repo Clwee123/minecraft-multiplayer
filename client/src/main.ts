@@ -718,6 +718,17 @@ function handleCommand(cmd: string, playerName: string): boolean {
     return true;
   }
 
+  if (base === "/summon") {
+    const mobType = parts[1]?.toLowerCase();
+    if (!mobType) { ui.addChatMessage("", "Usage: /summon <mobType>", true); return true; }
+    const sx = player.position.x + (Math.random() - 0.5) * 4;
+    const sz = player.position.z + (Math.random() - 0.5) * 4;
+    const sy = player.position.y;
+    mobManager?.spawnAt(mobType as any, sx, sy, sz);
+    ui.addChatMessage("", `Summoned ${mobType}`, true);
+    return true;
+  }
+
   if (base === "/help") {
     [
       "/gamemode creative | survival | spectator  (/spec)",
@@ -733,6 +744,7 @@ function handleCommand(cmd: string, playerName: string): boolean {
       "/boss - spawn the Ender Dragon",
       "/achievements - show achievements",
       "/tame wolf | cat - tame nearby pet",
+      "/summon <mobType> - summon a mob near you",
       "/stats - show statistics",
       "/save · /load (singleplayer only)",
       "F1 = Toggle HUD · F2 = Screenshot · F5 = 3rd person · Ctrl = sprint · E = furnace/inventory",
@@ -1569,6 +1581,7 @@ async function startGame(name: string) {
           "pillager": 10, "drowned": 8, "husk": 8, "stray": 10, "ravager": 20,
           "zombie": 8, "skeleton": 10, "creeper": 5, "horse": 10, "villager": 0, "enderdragon": 100,
           "phantom": 6, "slime": 4, "witherskeleton": 8, "spider": 5, "wolf": 4, "cat": 0,
+          "irongolem": 10, "snowgolem": 5,
         };
         const mobTypeStr = mobData.type.toLowerCase();
         const xpAmount = xpTable[mobTypeStr] || 1;

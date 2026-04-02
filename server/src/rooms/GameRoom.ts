@@ -200,7 +200,7 @@ export class GameRoom extends Room<GameState> {
     mob.y         = 25;  // falls down to terrain via gravity
     mob.z         = rnd(-45, 45);
     mob.rotY      = rnd(0, Math.PI * 2);
-    mob.maxHealth = mobType === "zombie" ? 20 : mobType === "creeper" ? 20 : mobType === "skeleton" ? 20 : mobType === "witherskeleton" ? 40 : mobType === "chicken" ? 4 : mobType === "cow" ? 16 : mobType === "sheep" ? 12 : mobType === "spider" ? 16 : mobType === "wolf" ? 20 : mobType === "cat" ? 10 : mobType === "phantom" ? 20 : mobType === "slime" ? 16 : 10;
+    mob.maxHealth = mobType === "zombie" ? 20 : mobType === "creeper" ? 20 : mobType === "skeleton" ? 20 : mobType === "witherskeleton" ? 40 : mobType === "chicken" ? 4 : mobType === "cow" ? 16 : mobType === "sheep" ? 12 : mobType === "spider" ? 16 : mobType === "wolf" ? 20 : mobType === "cat" ? 10 : mobType === "phantom" ? 20 : mobType === "slime" ? 16 : mobType === "irongolem" ? 100 : mobType === "snowgolem" ? 20 : 10;
     mob.health    = mob.maxHealth;
     mob.alive     = true;
     mob.state     = "idle";

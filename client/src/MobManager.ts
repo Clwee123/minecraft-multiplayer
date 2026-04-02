@@ -37,6 +37,13 @@ interface Arrow {
   shooterType?: MobType;
 }
 
+interface GolemSnowball {
+  mesh: THREE.Mesh;
+  vel: THREE.Vector3;
+  life: number;
+  targetMobId: string;
+}
+
 // Callback signatures
 export interface MobCallbacks {
   onPlayerDamage: (amount: number) => void;
@@ -52,6 +59,7 @@ export class MobManager {
   private cb:     MobCallbacks;
   private singleplayer: boolean;
   private arrows: Arrow[] = [];
+  private golemSnowballs: GolemSnowball[] = [];
   dayTime: number = 0.5; // 0 = midnight, 0.25 = sunrise, 0.5 = noon, 0.75 = sunset, 1.0 = midnight
 
   // Horse mounting
@@ -72,7 +80,7 @@ export class MobManager {
 
   spawnMob(type: MobType, x: number, y: number, z: number, id?: string): Mob {
     const mobId    = id ?? uid();
-    const maxHp    = type === "zombie" ? 20 : type === "creeper" ? 20 : type === "skeleton" ? 20 : type === "witherskeleton" ? 40 : type === "chicken" ? 4 : type === "cow" ? 16 : type === "sheep" ? 12 : type === "horse" ? 30 : type === "villager" ? 20 : type === "enderdragon" ? 200 : type === "spider" ? 16 : type === "wolf" ? 20 : type === "cat" ? 10 : type === "phantom" ? 20 : type === "slime" ? 16 : type === "warden" ? 500 : type === "allay" ? 20 : type === "frog" ? 10 : type === "strider" ? 20 : type === "axolotl" ? 14 : type === "pillager" ? 24 : type === "drowned" ? 20 : type === "husk" ? 20 : type === "stray" ? 20 : type === "ravager" ? 100 : 10;
+    const maxHp    = type === "zombie" ? 20 : type === "creeper" ? 20 : type === "skeleton" ? 20 : type === "witherskeleton" ? 40 : type === "chicken" ? 4 : type === "cow" ? 16 : type === "sheep" ? 12 : type === "horse" ? 30 : type === "villager" ? 20 : type === "enderdragon" ? 200 : type === "spider" ? 16 : type === "wolf" ? 20 : type === "cat" ? 10 : type === "phantom" ? 20 : type === "slime" ? 16 : type === "warden" ? 500 : type === "allay" ? 20 : type === "frog" ? 10 : type === "strider" ? 20 : type === "axolotl" ? 14 : type === "pillager" ? 24 : type === "drowned" ? 20 : type === "husk" ? 20 : type === "stray" ? 20 : type === "ravager" ? 100 : type === "irongolem" ? 100 : type === "snowgolem" ? 20 : 10;
     const data: MobData = {
       id: mobId, type, x, y, z,
       rotY:      rnd(0, Math.PI * 2),
@@ -323,6 +331,35 @@ export class MobManager {
       }
     }
 
+    // Update golem snowballs
+    for (let i = this.golemSnowballs.length - 1; i >= 0; i--) {
+      const sb = this.golemSnowballs[i];
+      sb.life -= dt;
+      sb.vel.y -= 10 * dt; // gravity
+      sb.mesh.position.addScaledVector(sb.vel, dt);
+
+      // Check if snowball hits any mob
+      let hit = false;
+      for (const [id, lm] of this.mobs) {
+        if (!lm.mob.alive) continue;
+        if (!MobManager.HOSTILE_TYPES.has(lm.data.type as any)) continue;
+        const sdx = sb.mesh.position.x - lm.data.x;
+        const sdy = sb.mesh.position.y - lm.data.y;
+        const sdz = sb.mesh.position.z - lm.data.z;
+        if (sdx * sdx + sdy * sdy + sdz * sdz < 1.5) {
+          lm.mob.health -= 2;
+          lm.mob.showDamage(lm.mob.health);
+          if (lm.mob.health <= 0) lm.mob.die();
+          hit = true;
+          break;
+        }
+      }
+      if (hit || sb.life <= 0) {
+        this.scene.remove(sb.mesh);
+        this.golemSnowballs.splice(i, 1);
+      }
+    }
+
     // Spawn mobs in singleplayer
     if (this.singleplayer) {
       if (Math.random() < dt * 0.04 && this.mobs.size < MAX_SP_MOBS) {
@@ -458,6 +495,10 @@ export class MobManager {
       } else if (d.type === "strider") {
         // Walk on lava — same as horse wander
         this.animalAI(lm, dt, distSq, dx2, dz2, 3.5);
+      } else if (d.type === "irongolem") {
+        this.ironGolemAI(lm, dt, distSq, dx2, dz2, playerPos);
+      } else if (d.type === "snowgolem") {
+        this.snowGolemAI(lm, dt, distSq, dx2, dz2, playerPos);
       }
     }
 
@@ -927,6 +968,103 @@ export class MobManager {
         }
       }
     }
+  }
+
+  private ironGolemAI(lm: LocalMob, dt: number, playerDistSq: number, dx: number, dz: number, playerPos: THREE.Vector3) {
+    const d = lm.data;
+    const speed = 1.5;
+
+    // Attack nearby hostile mobs first (12 block range)
+    let attacked = false;
+    for (const [otherId, other] of this.mobs) {
+      if (!other.mob.alive) continue;
+      if (!MobManager.HOSTILE_TYPES.has(other.data.type as any)) continue;
+      const odx = other.data.x - d.x;
+      const odz = other.data.z - d.z;
+      const odistSq = odx * odx + odz * odz;
+      if (odistSq < 144) { // 12 block aggro range
+        d.rotY = Math.atan2(odx, odz);
+        this.moveToward(lm, other.data.x, other.data.z, speed * 1.5, dt);
+        d.state = "following";
+        if (odistSq < 4 && (lm.hitCooldown ?? 0) <= 0) { // 2 block melee range
+          other.mob.health -= 15;
+          other.mob.showDamage(other.mob.health);
+          if (other.mob.health <= 0) other.mob.die();
+          lm.hitCooldown = 1.5;
+        }
+        attacked = true;
+        break;
+      }
+    }
+    if (!attacked) {
+      // Follow player if far, otherwise idle
+      if (playerDistSq > 36) { // 6^2=36
+        d.rotY = Math.atan2(dx, dz);
+        this.moveToward(lm, playerPos.x, playerPos.z, speed, dt);
+        d.state = "following";
+      } else {
+        d.state = "idle";
+      }
+    }
+  }
+
+  private snowGolemAI(lm: LocalMob, dt: number, playerDistSq: number, dx: number, dz: number, playerPos: THREE.Vector3) {
+    const d = lm.data;
+    const speed = 2.0;
+
+    // Attack nearby hostile mobs by throwing snowballs (10 block range)
+    let attacked = false;
+    for (const [otherId, other] of this.mobs) {
+      if (!other.mob.alive) continue;
+      if (!MobManager.HOSTILE_TYPES.has(other.data.type as any)) continue;
+      const odx = other.data.x - d.x;
+      const odz = other.data.z - d.z;
+      const odistSq = odx * odx + odz * odz;
+      if (odistSq < 100) { // 10 block aggro range
+        d.rotY = Math.atan2(odx, odz);
+        // Keep distance — stay 4-6 blocks away
+        if (odistSq < 16) {
+          // Back away
+          d.x -= Math.sin(d.rotY) * speed * dt;
+          d.z -= Math.cos(d.rotY) * speed * dt;
+        } else if (odistSq > 64) {
+          // Move closer
+          d.x += Math.sin(d.rotY) * speed * dt;
+          d.z += Math.cos(d.rotY) * speed * dt;
+        }
+        d.state = "following";
+        // Throw snowball every 1.5s
+        if ((lm.shootTimer ?? 0) <= 0) {
+          const targetPos = new THREE.Vector3(other.data.x, other.data.y + 0.5, other.data.z);
+          this.shootGolemSnowball(d.x, d.y + 1.2, d.z, targetPos, otherId);
+          lm.shootTimer = 1.5;
+        }
+        attacked = true;
+        break;
+      }
+    }
+    if (!attacked) {
+      // Follow player if far, otherwise idle
+      if (playerDistSq > 25) { // 5^2=25
+        d.rotY = Math.atan2(dx, dz);
+        d.x += Math.sin(d.rotY) * speed * dt;
+        d.z += Math.cos(d.rotY) * speed * dt;
+        d.state = "following";
+      } else {
+        d.state = "idle";
+      }
+    }
+  }
+
+  private shootGolemSnowball(x: number, y: number, z: number, targetPos: THREE.Vector3, targetMobId: string) {
+    const snowGeo = new THREE.SphereGeometry(0.12, 6, 6);
+    const snowMat = new THREE.MeshLambertMaterial({ color: 0xeeeeff });
+    const mesh = new THREE.Mesh(snowGeo, snowMat);
+    mesh.position.set(x, y, z);
+    const dir = new THREE.Vector3(targetPos.x - x, targetPos.y - y, targetPos.z - z).normalize();
+    const vel = dir.multiplyScalar(12);
+    this.scene.add(mesh);
+    this.golemSnowballs.push({ mesh, vel, life: 3, targetMobId });
   }
 
   private catAI(lm: LocalMob, dt: number, playerDistSq: number, dx: number, dz: number, playerPos: THREE.Vector3) {

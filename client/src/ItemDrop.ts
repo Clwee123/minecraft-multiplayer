@@ -105,6 +105,9 @@ const ITEM_COLORS: Record<string, number> = {
   iron_chestplate: 0x888888,
   iron_leggings: 0x777777,
   iron_boots: 0x666666,
+  iron_ingot: 0xcccccc,
+  snowball: 0xeeeeff,
+  copper_ingot: 0xcc7744,
 };
 
 export const MOB_DROPS: Record<string, Array<{ item: string; chance: number; min: number; max: number }>> = {
@@ -128,4 +131,6 @@ export const MOB_DROPS: Record<string, Array<{ item: string; chance: number; min
   axolotl: [{ item: "salmon", chance: 0.5, min: 1, max: 1 }],
   zombie: [{ item: "bone", chance: 0.5, min: 0, max: 2 }],
   creeper: [{ item: "gunpowder", chance: 1.0, min: 0, max: 2 }],
+  irongolem: [{ item: "iron_ingot", chance: 1.0, min: 3, max: 5 }],
+  snowgolem: [{ item: "snowball", chance: 1.0, min: 1, max: 3 }],
 };

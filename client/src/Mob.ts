@@ -1,6 +1,6 @@
 import * as THREE from "three";
 
-export type MobType = "pig" | "zombie" | "chicken" | "cow" | "sheep" | "creeper" | "skeleton" | "horse" | "villager" | "enderdragon" | "spider" | "witherskeleton" | "wolf" | "cat" | "phantom" | "slime" | "warden" | "allay" | "frog" | "strider" | "axolotl" | "pillager" | "drowned" | "husk" | "stray" | "ravager";
+export type MobType = "pig" | "zombie" | "chicken" | "cow" | "sheep" | "creeper" | "skeleton" | "horse" | "villager" | "enderdragon" | "spider" | "witherskeleton" | "wolf" | "cat" | "phantom" | "slime" | "warden" | "allay" | "frog" | "strider" | "axolotl" | "pillager" | "drowned" | "husk" | "stray" | "ravager" | "irongolem" | "snowgolem";
 
 // Pre-allocated module constant — no object literal created per damage event
 const MOB_ORIGINAL_COLORS: Record<MobType, number> = {
@@ -8,6 +8,7 @@ const MOB_ORIGINAL_COLORS: Record<MobType, number> = {
   creeper: 0x4a8a2a, skeleton: 0xcccccc, witherskeleton: 0x111111, horse: 0xc8a46e,
   villager: 0xffcc99, enderdragon: 0x110022, spider: 0x333333, wolf: 0x888888,
   cat: 0xdd8833, phantom: 0x1a4455, slime: 0x44aa44,
+  irongolem: 0xcccccc, snowgolem: 0xffffff,
 };
 
 export interface MobData {
@@ -68,6 +69,8 @@ export class Mob {
       case "cat":     this.buildCat();     break;
       case "phantom": this.buildPhantom(); break;
       case "slime":   this.buildSlime();   break;
+      case "irongolem": this.buildIronGolem(); break;
+      case "snowgolem": this.buildSnowGolem(); break;
     }
 
     this.hpSprite = this.buildHpBar();
@@ -926,6 +929,105 @@ export class Mob {
     pupilR.position.x = 0.25;
     this.bodyMeshes.push(pupilR);
     this.group.add(pupilR);
+  }
+
+  private buildIronGolem() {
+    const IRON = 0xcccccc;
+    const DARK_IRON = 0x999999;
+    const VINE = 0x4a8a3a;
+    const EYE = 0x222222;
+
+    // Body (wide and tall)
+    const body = this.box(1.4, 1.6, 0.9, IRON);
+    body.position.set(0, 0.8, 0);
+    this.group.add(body);
+
+    // Vine decoration on chest
+    const vine = this.box(0.3, 0.3, 0.05, VINE);
+    vine.position.set(-0.3, 1.0, 0.46);
+    this.group.add(vine);
+
+    // Head
+    const head = this.box(0.6, 0.55, 0.55, IRON);
+    this.headGroup.add(head);
+    // Nose (long, like villager)
+    const nose = this.box(0.15, 0.3, 0.15, DARK_IRON);
+    nose.position.set(0, -0.05, 0.35);
+    this.headGroup.add(nose);
+    // Eyes
+    const eyeL = this.box(0.12, 0.08, 0.05, EYE);
+    eyeL.position.set(-0.15, 0.1, 0.28);
+    this.headGroup.add(eyeL);
+    const eyeR = this.box(0.12, 0.08, 0.05, EYE);
+    eyeR.position.set(0.15, 0.1, 0.28);
+    this.headGroup.add(eyeR);
+    this.headGroup.position.set(0, 1.85, 0);
+    this.group.add(this.headGroup);
+
+    // Arms (long, hanging down)
+    for (const side of [-1, 1]) {
+      const g = new THREE.Group();
+      const upper = this.box(0.4, 1.0, 0.4, IRON);
+      upper.position.y = -0.5;
+      const lower = this.box(0.35, 0.8, 0.35, DARK_IRON);
+      lower.position.y = -1.2;
+      g.add(upper, lower);
+      g.position.set(side * 0.9, 1.2, 0);
+      this.group.add(g);
+      this.arms.push(g);
+    }
+
+    // Legs
+    for (const side of [-1, 1]) {
+      const g = new THREE.Group();
+      const leg = this.box(0.4, 0.7, 0.4, IRON);
+      leg.position.y = -0.35;
+      g.add(leg);
+      g.position.set(side * 0.35, 0.0, 0);
+      this.group.add(g);
+      this.legs.push(g);
+    }
+  }
+
+  private buildSnowGolem() {
+    const SNOW = 0xffffff;
+    const DARK = 0x222222;
+    const ORANGE = 0xff6600;
+    const PUMPKIN = 0xdd8800;
+
+    // Bottom snowball (large)
+    const bottom = this.box(1.0, 1.0, 1.0, SNOW);
+    bottom.position.set(0, 0.0, 0);
+    this.group.add(bottom);
+
+    // Middle snowball
+    const mid = this.box(0.8, 0.8, 0.8, SNOW);
+    mid.position.set(0, 0.8, 0);
+    this.group.add(mid);
+
+    // Buttons on middle
+    for (const by of [0.65, 0.85, 1.05]) {
+      const btn = this.box(0.1, 0.1, 0.1, DARK);
+      btn.position.set(0, by, 0.41);
+      this.group.add(btn);
+    }
+
+    // Head (pumpkin)
+    const head = this.box(0.6, 0.6, 0.6, PUMPKIN);
+    this.headGroup.add(head);
+    // Eyes (carved pumpkin face)
+    const eyeL = this.box(0.12, 0.12, 0.05, DARK);
+    eyeL.position.set(-0.15, 0.08, 0.31);
+    this.headGroup.add(eyeL);
+    const eyeR = this.box(0.12, 0.12, 0.05, DARK);
+    eyeR.position.set(0.15, 0.08, 0.31);
+    this.headGroup.add(eyeR);
+    // Carrot nose
+    const nose = this.box(0.1, 0.1, 0.25, ORANGE);
+    nose.position.set(0, -0.02, 0.42);
+    this.headGroup.add(nose);
+    this.headGroup.position.set(0, 1.5, 0);
+    this.group.add(this.headGroup);
   }
 
   // ── HP bar ────────────────────────────────────────────────────────────────
