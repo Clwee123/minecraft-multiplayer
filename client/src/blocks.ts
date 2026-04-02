@@ -99,6 +99,10 @@ export const BLOCK_TYPES: Record<number, {
   86: { name: "Palm Leaves",        color: 0x3a8a2a },
   87: { name: "Birch Log",          color: 0xd4cbb5, topColor: 0xc8b898 },
   88: { name: "Birch Leaves",       color: 0x4a9a3a },
+  89: { name: "Snowball",           color: 0xeeeeff, solid: false },
+  90: { name: "Egg",               color: 0xf0e0c0, solid: false },
+  91: { name: "Strength Potion",   color: 0xff4444, solid: false },
+  92: { name: "Speed Potion",      color: 0x44aaff, solid: false },
 
   // ── Crafting materials & tools ────────────────────────────────────────────
   280: { name: "Stick",             color: 0xc8a464, solid: false },

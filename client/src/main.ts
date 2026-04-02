@@ -967,6 +967,65 @@ async function startGame(name: string) {
     sounds.play("eat"); // use eat sound as achievement chime
   };
 
+  // Snowball / egg throw handler
+  {
+    interface Throwable { mesh: THREE.Mesh; vel: THREE.Vector3; life: number; isMob: boolean }
+    const throwables: Throwable[] = [];
+    const _THROW_GEO = new THREE.SphereGeometry(0.15, 6, 6);
+    const _THROW_MAT_SNOW = new THREE.MeshLambertMaterial({ color: 0xeeeeff });
+    const _THROW_MAT_EGG  = new THREE.MeshLambertMaterial({ color: 0xf0e0c0 });
+
+    document.addEventListener("mousedown", e => {
+      if (!document.pointerLockElement || ui.isChatOpen()) return;
+      if (e.button !== 2) return;
+      const t = player.selectedBlockType;
+      if (t !== 89 && t !== 90) return; // snowball=89, egg=90
+      if (!invRemoveItem(t, 1)) return;
+      const mat = t === 89 ? _THROW_MAT_SNOW : _THROW_MAT_EGG;
+      const mesh = new THREE.Mesh(_THROW_GEO, mat);
+      mesh.position.copy(player.position).add(new THREE.Vector3(0, 0.6, 0));
+      const dir = new THREE.Vector3(0, 0, -1)
+        .applyAxisAngle(new THREE.Vector3(1, 0, 0), player.camera.rotation.x)
+        .applyAxisAngle(new THREE.Vector3(0, 1, 0), player.camera.rotation.y);
+      scene.add(mesh);
+      throwables.push({ mesh, vel: dir.multiplyScalar(25), life: 5, isMob: false });
+      ui.updateHotbarFromInventory(inventory, invCount);
+    });
+
+    // Tick throwables in animate loop via a global hook
+    (window as any).__tickThrowables = (dt: number) => {
+      for (let i = throwables.length - 1; i >= 0; i--) {
+        const th = throwables[i];
+        th.life -= dt;
+        th.vel.y -= 15 * dt; // gravity
+        th.mesh.position.addScaledVector(th.vel, dt);
+        // Check mob hit
+        if (mobManager) {
+          for (const lm of mobManager.iterMobs()) {
+            if (!lm.mob.alive) continue;
+            const dx = th.mesh.position.x - lm.mob.targetPos.x;
+            const dy = th.mesh.position.y - lm.mob.targetPos.y;
+            const dz = th.mesh.position.z - lm.mob.targetPos.z;
+            if (dx*dx + dy*dy + dz*dz < 1) {
+              lm.mob.health -= 3;
+              lm.mob.showDamage(lm.mob.health);
+              if (lm.mob.health <= 0) lm.mob.die();
+              sounds.play("hit");
+              th.life = 0;
+              break;
+            }
+          }
+        }
+        // Check block collision
+        const bx = Math.round(th.mesh.position.x);
+        const by = Math.round(th.mesh.position.y);
+        const bz = Math.round(th.mesh.position.z);
+        if (world.getBlock(bx, by, bz)) th.life = 0;
+        if (th.life <= 0) { scene.remove(th.mesh); throwables.splice(i, 1); }
+      }
+    };
+  }
+
   // Fishing rod right-click handler
   player.onRightClick = () => {
     if (player.selectedBlockType === 33) { // Fishing Rod
@@ -1778,13 +1837,13 @@ async function startGame(name: string) {
     dirt: 2, stone: 3, sand: 4, gravel: 12,
     coal: 64, iron_ingot: 62, gold_ingot: 63, diamond: 65,
     // Potions
-    potion_strength: 83, potion_speed: 84,
+    potion_strength: 91, potion_speed: 92,
   };
 
-  // Potion use on right-click — type 83 = strength, 84 = speed
+  // Potion use on right-click — type 91 = strength, 92 = speed
   const POTION_DEFS: Record<number, { effect: "strength" | "speed"; duration: number; label: string }> = {
-    83: { effect: "strength", duration: 30, label: "Strength I (+4 dmg, 30s)" },
-    84: { effect: "speed",    duration: 30, label: "Speed I (+30% move, 30s)" },
+    91: { effect: "strength", duration: 30, label: "Strength I (+4 dmg, 30s)" },
+    92: { effect: "speed",    duration: 30, label: "Speed I (+30% move, 30s)" },
   };
   document.addEventListener("mousedown", e => {
     if (!document.pointerLockElement || ui.isChatOpen()) return;
@@ -2191,6 +2250,9 @@ function animate() {
         }
       }
     }
+
+    // Update throwables (snowball/egg)
+    (window as any).__tickThrowables?.(dt);
 
     // Update arrows
     for (let i = playerArrows.length - 1; i >= 0; i--) {
