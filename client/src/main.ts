@@ -1483,6 +1483,18 @@ async function startGame(name: string) {
           }
         }
 
+        if (enchantBlock && enchantBlock.type === 110) { // Button
+          sounds.playNote(523.25); // C5 click
+          ui.addChatMessage("", "🔲 Click!", true);
+          return;
+        }
+
+        if (enchantBlock && enchantBlock.type === 111) { // Daylight Sensor
+          const lightLevel = Math.round(Math.sin(dayTime * Math.PI) * 15);
+          ui.addChatMessage("", `☀ Daylight sensor: light level ${Math.max(0, lightLevel)}/15`, true);
+          return;
+        }
+
         if (enchantBlock && enchantBlock.type === 107) { // Grindstone — remove enchantments
           enchants.sharpness = 0; enchants.protection = 0; enchants.speed = 0;
           player.speedBonus = potionEffects.speed > 0 ? 0.3 : 0;
@@ -2049,6 +2061,9 @@ async function startGame(name: string) {
     campfire:         { ingredients: { 5: 3, 64: 3, 280: 3 }, output: { type: 106, count: 1 } }, // planks+coal+sticks
     grindstone:       { ingredients: { 280: 2, 11: 2, 5: 1 }, output: { type: 107, count: 1 } }, // sticks+cobble+plank
     stonecutter:      { ingredients: { 62: 1, 3: 3 },  output: { type: 108, count: 1 } }, // iron+stone
+    tripwire_hook:    { ingredients: { 62: 1, 280: 1 }, output: { type: 109, count: 2 } }, // iron+stick → 2 tripwire
+    button:           { ingredients: { 11: 1 },         output: { type: 110, count: 1 } }, // cobblestone → button
+    daylight_sensor:  { ingredients: { 9: 3, 64: 3 },  output: { type: 111, count: 1 } }, // glass+coal
     crafting_table:   { ingredients: { 10: 4 },          output: { type: 22,  count: 1 } },
     furnace:          { ingredients: { 11: 8 },          output: { type: 23,  count: 1 } },
     chest:            { ingredients: { 10: 8 },          output: { type: 31,  count: 1 } },
@@ -2792,6 +2807,17 @@ function animate() {
           player.takeDamage(2);
           ui.updateHearts(player.health, player.maxHealth);
         }
+      }
+    }
+
+    // ── Tripwire detection ────────────────────────────────────────────────────
+    if (isSingleplayer) {
+      const _twx = Math.round(player.position.x), _twz = Math.round(player.position.z);
+      const _twy = Math.floor(player.position.y - 1.3); // leg height
+      if (world.getBlockType(_twx, _twy, _twz) === 109) { // tripwire
+        ui.addChatMessage("", "⚡ Tripwire triggered!", true);
+        sounds.play("hurt"); // click sound
+        world.removeBlock(_twx, _twy, _twz); // break the wire
       }
     }
 

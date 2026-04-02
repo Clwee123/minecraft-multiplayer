@@ -118,6 +118,9 @@ export const BLOCK_TYPES: Record<number, {
   106: { name: "Campfire",          color: 0xff6622, emissive: 0xff3300 },
   107: { name: "Grindstone",        color: 0x888888 },
   108: { name: "Stonecutter",       color: 0x999999 },
+  109: { name: "Tripwire",         color: 0xeeeeee, solid: false, transparent: true },
+  110: { name: "Button",           color: 0xaaaaaa, solid: false },
+  111: { name: "Daylight Sensor",  color: 0xddcc88 },
 
   // ── Crafting materials & tools ────────────────────────────────────────────
   280: { name: "Stick",             color: 0xc8a464, solid: false },
