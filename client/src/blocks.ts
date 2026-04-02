@@ -131,6 +131,11 @@ export const BLOCK_TYPES: Record<number, {
   120: { name: "Respawn Anchor",   color: 0x442266, emissive: 0x220044 },
   117: { name: "Netherite Ingot",  color: 0x444444, solid: false },
   122: { name: "Trident",          color: 0x448888, solid: false },
+  123: { name: "Crossbow",         color: 0x8b6914, solid: false },
+  124: { name: "Spyglass",         color: 0xccaa44, solid: false },
+  125: { name: "Bundle",           color: 0xcc8833, solid: false },
+  126: { name: "Goat Horn",        color: 0xddccaa, solid: false },
+  127: { name: "Echo Shard",       color: 0x44ccdd, solid: false },
 
   // ── Crafting materials & tools ────────────────────────────────────────────
   280: { name: "Stick",             color: 0xc8a464, solid: false },

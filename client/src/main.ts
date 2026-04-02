@@ -1159,6 +1159,75 @@ async function startGame(name: string) {
     };
   }
 
+  // Spyglass zoom (hold right-click with spyglass)
+  {
+    let spyglassActive = false;
+    document.addEventListener("mousedown", e => {
+      if (!document.pointerLockElement || ui.isChatOpen()) return;
+      if (e.button !== 2 || player.selectedBlockType !== 124) return;
+      spyglassActive = true;
+      camera.fov = 10; camera.updateProjectionMatrix();
+      ui.addChatMessage("", "🔭 Spyglass: zoomed in", true);
+    });
+    document.addEventListener("mouseup", e => {
+      if (e.button === 2 && spyglassActive) {
+        spyglassActive = false;
+        camera.fov = 75; camera.updateProjectionMatrix();
+      }
+    });
+  }
+
+  // Echo shard — right-click shows last death location
+  document.addEventListener("mousedown", e => {
+    if (!document.pointerLockElement || ui.isChatOpen()) return;
+    if (e.button !== 2 || player.selectedBlockType !== 127) return;
+    if (lastDeathPos.x !== 0 || lastDeathPos.z !== 0) {
+      ui.addChatMessage("", `💀 Last death: (${Math.round(lastDeathPos.x)}, ${Math.round(lastDeathPos.y)}, ${Math.round(lastDeathPos.z)})`, true);
+    } else {
+      ui.addChatMessage("", "💀 No death recorded yet.", true);
+    }
+  });
+
+  // Goat horn (right-click plays horn sound)
+  document.addEventListener("mousedown", e => {
+    if (!document.pointerLockElement || ui.isChatOpen()) return;
+    if (e.button !== 2 || player.selectedBlockType !== 126) return;
+    // Play a dramatic horn note sequence
+    [261.63, 329.63, 392.00, 523.25].forEach((freq, i) => {
+      setTimeout(() => sounds.playNote(freq), i * 120);
+    });
+    ui.addChatMessage("", "📯 Horn call!", true);
+  });
+
+  // Crossbow — load (first right-click) then fire burst
+  {
+    let crossbowLoaded = false;
+    document.addEventListener("mousedown", e => {
+      if (!document.pointerLockElement || ui.isChatOpen()) return;
+      if (e.button !== 2 || player.selectedBlockType !== 123) return;
+      if (!crossbowLoaded) {
+        crossbowLoaded = true;
+        ui.addChatMessage("", "⚔ Crossbow loaded!", true);
+        sounds.play("place");
+        return;
+      }
+      // Fire 3 arrows in spread
+      crossbowLoaded = false;
+      for (let s = -1; s <= 1; s++) {
+        const spread = s * 0.06;
+        const dir = new THREE.Vector3(spread, 0, -1)
+          .applyAxisAngle(new THREE.Vector3(1, 0, 0), player.camera.rotation.x)
+          .applyAxisAngle(new THREE.Vector3(0, 1, 0), player.camera.rotation.y)
+          .normalize();
+        const mesh = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.5, 4), new THREE.MeshLambertMaterial({ color: 0x886633 }));
+        mesh.position.copy(player.position).add(new THREE.Vector3(0, 0.6, 0));
+        scene.add(mesh);
+        playerArrows.push({ mesh, vel: dir.multiplyScalar(28), life: 8, stuck: false });
+      }
+      sounds.play("place");
+    });
+  }
+
   // Trident throw (right-click with trident selected)
   {
     interface Trident { mesh: THREE.Mesh; vel: THREE.Vector3; life: number; returning: boolean }
@@ -1576,6 +1645,17 @@ async function startGame(name: string) {
             localStorage.setItem("mc_ender_chest", JSON.stringify(enderSlots));
           };
           sounds.play("place");
+          return;
+        }
+
+        if (enchantBlock && enchantBlock.type === 125) { // Bundle — shows inventory contents
+          ui.showInventory(inventory);
+          inventoryOpen = true;
+          document.exitPointerLock();
+          ui.addChatMessage("", "🎒 Bundle contents:", true);
+          const contents = inventory.filter(v => v > 0);
+          if (contents.length === 0) ui.addChatMessage("", "(empty)", true);
+          else contents.forEach(t => ui.addChatMessage("", `  ${getBlockName(t)}`, true));
           return;
         }
 
@@ -2231,6 +2311,10 @@ async function startGame(name: string) {
     ender_chest:      { ingredients: { 18: 8, 65: 1 }, output: { type: 118, count: 1 } }, // obsidian+diamond
     shulker_box:      { ingredients: { 31: 2, 26: 4 }, output: { type: 119, count: 1 } }, // chest+wool
     respawn_anchor:   { ingredients: { 19: 6, 65: 3 }, output: { type: 120, count: 1 } }, // glowstone+diamond
+    crossbow:         { ingredients: { 280: 3, 62: 1, 280: 2 }, output: { type: 123, count: 1 } }, // sticks+iron (simplified)
+    spyglass:         { ingredients: { 62: 1, 9: 2 },  output: { type: 124, count: 1 } }, // iron+glass
+    bundle:           { ingredients: { 95: 6 },         output: { type: 125, count: 1 } }, // 6 leather
+    recovery_compass: { ingredients: { 127: 1, 39: 4 }, output: { type: 39,  count: 1 } }, // echo shard + compass
     crafting_table:   { ingredients: { 10: 4 },          output: { type: 22,  count: 1 } },
     furnace:          { ingredients: { 11: 8 },          output: { type: 23,  count: 1 } },
     chest:            { ingredients: { 10: 8 },          output: { type: 31,  count: 1 } },
@@ -2336,6 +2420,8 @@ async function startGame(name: string) {
     leather: 95,
     // Potions
     potion_strength: 91, potion_speed: 92,
+    // New items
+    crossbow: 123, spyglass: 124, bundle: 125, goat_horn: 126, echo_shard: 127,
     potion_night_vision: 96, potion_jump_boost: 97, potion_resistance: 98,
     // Equipment
     saddle: 93,
