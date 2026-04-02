@@ -1764,6 +1764,12 @@ async function startGame(name: string) {
 
   // Expose inventory count to UI for crafting display
   ui.getInvCount = (type: number) => invCountOf(type);
+  ui.onInventorySwap = (fromIdx: number, toIdx: number) => {
+    // Swap both type and count between slots
+    const tmpType  = inventory[toIdx];  inventory[toIdx]  = inventory[fromIdx];  inventory[fromIdx]  = tmpType;
+    const tmpCount = invCount[toIdx];   invCount[toIdx]   = invCount[fromIdx];   invCount[fromIdx]   = tmpCount;
+    ui.updateHotbarFromInventory(inventory, invCount);
+  };
 
   // Real crafting recipes — mirrors what UI shows
   const CRAFT_RECIPES: Record<string, { ingredients: Record<number,number>; output: { type: number; count: number } }> = {

@@ -49,6 +49,7 @@ export class UI {
   onChat?:   (text: string) => void;
   onRespawn?: () => void;
   onCraft?: (recipeId: string) => boolean;  // returns true if crafted ok
+  onInventorySwap?: (fromIdx: number, toIdx: number) => void;
   getInvCount?: (type: number) => number;   // returns count of item type in inventory
 
   constructor() {
@@ -450,26 +451,62 @@ export class UI {
       padding: 5px;
     `;
 
+    // Click-to-swap inventory slot interaction
+    let heldSlot: number | null = null; // index of slot currently "held"
+    const slotEls: HTMLElement[] = [];
+
+    const refreshSlot = (idx: number) => {
+      const el = slotEls[idx];
+      if (!el) return;
+      const id = items[idx] ?? 0;
+      const c = id === 0 ? "#333333" : "#" + getBlockColor(id).toString(16).padStart(6, "0");
+      el.style.background = heldSlot === idx ? "#ffee88" : c;
+      el.style.border = heldSlot === idx ? "2px solid #ffcc00" : "1px solid #1a1a1a";
+      el.title = id === 0 ? "Empty" : getBlockName(id);
+    };
+
     for (let i = 0; i < 36; i++) {
       const slot = document.createElement("div");
       const itemId = items[i] ?? 0;
       const color = itemId === 0 ? "#333333" : "#" + getBlockColor(itemId).toString(16).padStart(6, "0");
       slot.style.cssText = `
-        width: 24px;
-        height: 24px;
+        width: 24px; height: 24px;
         background: ${color};
         border: 1px solid #1a1a1a;
-        border-radius: 1px;
-        cursor: pointer;
+        border-radius: 1px; cursor: pointer;
         transition: background 0.1s;
+        position: relative;
       `;
       slot.title = itemId === 0 ? "Empty" : getBlockName(itemId);
+
+      // Count label
+      const cnt = items[i] ?? 0;
+      if (cnt !== 0 && this.getInvCount) {
+        const countEl = document.createElement("span");
+        countEl.style.cssText = "position:absolute;bottom:1px;right:2px;font-size:7px;color:#fff;text-shadow:1px 1px 0 #000;pointer-events:none;";
+        countEl.textContent = String(this.getInvCount(cnt) || "");
+        slot.appendChild(countEl);
+      }
+
+      slotEls.push(slot);
+      const idx = i;
+      slot.addEventListener("click", () => {
+        if (heldSlot === null) {
+          if (items[idx] !== 0) { heldSlot = idx; refreshSlot(idx); }
+        } else if (heldSlot === idx) {
+          heldSlot = null; refreshSlot(idx);
+        } else {
+          // Swap
+          const tmp = items[idx]; items[idx] = items[heldSlot]; items[heldSlot] = tmp;
+          const prev = heldSlot; heldSlot = null;
+          refreshSlot(idx); refreshSlot(prev);
+          this.onInventorySwap?.(prev, idx);
+        }
+      });
       slot.addEventListener("mouseenter", () => {
-        slot.style.background = "#" + Math.min(0xffffff, (parseInt(color.slice(1), 16) ?? 0) + 0x222222).toString(16).padStart(6, "0");
+        if (heldSlot !== idx) slot.style.outline = "1px solid #aaa";
       });
-      slot.addEventListener("mouseleave", () => {
-        slot.style.background = color;
-      });
+      slot.addEventListener("mouseleave", () => { slot.style.outline = "none"; });
       grid.appendChild(slot);
     }
     this.inventoryPanel.appendChild(grid);
@@ -591,7 +628,11 @@ export class UI {
     const text = this.chatInput.value;
     if (!text.startsWith("/")) return;
 
-    const commands = ["/gamemode", "/time", "/weather", "/help", "/save", "/load", "/tp", "/kill", "/heal", "/feed"];
+    const commands = [
+      "/gamemode", "/time", "/weather", "/help", "/save", "/load", "/tp",
+      "/kill", "/heal", "/feed", "/give", "/god", "/boss", "/achievements",
+      "/stats", "/nether", "/craft", "/tame", "/spectator",
+    ];
     const partial = text.slice(1).toLowerCase();
     const matches = commands.filter(c => c.slice(1).startsWith(partial));
 

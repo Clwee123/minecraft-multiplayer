@@ -207,6 +207,14 @@ export class MobManager {
     if (lm.mob.health <= 0) lm.mob.die();
     this.attackCooldown = 0.4; // 0.4s cooldown between hits
 
+    // Knockback — push mob away from player's raycaster origin
+    const origin = raycaster.ray.origin;
+    const kbDx = lm.data.x - origin.x;
+    const kbDz = lm.data.z - origin.z;
+    const kbLen = Math.sqrt(kbDx * kbDx + kbDz * kbDz) || 1;
+    lm.data.x += (kbDx / kbLen) * 2.5; // 2.5 block knockback
+    lm.data.z += (kbDz / kbLen) * 2.5;
+
     return { mobId, damage };
   }
 
