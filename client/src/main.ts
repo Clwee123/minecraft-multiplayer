@@ -455,6 +455,21 @@ function handleCommand(cmd: string, playerName: string): boolean {
   if (base === "/kill")  { player.takeDamage(player.maxHealth); return true; }
   if (base === "/heal")  { (player as any).health = player.maxHealth; ui.updateHearts(player.maxHealth, player.maxHealth); ui.addChatMessage("", "Healed to full!", true); return true; }
   if (base === "/feed")  { hunger = maxHunger; ui.updateHunger(hunger, maxHunger); ui.addChatMessage("", "Fed to full!", true); return true; }
+  if (base === "/god") {
+    player.gameMode = player.gameMode === "creative" ? "survival" : "creative";
+    ui.addChatMessage("", player.gameMode === "creative" ? "God mode ON (creative)" : "God mode OFF (survival)", true);
+    return true;
+  }
+  if (base === "/give") {
+    // /give <typeId> [count]
+    const typeId = parseInt(parts[1] ?? "");
+    const count  = parseInt(parts[2] ?? "1") || 1;
+    if (isNaN(typeId) || typeId <= 0) { ui.addChatMessage("", "Usage: /give <typeId> [count]", true); return true; }
+    invAddItem(typeId, count);
+    ui.updateHotbarFromInventory(inventory, invCount);
+    ui.addChatMessage("", `Gave ${count}x item ${typeId}`, true);
+    return true;
+  }
 
   if (base === "/time") {
     const sub = parts[1]?.toLowerCase();
@@ -609,6 +624,8 @@ function handleCommand(cmd: string, playerName: string): boolean {
       "/kill  /heal  /feed",
       "/time day | night | sunrise | sunset",
       "/tp <x> <z>",
+      "/give <typeId> [count]",
+      "/god - toggle creative/survival",
       "/craft",
       "/weather clear | rain | thunder",
       "/nether enter | exit",
@@ -2482,9 +2499,17 @@ function animate() {
     updatePostEffects(dt, player.health, player.maxHealth);
     updateCrosshair(player.getBreakProgress());
 
-    // Speed lines when sprinting
+    // Speed lines + FOV narrowing when sprinting
     const isSprinting = (player as any).keys?.["ControlLeft"] && player.velocity.lengthSq() > 4;
     speedLinesEl.style.opacity = isSprinting ? "0.7" : "0";
+    // Smoothly lerp FOV: 80 when sprinting, 75 normal (don't override shield's 65)
+    if (!shieldActive) {
+      const targetFov = isSprinting ? 80 : 75;
+      if (Math.abs(camera.fov - targetFov) > 0.1) {
+        camera.fov += (targetFov - camera.fov) * 0.12;
+        camera.updateProjectionMatrix();
+      }
+    }
 
     // Center sun/moon/clouds around player
     sunMesh.position.x  += (player.position.x - sunMesh.position.x) * 0.02;
