@@ -1,6 +1,6 @@
 import * as THREE from "three";
 
-export type MobType = "pig" | "zombie" | "chicken" | "cow" | "sheep" | "creeper" | "skeleton" | "horse" | "villager" | "enderdragon" | "spider" | "witherskeleton" | "wolf" | "cat" | "phantom" | "slime" | "warden" | "allay" | "frog" | "strider" | "axolotl" | "pillager" | "drowned" | "husk" | "stray" | "ravager" | "irongolem" | "snowgolem" | "bat" | "enderman" | "blaze" | "ghast" | "magmacube" | "silverfish" | "elderguardian" | "witch" | "evoker" | "vindicator" | "vex" | "zoglin" | "hoglin" | "piglin";
+export type MobType = "pig" | "zombie" | "chicken" | "cow" | "sheep" | "creeper" | "skeleton" | "horse" | "villager" | "enderdragon" | "spider" | "witherskeleton" | "wolf" | "cat" | "phantom" | "slime" | "warden" | "allay" | "frog" | "strider" | "axolotl" | "pillager" | "drowned" | "husk" | "stray" | "ravager" | "irongolem" | "snowgolem" | "bat" | "enderman" | "blaze" | "ghast" | "magmacube" | "silverfish" | "elderguardian" | "witch" | "evoker" | "vindicator" | "vex" | "zoglin" | "hoglin" | "piglin" | "zombievillager" | "wanderingtrader" | "giant" | "zombiehorse" | "skeletonhorse";
 
 // Pre-allocated module constant — no object literal created per damage event
 const MOB_ORIGINAL_COLORS: Record<MobType, number> = {
@@ -10,6 +10,7 @@ const MOB_ORIGINAL_COLORS: Record<MobType, number> = {
   cat: 0xdd8833, phantom: 0x1a4455, slime: 0x44aa44,
   irongolem: 0xcccccc, snowgolem: 0xffffff,
   magmacube: 0xcc3300, silverfish: 0x888888, elderguardian: 0x8899aa, witch: 0x553388, evoker: 0x777777,
+  zombievillager: 0x77bb77, wanderingtrader: 0x2244aa, giant: 0x77bb77, zombiehorse: 0x6a8a5a, skeletonhorse: 0xccccbb,
 };
 
 export interface MobData {
@@ -77,6 +78,11 @@ export class Mob {
       case "elderguardian": this.buildElderGuardian(); break;
       case "witch": this.buildWitch(); break;
       case "evoker": this.buildEvoker(); break;
+      case "zombievillager": this.buildZombieVillager(); break;
+      case "wanderingtrader": this.buildWanderingTrader(); break;
+      case "giant": this.buildGiant(); break;
+      case "zombiehorse": this.buildZombieHorse(); break;
+      case "skeletonhorse": this.buildSkeletonHorse(); break;
     }
 
     this.hpSprite = this.buildHpBar();
@@ -1235,6 +1241,231 @@ export class Mob {
     }
   }
 
+  private buildZombieVillager() {
+    const SKIN = 0x77bb77; // zombie green
+    const BROWN = 0x3a5a2a;
+    const SHIRT = 0x2a4a2a;
+
+    // Body (villager robe but zombie colors)
+    const body = this.box(0.6, 1.0, 0.4, BROWN);
+    body.position.y = 0.2;
+    this.group.add(body);
+    const robe = this.box(0.62, 0.95, 0.42, SHIRT);
+    robe.position.y = 0.22;
+    this.group.add(robe);
+
+    // Head
+    const head = this.box(0.5, 0.5, 0.5, SKIN);
+    this.headGroup.add(head);
+    // Red glowing eyes (zombie)
+    const eyeL = this.box(0.1, 0.1, 0.05, 0xff2200);
+    eyeL.position.set(-0.12, 0.05, 0.26); this.headGroup.add(eyeL);
+    const eyeR = eyeL.clone(); eyeR.position.x = 0.12; this.headGroup.add(eyeR);
+    // Villager nose
+    const nose = this.box(0.1, 0.12, 0.08, BROWN);
+    nose.position.set(0, -0.05, 0.3); this.headGroup.add(nose);
+    this.headGroup.position.set(0, 0.75, 0);
+    this.group.add(this.headGroup);
+
+    // Arms (outstretched like zombie)
+    for (const side of [-1, 1]) {
+      const g = new THREE.Group();
+      const upper = this.box(0.26, 0.5, 0.26, SHIRT);
+      upper.position.y = -0.25;
+      const lower = this.box(0.24, 0.45, 0.24, SKIN);
+      lower.position.y = -0.55 - 0.225;
+      g.add(upper, lower);
+      g.position.set(side * 0.4, 0.3, 0);
+      g.rotation.x = -Math.PI / 2.2;
+      this.group.add(g);
+      this.arms.push(g);
+    }
+
+    // Legs
+    for (const side of [-1, 1]) {
+      const g = new THREE.Group();
+      const leg = this.box(0.26, 0.5, 0.26, BROWN);
+      leg.position.y = -0.25;
+      g.add(leg);
+      g.position.set(side * 0.15, -0.5, 0);
+      this.group.add(g);
+      this.legs.push(g);
+    }
+  }
+
+  private buildWanderingTrader() {
+    const SKIN = 0xffcc99;
+    const BLUE = 0x2244aa;
+    const GOLD = 0xddaa33;
+
+    // Body (blue robe)
+    const body = this.box(0.6, 1.0, 0.4, BLUE);
+    body.position.y = 0.2;
+    this.group.add(body);
+    // Gold trim overlay
+    const trim = this.box(0.62, 0.3, 0.42, GOLD);
+    trim.position.y = -0.1;
+    this.group.add(trim);
+
+    // Head
+    const head = this.box(0.5, 0.5, 0.5, SKIN);
+    this.headGroup.add(head);
+    // Eyes
+    const eyeL = this.box(0.12, 0.12, 0.05, 0x222222);
+    eyeL.position.set(-0.15, 0.08, 0.26); this.headGroup.add(eyeL);
+    const eyeR = eyeL.clone(); eyeR.position.x = 0.15; this.headGroup.add(eyeR);
+    // Nose
+    const nose = this.box(0.1, 0.12, 0.08, 0xcc8844);
+    nose.position.set(0, -0.05, 0.3); this.headGroup.add(nose);
+    // Hat (blue wide brim)
+    const hat = this.box(0.7, 0.1, 0.7, BLUE);
+    hat.position.y = 0.3; this.headGroup.add(hat);
+    this.headGroup.position.set(0, 0.75, 0);
+    this.group.add(this.headGroup);
+
+    // Arms
+    for (const side of [-1, 1]) {
+      const g = new THREE.Group();
+      const arm = this.box(0.26, 0.55, 0.26, BLUE);
+      arm.position.y = -0.275;
+      g.add(arm);
+      g.position.set(side * 0.4, 0.3, 0);
+      this.group.add(g);
+      this.arms.push(g);
+    }
+
+    // Legs
+    for (const side of [-1, 1]) {
+      const g = new THREE.Group();
+      const leg = this.box(0.26, 0.5, 0.26, BLUE);
+      leg.position.y = -0.25;
+      g.add(leg);
+      g.position.set(side * 0.15, -0.5, 0);
+      this.group.add(g);
+      this.legs.push(g);
+    }
+  }
+
+  private buildGiant() {
+    // Same as zombie but scaled ×6
+    const SKIN  = 0x77bb77;
+    const SHIRT = 0x2a4a2a;
+    const PANTS = 0x1a2e1a;
+    const SHOE  = 0x1a1008;
+
+    const body = this.box(0.6, 0.8, 0.35, SHIRT);
+    body.position.y = -0.05;
+    this.group.add(body);
+
+    const head = this.box(0.5, 0.5, 0.5, SKIN);
+    this.headGroup.add(head);
+    const eyeL = this.box(0.1, 0.1, 0.05, 0xff2200);
+    eyeL.position.set(-0.12, 0.05, 0.26); this.headGroup.add(eyeL);
+    const eyeR = eyeL.clone(); eyeR.position.x = 0.12; this.headGroup.add(eyeR);
+    this.headGroup.position.set(0, 0.65, 0);
+    this.group.add(this.headGroup);
+
+    for (const side of [-1, 1]) {
+      const g = new THREE.Group();
+      const upper = this.box(0.26, 0.55, 0.26, SHIRT);
+      upper.position.y = -0.275;
+      const lower = this.box(0.24, 0.45, 0.24, SKIN);
+      lower.position.y = -0.55 - 0.225;
+      g.add(upper, lower);
+      g.position.set(side * 0.43, 0.2, 0);
+      g.rotation.x = -Math.PI / 2.2;
+      this.group.add(g);
+      this.arms.push(g);
+    }
+
+    for (const side of [-1, 1]) {
+      const g = new THREE.Group();
+      const upper = this.box(0.26, 0.6, 0.26, PANTS);
+      upper.position.y = -0.3;
+      const boot = this.box(0.26, 0.24, 0.28, SHOE);
+      boot.position.y = -0.6 - 0.12;
+      g.add(upper, boot);
+      g.position.set(side * 0.175, -0.45, 0);
+      this.group.add(g);
+      this.legs.push(g);
+    }
+
+    // Scale ×6
+    this.group.scale.setScalar(6);
+  }
+
+  private buildZombieHorse() {
+    const GREEN = 0x6a8a5a;
+    const DARK  = 0x3a4a2a;
+    const BLACK = 0x1a1a1a;
+
+    const body = this.box(0.9, 0.8, 1.6, GREEN);
+    body.position.set(0, 0.45, 0);
+    this.group.add(body);
+
+    const head = this.box(0.4, 0.5, 0.6, GREEN);
+    this.headGroup.add(head);
+    const eyeL = this.box(0.1, 0.1, 0.05, 0xff2200);
+    eyeL.position.set(-0.15, 0.1, 0.32); this.headGroup.add(eyeL);
+    const eyeR = eyeL.clone(); eyeR.position.x = 0.15; this.headGroup.add(eyeR);
+    const earL = this.box(0.12, 0.24, 0.08, DARK);
+    earL.position.set(-0.18, 0.32, 0.1); this.headGroup.add(earL);
+    const earR = earL.clone(); earR.position.x = 0.18; this.headGroup.add(earR);
+    this.headGroup.position.set(0, 0.6, 0.8);
+    this.group.add(this.headGroup);
+
+    const mane = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.3, 0.5),
+      new THREE.MeshLambertMaterial({ color: DARK })
+    );
+    mane.position.set(0, 0.8, 0.3);
+    mane.rotation.x = 0.3;
+    this.group.add(mane);
+
+    const legPositions: [number, number][] = [[-0.28, -0.6], [0.28, -0.6], [-0.28, 0.6], [0.28, 0.6]];
+    for (const [lx, lz] of legPositions) {
+      const g = new THREE.Group();
+      const leg = this.box(0.2, 0.7, 0.2, GREEN);
+      leg.position.y = -0.35;
+      g.add(leg);
+      g.position.set(lx, 0.1, lz);
+      this.group.add(g);
+      this.legs.push(g);
+    }
+  }
+
+  private buildSkeletonHorse() {
+    const BONE = 0xccccbb;
+    const DARK = 0x888877;
+    const BLACK = 0x111111;
+
+    const body = this.box(0.8, 0.6, 1.5, BONE);
+    body.position.set(0, 0.45, 0);
+    this.group.add(body);
+
+    const head = this.box(0.35, 0.45, 0.55, BONE);
+    this.headGroup.add(head);
+    const eyeL = this.box(0.1, 0.1, 0.05, BLACK);
+    eyeL.position.set(-0.12, 0.1, 0.3); this.headGroup.add(eyeL);
+    const eyeR = eyeL.clone(); eyeR.position.x = 0.12; this.headGroup.add(eyeR);
+    const earL = this.box(0.1, 0.2, 0.06, DARK);
+    earL.position.set(-0.15, 0.3, 0.08); this.headGroup.add(earL);
+    const earR = earL.clone(); earR.position.x = 0.15; this.headGroup.add(earR);
+    this.headGroup.position.set(0, 0.55, 0.75);
+    this.group.add(this.headGroup);
+
+    const legPositions: [number, number][] = [[-0.25, -0.55], [0.25, -0.55], [-0.25, 0.55], [0.25, 0.55]];
+    for (const [lx, lz] of legPositions) {
+      const g = new THREE.Group();
+      const leg = this.box(0.15, 0.7, 0.15, BONE);
+      leg.position.y = -0.35;
+      g.add(leg);
+      g.position.set(lx, 0.1, lz);
+      this.group.add(g);
+      this.legs.push(g);
+    }
+  }
+
   // ── HP bar ────────────────────────────────────────────────────────────────
 
   private buildHpBar(): THREE.Sprite {
@@ -1245,7 +1476,7 @@ export class Mob {
     const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false });
     const sp  = new THREE.Sprite(mat);
     sp.scale.set(1.2, 0.18, 1);
-    const hpY: Record<MobType, number> = { pig: 1.4, chicken: 1.0, zombie: 1.6, cow: 1.8, sheep: 1.7, creeper: 1.9, skeleton: 1.9, witherskeleton: 2.5, horse: 2.2, villager: 1.8, enderdragon: 3.5, spider: 0.8, wolf: 1.5, cat: 1.2, phantom: 1.5, slime: 1.5, magmacube: 1.5, silverfish: 0.6, elderguardian: 2.2, witch: 2.2, evoker: 2.2 };
+    const hpY: Record<MobType, number> = { pig: 1.4, chicken: 1.0, zombie: 1.6, cow: 1.8, sheep: 1.7, creeper: 1.9, skeleton: 1.9, witherskeleton: 2.5, horse: 2.2, villager: 1.8, enderdragon: 3.5, spider: 0.8, wolf: 1.5, cat: 1.2, phantom: 1.5, slime: 1.5, magmacube: 1.5, silverfish: 0.6, elderguardian: 2.2, witch: 2.2, evoker: 2.2, zombievillager: 1.8, wanderingtrader: 1.8, giant: 10.0, zombiehorse: 2.2, skeletonhorse: 2.2 };
     sp.position.y = hpY[this.type] ?? 1.6;
     return sp;
   }
@@ -1340,7 +1571,7 @@ export class Mob {
       const bounceTime = this.walkCycle / 2.5;
       const bounceAmount = 0.3 * Math.abs(Math.sin(bounceTime * Math.PI / 0.5));
       this.group.position.y = this.targetPos.y + bounceAmount;
-    } else if (this.type === "witch" || this.type === "evoker") {
+    } else if (this.type === "witch" || this.type === "evoker" || this.type === "zombievillager" || this.type === "wanderingtrader") {
       // Humanoid walk
       if (this.legs.length >= 2) {
         this.legs[0].rotation.x =  sw * SWING;
@@ -1349,6 +1580,22 @@ export class Mob {
       for (const arm of this.arms) {
         arm.rotation.x = -sw * SWING * 0.5;
       }
+    } else if (this.type === "giant") {
+      // Same as zombie but scaled
+      if (this.legs.length >= 2) {
+        this.legs[0].rotation.x =  sw * SWING;
+        this.legs[1].rotation.x = -sw * SWING;
+      }
+      for (const arm of this.arms) {
+        arm.rotation.z += Math.sin(this.walkCycle * 0.5) * 0.005;
+      }
+    } else if (this.type === "zombiehorse" || this.type === "skeletonhorse") {
+      // Horse leg animation
+      for (let i = 0; i < this.legs.length; i++) {
+        const phase = (i === 0 || i === 3) ? 0 : Math.PI;
+        this.legs[i].rotation.x = Math.sin(this.walkCycle + phase) * SWING * 0.5;
+      }
+      this.headGroup.rotation.x = Math.abs(sw) * 0.06;
     }
   }
 

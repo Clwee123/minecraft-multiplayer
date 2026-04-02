@@ -113,6 +113,8 @@ const ITEM_COLORS: Record<string, number> = {
   redstone: 0xcc0000,
   glowstone_dust: 0xffcc44,
   totem_of_undying: 0xddaa33,
+  rotten_flesh: 0x8b5533,
+  emerald: 0x22dd55,
 };
 
 export const MOB_DROPS: Record<string, Array<{ item: string; chance: number; min: number; max: number }>> = {
@@ -155,4 +157,9 @@ export const MOB_DROPS: Record<string, Array<{ item: string; chance: number; min
     { item: "glowstone_dust", chance: 0.5, min: 0, max: 2 },
   ],
   evoker: [{ item: "totem_of_undying", chance: 1.0, min: 1, max: 1 }],
+  zombievillager: [{ item: "rotten_flesh", chance: 1.0, min: 1, max: 2 }],
+  wanderingtrader: [{ item: "emerald", chance: 1.0, min: 1, max: 1 }],
+  giant: [{ item: "rotten_flesh", chance: 1.0, min: 10, max: 10 }],
+  zombiehorse: [{ item: "rotten_flesh", chance: 1.0, min: 1, max: 2 }],
+  skeletonhorse: [{ item: "bone", chance: 1.0, min: 1, max: 2 }],
 };

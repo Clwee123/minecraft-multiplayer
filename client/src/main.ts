@@ -1600,6 +1600,7 @@ async function startGame(name: string) {
           "phantom": 6, "slime": 4, "witherskeleton": 8, "spider": 5, "wolf": 4, "cat": 0,
           "irongolem": 10, "snowgolem": 5,
           "magmacube": 4, "silverfish": 5, "elderguardian": 10, "witch": 5, "evoker": 10,
+          "zombievillager": 5, "wanderingtrader": 0, "giant": 20, "zombiehorse": 3, "skeletonhorse": 3,
         };
         const mobTypeStr = mobData.type.toLowerCase();
         const xpAmount = xpTable[mobTypeStr] || 1;
@@ -1875,7 +1876,7 @@ async function startGame(name: string) {
         const villagerMeshes: Array<{ mesh: THREE.Object3D; mobId: string; type: string }> = [];
 
         for (const { id, mob } of villagerMobs) {
-          if (mob.type === "villager") {
+          if (mob.type === "villager" || mob.type === "wanderingtrader") {
             mob.group.traverse(obj => {
               if ((obj as THREE.Mesh).isMesh) {
                 villagerMeshes.push({ mesh: obj, mobId: id, type: mob.type });
@@ -1891,32 +1892,62 @@ async function startGame(name: string) {
           const villagerInfo = villagerMeshes.find(v => v.mesh === firstHit.object);
           if (villagerInfo) {
             attackRaycaster.far = 5; // restore default far
-            const trades = [
-              { give: "45", giveName: "5 Wheat", receive: "food", receiveName: "1 Bread" },
-              { give: "14", giveName: "3 Iron Ore", receive: "36", receiveName: "1 Iron Chestplate" },
-              { give: "5", giveName: "10 Wood", receive: "33", receiveName: "1 Fishing Rod" },
-              { give: "39", giveName: "1 Compass", receive: "46", receiveName: "1 Enchanted Book" },
-            ];
-            ui.showTradeUI(trades);
-            ui.onTrade = (tradeIndex) => {
-              const trade = trades[tradeIndex];
-              if (!trade) return;
-              // Parse give: "N ItemName" format where give is a count string — item type embedded
-              // Trades are barter-only: just give wheat(45)/iron ore(14)/wood(5)/compass(39), receive item
-              const TRADE_GIVE_TYPE: Record<number, number> = { 0: 45, 1: 14, 2: 5, 3: 39 };
-              const TRADE_GIVE_COUNT: Record<number, number> = { 0: 5, 1: 3, 2: 10, 3: 1 };
-              const TRADE_RECEIVE_TYPE: Record<number, number> = { 0: 0 /* bread */, 1: 36, 2: 33, 3: 46 };
-              const giveType = TRADE_GIVE_TYPE[tradeIndex];
-              const giveCount = TRADE_GIVE_COUNT[tradeIndex];
-              const recvType = TRADE_RECEIVE_TYPE[tradeIndex];
-              if (giveType && invRemoveItem(giveType, giveCount)) {
-                if (recvType > 0) invAddItem(recvType, 1);
-                ui.addChatMessage("", `Trade: gave ${trade.giveName}, received ${trade.receiveName}!`, true);
-                sounds.play("place");
-              } else {
-                ui.addChatMessage("", `Need ${trade.giveName} to trade!`, true);
-              }
-            };
+            if (villagerInfo.type === "wanderingtrader") {
+              // Wandering trader: 3 random trades from a pool of 5
+              const tradePool = [
+                { give: "emerald", giveName: "1 Emerald", receive: "diamond", receiveName: "1 Diamond", giveType: 0, giveCount: 1, recvType: 65 },
+                { give: "wheat", giveName: "5 Wheat", receive: "emerald", receiveName: "1 Emerald", giveType: 45, giveCount: 5, recvType: 0 },
+                { give: "emerald", giveName: "1 Emerald", receive: "ender_pearl", receiveName: "1 Ender Pearl", giveType: 0, giveCount: 1, recvType: 0 },
+                { give: "iron", giveName: "3 Iron Ingot", receive: "emerald", receiveName: "1 Emerald", giveType: 62, giveCount: 3, recvType: 0 },
+                { give: "emerald", giveName: "1 Emerald", receive: "golden_apple", receiveName: "1 Golden Apple", giveType: 0, giveCount: 1, recvType: 0 },
+              ];
+              // Pick 3 random unique trades
+              const shuffled = tradePool.sort(() => Math.random() - 0.5).slice(0, 3);
+              const trades = shuffled.map(t => ({ give: t.give, giveName: t.giveName, receive: t.receive, receiveName: t.receiveName }));
+              ui.showTradeUI(trades);
+              ui.onTrade = (tradeIndex) => {
+                const st = shuffled[tradeIndex];
+                if (!st) return;
+                // For emerald-based trades where emerald has no block type, just give the item
+                if (st.giveType > 0 && invRemoveItem(st.giveType, st.giveCount)) {
+                  if (st.recvType > 0) invAddItem(st.recvType, 1);
+                  ui.addChatMessage("", `Trade: gave ${st.giveName}, received ${st.receiveName}!`, true);
+                  sounds.play("place");
+                } else if (st.giveType === 0) {
+                  // Emerald trades — just grant the item (emerald as currency is virtual)
+                  if (st.recvType > 0) invAddItem(st.recvType, 1);
+                  ui.addChatMessage("", `Trade: gave ${st.giveName}, received ${st.receiveName}!`, true);
+                  sounds.play("place");
+                } else {
+                  ui.addChatMessage("", `Need ${st.giveName} to trade!`, true);
+                }
+              };
+            } else {
+              const trades = [
+                { give: "45", giveName: "5 Wheat", receive: "food", receiveName: "1 Bread" },
+                { give: "14", giveName: "3 Iron Ore", receive: "36", receiveName: "1 Iron Chestplate" },
+                { give: "5", giveName: "10 Wood", receive: "33", receiveName: "1 Fishing Rod" },
+                { give: "39", giveName: "1 Compass", receive: "46", receiveName: "1 Enchanted Book" },
+              ];
+              ui.showTradeUI(trades);
+              ui.onTrade = (tradeIndex) => {
+                const trade = trades[tradeIndex];
+                if (!trade) return;
+                const TRADE_GIVE_TYPE: Record<number, number> = { 0: 45, 1: 14, 2: 5, 3: 39 };
+                const TRADE_GIVE_COUNT: Record<number, number> = { 0: 5, 1: 3, 2: 10, 3: 1 };
+                const TRADE_RECEIVE_TYPE: Record<number, number> = { 0: 0 /* bread */, 1: 36, 2: 33, 3: 46 };
+                const giveType = TRADE_GIVE_TYPE[tradeIndex];
+                const giveCount = TRADE_GIVE_COUNT[tradeIndex];
+                const recvType = TRADE_RECEIVE_TYPE[tradeIndex];
+                if (giveType && invRemoveItem(giveType, giveCount)) {
+                  if (recvType > 0) invAddItem(recvType, 1);
+                  ui.addChatMessage("", `Trade: gave ${trade.giveName}, received ${trade.receiveName}!`, true);
+                  sounds.play("place");
+                } else {
+                  ui.addChatMessage("", `Need ${trade.giveName} to trade!`, true);
+                }
+              };
+            }
             return;
           }
         }
@@ -2065,13 +2096,13 @@ async function startGame(name: string) {
       } else {
         // Require saddle (type 93) in inventory to ride
         if (invCountOf(93) < 1) {
-          ui.addChatMessage("", "You need a saddle to ride a horse!", true);
+          ui.addChatMessage("", "You need a saddle to ride!", true);
           return;
         }
         const mounted = mobManager?.tryMount(player.position);
         if (mounted) {
           player.speedBonus = 1.0; // horses are ~2x speed
-          ui.addChatMessage("", "Mounted horse! R to dismount.", true);
+          ui.addChatMessage("", "Mounted! R to dismount.", true);
         }
       }
     }
@@ -2456,9 +2487,10 @@ async function startGame(name: string) {
     crossbow: 123, spyglass: 124, bundle: 125, goat_horn: 126, echo_shard: 127,
     potion_night_vision: 96, potion_jump_boost: 97, potion_resistance: 98,
     // Equipment
-    saddle: 93,
+    saddle: 93, splash_potion_weakness: 83,
     // New mob drops
     magma_cream: 0, prismarine_shard: 0, redstone: 0, glowstone_dust: 19, totem_of_undying: 131,
+    rotten_flesh: 0, emerald: 0, ender_pearl: 0, golden_apple: 0,
   };
 
   // Potion use on right-click
@@ -2480,6 +2512,24 @@ async function startGame(name: string) {
       if (potion.effect === "jumpBoost")  player.jumpBonus  = 4;
       ui.addChatMessage("", `🧪 Drank ${potion.label}!`, true);
       sounds.play("eat");
+      ui.updateHotbarFromInventory(inventory, invCount);
+    }
+  });
+
+  // Splash potion of weakness (type 83) — right-click to throw at zombie villager to start cure
+  document.addEventListener("mousedown", e => {
+    if (!document.pointerLockElement || ui.isChatOpen()) return;
+    if (e.button !== 2) return;
+    if (player.selectedBlockType !== 83) return;
+    if (!mobManager) return;
+    if (invRemoveItem(83, 1)) {
+      const cured = mobManager.tryCureZombieVillager(player.position);
+      if (cured) {
+        ui.addChatMessage("", "Zombie Villager is being cured... (30s)", true);
+      } else {
+        ui.addChatMessage("", "Threw splash potion of weakness.", true);
+      }
+      sounds.play("place");
       ui.updateHotbarFromInventory(inventory, invCount);
     }
   });
@@ -2604,6 +2654,12 @@ async function startGame(name: string) {
         ui.updateHunger(hunger, maxHunger);
         ui.addChatMessage("", "🧪 Witch's potion drains your hunger!", true);
       }
+    };
+    mobManager.onZombieVillagerCured = (x, y, z) => {
+      // Spawn a regular villager at the cured position
+      mobManager!.spawnAt("villager" as any, x, y, z);
+      ui.addChatMessage("", "Zombie Villager has been cured into a Villager!", true);
+      sounds.play("place");
     };
 
     for (let i = 0; i < 10; i++) mobManager.spawnRandom(0, 0);

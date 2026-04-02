@@ -65,6 +65,7 @@ export class MobManager {
   // Horse mounting
   mountedMobId: string | null = null;
   onBurnParticle?: (x: number, y: number, z: number) => void;
+  onZombieVillagerCured?: (x: number, y: number, z: number) => void;
 
   // Raycaster for mob-player attack detection
   private attackCooldown = 0;
@@ -80,7 +81,7 @@ export class MobManager {
 
   spawnMob(type: MobType, x: number, y: number, z: number, id?: string): Mob {
     const mobId    = id ?? uid();
-    const maxHp    = type === "zombie" ? 20 : type === "creeper" ? 20 : type === "skeleton" ? 20 : type === "witherskeleton" ? 40 : type === "chicken" ? 4 : type === "cow" ? 16 : type === "sheep" ? 12 : type === "horse" ? 30 : type === "villager" ? 20 : type === "enderdragon" ? 200 : type === "spider" ? 16 : type === "wolf" ? 20 : type === "cat" ? 10 : type === "phantom" ? 20 : type === "slime" ? 16 : type === "warden" ? 500 : type === "allay" ? 20 : type === "frog" ? 10 : type === "strider" ? 20 : type === "axolotl" ? 14 : type === "pillager" ? 24 : type === "drowned" ? 20 : type === "husk" ? 20 : type === "stray" ? 20 : type === "ravager" ? 100 : type === "irongolem" ? 100 : type === "snowgolem" ? 20 : type === "bat" ? 6 : type === "enderman" ? 40 : type === "blaze" ? 20 : type === "ghast" ? 10 : type === "magmacube" ? 30 : type === "silverfish" ? 8 : type === "elderguardian" ? 80 : type === "witch" ? 26 : type === "evoker" ? 24 : type === "vindicator" ? 24 : type === "vex" ? 14 : type === "zoglin" ? 40 : type === "hoglin" ? 40 : type === "piglin" ? 16 : 10;
+    const maxHp    = type === "zombie" ? 20 : type === "creeper" ? 20 : type === "skeleton" ? 20 : type === "witherskeleton" ? 40 : type === "chicken" ? 4 : type === "cow" ? 16 : type === "sheep" ? 12 : type === "horse" ? 30 : type === "villager" ? 20 : type === "enderdragon" ? 200 : type === "spider" ? 16 : type === "wolf" ? 20 : type === "cat" ? 10 : type === "phantom" ? 20 : type === "slime" ? 16 : type === "warden" ? 500 : type === "allay" ? 20 : type === "frog" ? 10 : type === "strider" ? 20 : type === "axolotl" ? 14 : type === "pillager" ? 24 : type === "drowned" ? 20 : type === "husk" ? 20 : type === "stray" ? 20 : type === "ravager" ? 100 : type === "irongolem" ? 100 : type === "snowgolem" ? 20 : type === "bat" ? 6 : type === "enderman" ? 40 : type === "blaze" ? 20 : type === "ghast" ? 10 : type === "magmacube" ? 30 : type === "silverfish" ? 8 : type === "elderguardian" ? 80 : type === "witch" ? 26 : type === "evoker" ? 24 : type === "vindicator" ? 24 : type === "vex" ? 14 : type === "zoglin" ? 40 : type === "hoglin" ? 40 : type === "piglin" ? 16 : type === "zombievillager" ? 20 : type === "wanderingtrader" ? 20 : type === "giant" ? 100 : type === "zombiehorse" ? 15 : type === "skeletonhorse" ? 15 : 10;
     const data: MobData = {
       id: mobId, type, x, y, z,
       rotY:      rnd(0, Math.PI * 2),
@@ -94,8 +95,8 @@ export class MobManager {
     return mob;
   }
 
-  private static HOSTILE_TYPES: Set<MobType> = new Set(["zombie", "skeleton", "creeper", "spider", "witherskeleton", "phantom", "warden", "pillager", "drowned", "husk", "stray", "ravager", "blaze", "ghast", "magmacube", "silverfish", "elderguardian", "witch", "evoker", "vindicator", "vex", "zoglin", "hoglin"]);
-  private static UNDEAD_TYPES: Set<MobType> = new Set(["zombie", "skeleton", "witherskeleton", "phantom", "drowned", "husk", "stray"]);
+  private static HOSTILE_TYPES: Set<MobType> = new Set(["zombie", "skeleton", "creeper", "spider", "witherskeleton", "phantom", "warden", "pillager", "drowned", "husk", "stray", "ravager", "blaze", "ghast", "magmacube", "silverfish", "elderguardian", "witch", "evoker", "vindicator", "vex", "zoglin", "hoglin", "zombievillager", "giant"]);
+  private static UNDEAD_TYPES: Set<MobType> = new Set(["zombie", "skeleton", "witherskeleton", "phantom", "drowned", "husk", "stray", "zombievillager", "zombiehorse"]);
 
   spawnRandom(cx: number, cz: number) {
     if (this.mobs.size >= MAX_SP_MOBS) return;
@@ -576,6 +577,77 @@ export class MobManager {
           lm.aggro = false;
           this.animalAI(lm, dt, distSq, dx2, dz2, 1.5);
         }
+      } else if (d.type === "zombievillager") {
+        // Same AI as zombie but speed 2.0, damage 3
+        const SPEED = 2.0;
+        if (distSq < 144) { d.state = "chasing"; lm.aggro = true; }
+        else if (distSq > 400 && lm.timer <= 0) { d.state = "idle"; lm.aggro = false; }
+        if (d.state === "chasing") {
+          this.moveToward(lm, playerPos.x, playerPos.z, SPEED, dt);
+          if (distSq < 3.24 && lm.hitCooldown <= 0) {
+            this.cb.onPlayerDamage(3);
+            lm.hitCooldown = 2.5;
+          }
+        } else {
+          this.animalAI(lm, dt, distSq, dx2, dz2, 1.0);
+        }
+        // Cure timer countdown
+        if ((lm as any)._cureTimer > 0) {
+          (lm as any)._cureTimer -= dt;
+          if ((lm as any)._cureTimer <= 0) {
+            // Transform into villager
+            this.onZombieVillagerCured?.(d.x, d.y, d.z);
+            lm.mob.die();
+          }
+        }
+      } else if (d.type === "wanderingtrader") {
+        // Passive, flees from hostiles
+        let shouldFlee = false;
+        for (const m of this.mobs.values()) {
+          if (MobManager.HOSTILE_TYPES.has(m.data.type) && m.data.type !== "wanderingtrader") {
+            const fdx = m.data.x - d.x, fdz = m.data.z - d.z;
+            if (fdx * fdx + fdz * fdz < 100) { shouldFlee = true; break; }
+          }
+        }
+        if (shouldFlee) {
+          d.state = "fleeing"; lm.timer = 3;
+        }
+        if (d.state === "fleeing") {
+          const fleeAngle = d.rotY + Math.PI;
+          d.x += Math.sin(fleeAngle) * 3 * dt;
+          d.z += Math.cos(fleeAngle) * 3 * dt;
+          if (lm.timer <= 0) d.state = "idle";
+        } else {
+          // Face player if near
+          if (distSq < 100) d.rotY = Math.atan2(dx2, dz2);
+          if (d.state === "idle" && lm.timer <= 0) {
+            d.state = Math.random() < 0.5 ? "walking" : "idle";
+            d.rotY = Math.random() * Math.PI * 2;
+            lm.timer = rnd(2, 5);
+          } else if (d.state === "walking") {
+            d.x += Math.sin(d.rotY) * 1.5 * dt;
+            d.z += Math.cos(d.rotY) * 1.5 * dt;
+            if (lm.timer <= 0) { d.state = "idle"; lm.timer = rnd(2, 5); }
+          }
+        }
+      } else if (d.type === "giant") {
+        // Same AI as zombie but speed 1.5, damage 25
+        const SPEED = 1.5;
+        if (distSq < 400) { d.state = "chasing"; lm.aggro = true; }
+        else if (distSq > 900 && lm.timer <= 0) { d.state = "idle"; lm.aggro = false; }
+        if (d.state === "chasing") {
+          this.moveToward(lm, playerPos.x, playerPos.z, SPEED, dt);
+          if (distSq < 25 && lm.hitCooldown <= 0) { // larger hit range for giant (5^2=25)
+            this.cb.onPlayerDamage(25);
+            lm.hitCooldown = 3.0;
+          }
+        } else {
+          this.animalAI(lm, dt, distSq, dx2, dz2, 1.0);
+        }
+      } else if (d.type === "zombiehorse" || d.type === "skeletonhorse") {
+        // Passive horse AI — wander, flee from hostiles
+        const SPEED = d.type === "zombiehorse" ? 4.5 : 5.0;
+        this.horseAI(lm, dt, distSq, dx2, dz2, playerPos);
       }
     }
 
@@ -1604,10 +1676,12 @@ export class MobManager {
     return this.mobs.get(id)?.mob;
   }
 
+  private static RIDEABLE_TYPES: Set<MobType> = new Set(["horse", "zombiehorse", "skeletonhorse"]);
+
   /** Try to mount a horse mob near playerPos. Returns true if mounted. */
   tryMount(playerPos: THREE.Vector3): boolean {
     for (const [id, lm] of this.mobs) {
-      if (lm.data.type !== "horse" || !lm.mob.alive) continue;
+      if (!MobManager.RIDEABLE_TYPES.has(lm.data.type) || !lm.mob.alive) continue;
       const dx = lm.data.x - playerPos.x;
       const dz = lm.data.z - playerPos.z;
       if (dx * dx + dz * dz < 4) { // 2 block range
@@ -1644,6 +1718,21 @@ export class MobManager {
 
   spawnAt(type: MobType, x: number, y: number, z: number): Mob {
     return this.spawnMob(type, x, y, z);
+  }
+
+  /** Try to start curing a zombie villager within 2 blocks of playerPos. Returns true if started. */
+  tryCureZombieVillager(playerPos: THREE.Vector3): boolean {
+    for (const [, lm] of this.mobs) {
+      if (lm.data.type !== "zombievillager" || !lm.mob.alive) continue;
+      const dx = lm.data.x - playerPos.x;
+      const dz = lm.data.z - playerPos.z;
+      if (dx * dx + dz * dz < 4) { // 2 block range
+        if ((lm as any)._cureTimer > 0) return false; // already curing
+        (lm as any)._cureTimer = 30; // 30 second cure timer
+        return true;
+      }
+    }
+    return false;
   }
 
   dispose() {
