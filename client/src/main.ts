@@ -981,6 +981,7 @@ async function startGame(name: string) {
           hunger = Math.min(maxHunger, hunger + 2);
           ui.updateHunger(hunger, maxHunger);
           sounds.play("eat");
+          achievements.trigger("fish_catch");
         }
         fishingBobber = null;
       } else {
@@ -1148,6 +1149,7 @@ async function startGame(name: string) {
     if (xpLevel > prevLevel) {
       sounds.play("eat");
       ui.addChatMessage("", `Level Up! Level ${xpLevel}`, true);
+      if (xpLevel >= 5) achievements.trigger("level_five");
     }
   };
 
@@ -1555,6 +1557,7 @@ async function startGame(name: string) {
       }
       if (craftTableNearby) {
         ui.showCraftingUI();
+        achievements.trigger("first_craft");
         sounds.play("place");
         return;
       }
@@ -2338,6 +2341,7 @@ function animate() {
       ui.addChatMessage("", "Dawn breaks...", true);
       sounds.playAmbient("birds");
       sounds.setAmbientMood("day");
+      achievements.trigger("reach_night"); // survived the night
     }
     if (prevDayTime < 0.73 && dayTime >= 0.73) {
       ui.addChatMessage("", "Night falls... watch out for monsters!", true);
@@ -2400,6 +2404,7 @@ function animate() {
     if (eyeInWater !== isUnderwater) {
       isUnderwater = eyeInWater;
       underwaterOverlay.style.opacity = isUnderwater ? "1" : "0";
+      if (isUnderwater) achievements.trigger("deep_dive");
     }
 
     if (isUnderwater) {
