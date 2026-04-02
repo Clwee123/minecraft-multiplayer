@@ -148,7 +148,12 @@ export const MOB_DROPS: Record<string, Array<{ item: string; chance: number; min
   panda:      [{ item: "stick",  chance: 1.0, min: 0, max: 1 }],
   ocelot:     [],
   mooshroom:  [{ item: "beef",   chance: 1.0, min: 1, max: 3 }],
-  llama:      [{ item: "leather",chance: 1.0, min: 0, max: 2 }],
+  llama:      [{ item: "leather",  chance: 1.0, min: 0, max: 2 }],
+  bee:        [{ item: "egg",      chance: 0.2, min: 0, max: 1 }], // honeycomb stub
+  polarbear:  [{ item: "cod",      chance: 0.75, min: 0, max: 2 }],
+  dolphin:    [{ item: "cod",      chance: 0.5, min: 0, max: 1 }],
+  squid:      [{ item: "string",   chance: 1.0, min: 1, max: 3 }], // ink sac stub
+  turtle:     [{ item: "egg",      chance: 0.3, min: 0, max: 1 }],
   axolotl: [{ item: "salmon", chance: 0.5, min: 1, max: 1 }],
   zombie: [{ item: "bone", chance: 0.5, min: 0, max: 2 }],
   creeper: [{ item: "gunpowder", chance: 1.0, min: 0, max: 2 }],

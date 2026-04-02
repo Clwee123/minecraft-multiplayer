@@ -81,7 +81,7 @@ export class MobManager {
 
   spawnMob(type: MobType, x: number, y: number, z: number, id?: string): Mob {
     const mobId    = id ?? uid();
-    const maxHp    = type === "zombie" ? 20 : type === "creeper" ? 20 : type === "skeleton" ? 20 : type === "witherskeleton" ? 40 : type === "chicken" ? 4 : type === "cow" ? 16 : type === "sheep" ? 12 : type === "horse" ? 30 : type === "villager" ? 20 : type === "enderdragon" ? 200 : type === "spider" ? 16 : type === "wolf" ? 20 : type === "cat" ? 10 : type === "phantom" ? 20 : type === "slime" ? 16 : type === "warden" ? 500 : type === "allay" ? 20 : type === "frog" ? 10 : type === "strider" ? 20 : type === "axolotl" ? 14 : type === "pillager" ? 24 : type === "drowned" ? 20 : type === "husk" ? 20 : type === "stray" ? 20 : type === "ravager" ? 100 : type === "irongolem" ? 100 : type === "snowgolem" ? 20 : type === "bat" ? 6 : type === "enderman" ? 40 : type === "blaze" ? 20 : type === "ghast" ? 10 : type === "magmacube" ? 30 : type === "silverfish" ? 8 : type === "elderguardian" ? 80 : type === "witch" ? 26 : type === "evoker" ? 24 : type === "vindicator" ? 24 : type === "vex" ? 14 : type === "zoglin" ? 40 : type === "hoglin" ? 40 : type === "piglin" ? 16 : type === "zombievillager" ? 20 : type === "wanderingtrader" ? 20 : type === "giant" ? 100 : type === "zombiehorse" ? 15 : type === "skeletonhorse" ? 15 : type === "fox" ? 10 : type === "panda" ? 20 : type === "ocelot" ? 10 : type === "mooshroom" ? 16 : type === "llama" ? 22 : 10;
+    const maxHp    = type === "zombie" ? 20 : type === "creeper" ? 20 : type === "skeleton" ? 20 : type === "witherskeleton" ? 40 : type === "chicken" ? 4 : type === "cow" ? 16 : type === "sheep" ? 12 : type === "horse" ? 30 : type === "villager" ? 20 : type === "enderdragon" ? 200 : type === "spider" ? 16 : type === "wolf" ? 20 : type === "cat" ? 10 : type === "phantom" ? 20 : type === "slime" ? 16 : type === "warden" ? 500 : type === "allay" ? 20 : type === "frog" ? 10 : type === "strider" ? 20 : type === "axolotl" ? 14 : type === "pillager" ? 24 : type === "drowned" ? 20 : type === "husk" ? 20 : type === "stray" ? 20 : type === "ravager" ? 100 : type === "irongolem" ? 100 : type === "snowgolem" ? 20 : type === "bat" ? 6 : type === "enderman" ? 40 : type === "blaze" ? 20 : type === "ghast" ? 10 : type === "magmacube" ? 30 : type === "silverfish" ? 8 : type === "elderguardian" ? 80 : type === "witch" ? 26 : type === "evoker" ? 24 : type === "vindicator" ? 24 : type === "vex" ? 14 : type === "zoglin" ? 40 : type === "hoglin" ? 40 : type === "piglin" ? 16 : type === "zombievillager" ? 20 : type === "wanderingtrader" ? 20 : type === "giant" ? 100 : type === "zombiehorse" ? 15 : type === "skeletonhorse" ? 15 : type === "fox" ? 10 : type === "panda" ? 20 : type === "ocelot" ? 10 : type === "mooshroom" ? 16 : type === "llama" ? 22 : type === "bee" ? 10 : type === "polarbear" ? 30 : type === "dolphin" ? 10 : type === "squid" ? 10 : type === "turtle" ? 30 : 10;
     const data: MobData = {
       id: mobId, type, x, y, z,
       rotY:      rnd(0, Math.PI * 2),
@@ -690,6 +690,56 @@ export class MobManager {
           lm.hitCooldown = 3.0;
         }
         this.animalAI(lm, dt, distSq, dx2, dz2, 2.5);
+      } else if (d.type === "bee") {
+        // Passive until attacked (flag set via damage): then chases, stings 2dmg
+        if (lm.aggro) {
+          d.rotY = Math.atan2(dx2, dz2);
+          d.x += Math.sin(d.rotY) * 4 * dt;
+          d.z += Math.cos(d.rotY) * 4 * dt;
+          d.y += Math.sin(Date.now() * 0.003) * dt * 1.5; // hover wobble
+          if (distSq < 1.5 * 1.5 && (lm.hitCooldown ?? 0) <= 0) {
+            this.cb.onPlayerDamage(2);
+            lm.hitCooldown = 2.0;
+            lm.aggro = false; // bee dies after sting (simplified: just de-aggros)
+          }
+        } else {
+          // Drift slowly, hover above ground
+          d.y += Math.sin(Date.now() * 0.002 + distSq) * dt * 0.5;
+          this.animalAI(lm, dt, distSq, dx2, dz2, 1.5);
+        }
+      } else if (d.type === "polarbear") {
+        // Neutral unless attacked — cubs not implemented so always neutral
+        if (lm.aggro || distSq < 3 * 3) {
+          if (distSq < 3 * 3) lm.aggro = true;
+          d.rotY = Math.atan2(dx2, dz2);
+          d.x += Math.sin(d.rotY) * 3.5 * dt;
+          d.z += Math.cos(d.rotY) * 3.5 * dt;
+          if (distSq < 2 * 2 && (lm.hitCooldown ?? 0) <= 0) {
+            this.cb.onPlayerDamage(6);
+            lm.hitCooldown = 1.5;
+          }
+        } else {
+          lm.aggro = false;
+          this.animalAI(lm, dt, distSq, dx2, dz2, 2.5);
+        }
+      } else if (d.type === "dolphin") {
+        // Passive in water, drift toward player, boost swim speed (handled in main.ts callback)
+        d.y += Math.sin(Date.now() * 0.002) * dt; // gentle wave bob
+        if (distSq < 8 * 8) {
+          d.rotY = Math.atan2(dx2, dz2);
+          d.x += Math.sin(d.rotY) * 3 * dt;
+          d.z += Math.cos(d.rotY) * 3 * dt;
+          this.onDolphinNearby?.();
+        } else {
+          this.animalAI(lm, dt, distSq, dx2, dz2, 3.0);
+        }
+      } else if (d.type === "squid") {
+        // Passive, drifts randomly
+        d.y += Math.sin(Date.now() * 0.001 + d.x) * dt * 0.3;
+        this.animalAI(lm, dt, distSq, dx2, dz2, 1.0);
+      } else if (d.type === "turtle") {
+        // Very slow on land, just wanders
+        this.animalAI(lm, dt, distSq, dx2, dz2, 0.8);
       }
     }
 
@@ -1487,6 +1537,7 @@ export class MobManager {
 
   onGhastFireball?: (x: number, y: number, z: number) => void;
   onPandaSneeze?:  (x: number, y: number, z: number) => void;
+  onDolphinNearby?: () => void;
 
   private wardenAI(lm: LocalMob, dt: number, playerDistSq: number, dx: number, dz: number, playerPos: THREE.Vector3) {
     const d = lm.data;

@@ -1,6 +1,6 @@
 import * as THREE from "three";
 
-export type MobType = "pig" | "zombie" | "chicken" | "cow" | "sheep" | "creeper" | "skeleton" | "horse" | "villager" | "enderdragon" | "spider" | "witherskeleton" | "wolf" | "cat" | "phantom" | "slime" | "warden" | "allay" | "frog" | "strider" | "axolotl" | "pillager" | "drowned" | "husk" | "stray" | "ravager" | "irongolem" | "snowgolem" | "bat" | "enderman" | "blaze" | "ghast" | "magmacube" | "silverfish" | "elderguardian" | "witch" | "evoker" | "vindicator" | "vex" | "zoglin" | "hoglin" | "piglin" | "zombievillager" | "wanderingtrader" | "giant" | "zombiehorse" | "skeletonhorse" | "fox" | "panda" | "ocelot" | "mooshroom" | "llama";
+export type MobType = "pig" | "zombie" | "chicken" | "cow" | "sheep" | "creeper" | "skeleton" | "horse" | "villager" | "enderdragon" | "spider" | "witherskeleton" | "wolf" | "cat" | "phantom" | "slime" | "warden" | "allay" | "frog" | "strider" | "axolotl" | "pillager" | "drowned" | "husk" | "stray" | "ravager" | "irongolem" | "snowgolem" | "bat" | "enderman" | "blaze" | "ghast" | "magmacube" | "silverfish" | "elderguardian" | "witch" | "evoker" | "vindicator" | "vex" | "zoglin" | "hoglin" | "piglin" | "zombievillager" | "wanderingtrader" | "giant" | "zombiehorse" | "skeletonhorse" | "fox" | "panda" | "ocelot" | "mooshroom" | "llama" | "bee" | "polarbear" | "dolphin" | "squid" | "turtle";
 
 // Pre-allocated module constant — no object literal created per damage event
 const MOB_ORIGINAL_COLORS: Record<MobType, number> = {

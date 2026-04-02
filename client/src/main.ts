@@ -1574,6 +1574,12 @@ async function startGame(name: string) {
     if (result) {
       sounds.play("hit");
       achievements.trigger("first_mob");
+      // Bees become hostile when hit
+      const hitMob = mobManager?.getMob(result.mobId);
+      if (hitMob && (hitMob as any).type === "bee") {
+        const lm = (mobManager as any).mobs?.get(result.mobId);
+        if (lm) lm.aggro = true;
+      }
       // Drain tool durability
       if (TOOL_MAX_DURABILITY[player.selectedBlockType]) {
         const slot = hotbarSlot;
@@ -1596,6 +1602,7 @@ async function startGame(name: string) {
           "bat": 0, "enderman": 12, "blaze": 10, "ghast": 5, "irongolem": 25, "snowgolem": 3,
           "vindicator": 10, "vex": 3, "zoglin": 10, "hoglin": 8, "piglin": 5,
           "fox": 2, "panda": 3, "ocelot": 2, "mooshroom": 5, "llama": 4,
+          "bee": 5, "polarbear": 10, "dolphin": 8, "squid": 3, "turtle": 4,
           "zombievillager": 5, "wanderingtrader": 0, "giant": 50, "zombiehorse": 3, "skeletonhorse": 3,
           "magmacube": 4, "silverfish": 5, "elderguardian": 50, "witch": 10, "evoker": 20,
           "zombie": 8, "skeleton": 10, "creeper": 5, "horse": 10, "villager": 0, "enderdragon": 100,
@@ -2629,8 +2636,26 @@ async function startGame(name: string) {
       ui.addChatMessage("", "🧟 Husk inflicts hunger!", true);
     };
     mobManager.onPandaSneeze = (x, y, z) => {
-      particles.burst(x, y, z, 4); // white sneeze particles
+      particles.burst(x, y, z, 4);
       sounds.play("eat");
+    };
+    // Dolphin Grace — when in water near dolphin, get +20% swim speed for 5s
+    let _dolphinBoostTimer = 0;
+    mobManager.onDolphinNearby = () => {
+      if (isUnderwater && _dolphinBoostTimer <= 0) {
+        player.speedBonus = Math.max(player.speedBonus, 0.2);
+        _dolphinBoostTimer = 5;
+        ui.addChatMessage("", "🐬 Dolphin's Grace: swim speed boosted!", true);
+      }
+    };
+    // Tick dolphin boost timer in animate loop via flag
+    (window as any).__tickDolphinBoost = (dt: number) => {
+      if (_dolphinBoostTimer > 0) {
+        _dolphinBoostTimer -= dt;
+        if (_dolphinBoostTimer <= 0) {
+          if (enchants.speed === 0 && potionEffects.speed === 0) player.speedBonus = 0;
+        }
+      }
     };
     mobManager.onGhastFireball = (x, y, z) => {
       // Ghast fireball explodes on impact near player
@@ -2987,9 +3012,10 @@ function animate() {
       }
     }
 
-    // Update throwables (snowball/egg) and tridents
+    // Update throwables (snowball/egg), tridents, and dolphin boost
     (window as any).__tickThrowables?.(dt);
     (window as any).__tickTridents?.(dt);
+    (window as any).__tickDolphinBoost?.(dt);
 
     // Update arrows
     for (let i = playerArrows.length - 1; i >= 0; i--) {
