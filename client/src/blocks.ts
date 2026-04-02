@@ -113,6 +113,11 @@ export const BLOCK_TYPES: Record<number, {
   100: { name: "Note Block",         color: 0x884422, emissive: 0x220000 },
   102: { name: "Cobweb",            color: 0xcccccc, solid: false, transparent: true },
   103: { name: "Vine",              color: 0x336633, solid: false, transparent: true },
+  104: { name: "Honey Block",       color: 0xffaa22 },
+  105: { name: "Slime Block",       color: 0x88cc44, transparent: true },
+  106: { name: "Campfire",          color: 0xff6622, emissive: 0xff3300 },
+  107: { name: "Grindstone",        color: 0x888888 },
+  108: { name: "Stonecutter",       color: 0x999999 },
 
   // ── Crafting materials & tools ────────────────────────────────────────────
   280: { name: "Stick",             color: 0xc8a464, solid: false },

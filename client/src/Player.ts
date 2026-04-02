@@ -637,14 +637,26 @@ export class Player {
             // Fall damage — safe from falls up to 5 blocks; beyond that scales gently
             if (this.fallTracking) {
               const dist = this.fallStartY - (testY + 1);
-              if (dist > 5) {
-                this.setDeathCause?.("You fell");
-                this.takeDamage(Math.floor((dist - 5) * 0.75)); // gentler scaling
+              const landingBlock = this.world.getBlockType(Math.round(this.position.x), testY, Math.round(this.position.z));
+              if (landingBlock === 105) {
+                // Slime block — bounce!
+                this.velocity.y = Math.abs(this.velocity.y) * 0.7;
+                this.fallTracking = false;
+                // No fall damage
+              } else if (dist > 5) {
+                const dmg = landingBlock === 104
+                  ? Math.floor((dist - 5) * 0.375) // honey: half fall damage
+                  : Math.floor((dist - 5) * 0.75);
+                if (dmg > 0) { this.setDeathCause?.("You fell"); this.takeDamage(dmg); }
+                this.fallTracking = false;
+              } else {
+                this.fallTracking = false;
               }
-              this.fallTracking = false;
+            }
+            if (this.world.getBlockType(Math.round(this.position.x), testY, Math.round(this.position.z)) !== 105) {
+              this.velocity.y = 0;
             }
             this.position.y = standY;
-            this.velocity.y = 0;
             grounded = true;
           }
           break;
@@ -763,13 +775,14 @@ export class Player {
     if (this.speedBonus > 0) speed *= (1 + this.speedBonus); // Speed enchantment
     // Swimming reduces speed to 60% of normal
     if (this.inWater) speed *= 0.6;
-    // Cobweb (type 102) slows to 10% — check block at player center
-    const _cbType = this.world.getBlockType(
-      Math.round(this.position.x),
-      Math.floor(this.position.y - EYE_HEIGHT + 0.5),
-      Math.round(this.position.z)
-    );
-    if (_cbType === 102) speed *= 0.1;
+    // Special block movement effects — check block at player center
+    const _cbBx = Math.round(this.position.x), _cbBz = Math.round(this.position.z);
+    const _cbBy = Math.floor(this.position.y - EYE_HEIGHT + 0.5);
+    const _cbFeet = Math.floor(this.position.y - EYE_HEIGHT);
+    const _cbType = this.world.getBlockType(_cbBx, _cbBy, _cbBz);
+    const _cbBelow = this.world.getBlockType(_cbBx, _cbFeet, _cbBz);
+    if (_cbType === 102) speed *= 0.1;  // cobweb
+    if (_cbType === 104 || _cbBelow === 104) speed *= 0.5; // honey slow
 
     if (move.lengthSq() > 0) {
       move.normalize().multiplyScalar(speed * dt);

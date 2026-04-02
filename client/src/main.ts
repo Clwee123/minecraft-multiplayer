@@ -1483,6 +1483,34 @@ async function startGame(name: string) {
           }
         }
 
+        if (enchantBlock && enchantBlock.type === 107) { // Grindstone — remove enchantments
+          enchants.sharpness = 0; enchants.protection = 0; enchants.speed = 0;
+          player.speedBonus = potionEffects.speed > 0 ? 0.3 : 0;
+          ui.addChatMessage("", "⚙ Grindstone removed all enchantments.", true);
+          sounds.play("break");
+          return;
+        }
+
+        if (enchantBlock && enchantBlock.type === 108) { // Stonecutter — convert stone
+          const stoneMap: Record<number, { output: number; count: number; name: string }> = {
+            3: { output: 3,  count: 2, name: "2x Stone" },
+            11: { output: 81, count: 4, name: "4x Stone Bricks" },
+            81: { output: 82, count: 1, name: "1x Mossy Stone Bricks" },
+            49: { output: 3,  count: 1, name: "1x Stone" },
+          };
+          const selectedType = player.selectedBlockType;
+          const recipe = stoneMap[selectedType];
+          if (recipe && invRemoveItem(selectedType, 1)) {
+            invAddItem(recipe.output, recipe.count);
+            ui.updateHotbarFromInventory(inventory, invCount);
+            ui.addChatMessage("", `🪨 Stonecutter: ${getBlockName(selectedType)} → ${recipe.name}`, true);
+          } else {
+            const available = Object.keys(stoneMap).map(k => getBlockName(parseInt(k))).join(", ");
+            ui.addChatMessage("", `Hold a stone type to cut. (${available})`, true);
+          }
+          return;
+        }
+
         if (enchantBlock && enchantBlock.type === 100) { // Note Block
           // Play a note — cycle through 25 semitones on repeated clicks
           const key = `${enchantHit.x},${enchantHit.y},${enchantHit.z}`;
@@ -2018,6 +2046,9 @@ async function startGame(name: string) {
     anvil:            { ingredients: { 62: 4 },           output: { type: 94,  count: 1 } }, // 4 iron ingot → anvil
     brewing_stand:    { ingredients: { 62: 1, 3: 3 },    output: { type: 99,  count: 1 } }, // 1 iron + 3 stone → brewing stand
     note_block:       { ingredients: { 5: 8, 64: 1 },   output: { type: 100, count: 1 } }, // 8 planks + 1 coal → note block
+    campfire:         { ingredients: { 5: 3, 64: 3, 280: 3 }, output: { type: 106, count: 1 } }, // planks+coal+sticks
+    grindstone:       { ingredients: { 280: 2, 11: 2, 5: 1 }, output: { type: 107, count: 1 } }, // sticks+cobble+plank
+    stonecutter:      { ingredients: { 62: 1, 3: 3 },  output: { type: 108, count: 1 } }, // iron+stone
     crafting_table:   { ingredients: { 10: 4 },          output: { type: 22,  count: 1 } },
     furnace:          { ingredients: { 11: 8 },          output: { type: 23,  count: 1 } },
     chest:            { ingredients: { 10: 8 },          output: { type: 31,  count: 1 } },
@@ -2762,6 +2793,30 @@ function animate() {
           ui.updateHearts(player.health, player.maxHealth);
         }
       }
+    }
+
+    // ── Campfire damage + particles ───────────────────────────────────────────
+    if (isSingleplayer && player.gameMode === "survival") {
+      const _cpx = Math.round(player.position.x);
+      const _cpy = Math.floor(player.position.y - 1.62);
+      const _cpz = Math.round(player.position.z);
+      if (world.getBlockType(_cpx, _cpy, _cpz) === 106) { // standing on campfire
+        regenTimer += dt;
+        if (regenTimer > 1.0) {
+          regenTimer = 0;
+          lastDeathCause = "You burned on a campfire";
+          player.takeDamage(1);
+          ui.updateHearts(player.health, player.maxHealth);
+        }
+        if (Math.random() < dt * 4) particles.magic(_cpx, _cpy + 1, _cpz, 1);
+      }
+    }
+    // Campfire ambient fire particles (even when not on it)
+    if (Math.random() < dt * 0.3) {
+      const _fx = Math.round(player.position.x) + Math.round((Math.random()-0.5)*16);
+      const _fz = Math.round(player.position.z) + Math.round((Math.random()-0.5)*16);
+      const _fy = Math.round(player.position.y);
+      if (world.getBlockType(_fx, _fy - 1, _fz) === 106) particles.magic(_fx, _fy, _fz, 1);
     }
 
     // ── Sand/gravel gravity ───────────────────────────────────────────────────
