@@ -516,6 +516,20 @@ function handleCommand(cmd: string, playerName: string): boolean {
     ui.addChatMessage("", "Press O or close button to dismiss.", true);
     return true;
   }
+  if (base === "/barter") {
+    // Throw gold to piglin nearby — check if holding gold ingot
+    if (invCountOf(63) > 0) {
+      invRemoveItem(63, 1);
+      invAddItem(62, 3); // get 3 iron ingots in return
+      ui.updateHotbarFromInventory(inventory, invCount);
+      (window as any).__piglinBarter = true;
+      setTimeout(() => { (window as any).__piglinBarter = false; }, 30000); // 30s peace
+      ui.addChatMessage("", "🐷 Piglin accepted gold! 30s peace + 3 iron ingots", true);
+    } else {
+      ui.addChatMessage("", "Hold a gold ingot to barter with piglins.", true);
+    }
+    return true;
+  }
   if (base === "/worldborder") {
     const size = parseInt(parts[1] ?? "");
     if (isNaN(size) || size < 10) { ui.addChatMessage("", "Usage: /worldborder <radius> (min 10)", true); return true; }
@@ -1580,6 +1594,8 @@ async function startGame(name: string) {
           "pig": 3, "chicken": 2, "cow": 5, "sheep": 3, "warden": 50, "allay": 5, "frog": 3, "strider": 4, "axolotl": 6,
           "pillager": 10, "drowned": 8, "husk": 8, "stray": 10, "ravager": 20,
           "bat": 0, "enderman": 12, "blaze": 10, "ghast": 5, "irongolem": 25, "snowgolem": 3,
+          "vindicator": 10, "vex": 3, "zoglin": 10, "hoglin": 8, "piglin": 5,
+          "magmacube": 4, "silverfish": 5, "elderguardian": 50, "witch": 10, "evoker": 20,
           "zombie": 8, "skeleton": 10, "creeper": 5, "horse": 10, "villager": 0, "enderdragon": 100,
           "phantom": 6, "slime": 4, "witherskeleton": 8, "spider": 5, "wolf": 4, "cat": 0,
           "irongolem": 10, "snowgolem": 5,
