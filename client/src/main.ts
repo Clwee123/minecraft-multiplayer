@@ -756,6 +756,7 @@ const NORMAL_FOG_NEAR = 55;
 let NORMAL_FOG_FAR  = 96; // mutable — allows fog distance slider
 let WORLD_BORDER    = 500; // blocks from origin before damage kicks in
 let _spawnerTimer   = 0;   // ticks spawner blocks every 10s
+let _gravityTimer   = 0;   // ticks sand/gravel gravity every 0.2s
 const WATER_FOG_NEAR  = 2;
 const WATER_FOG_FAR   = 20;
 const WATER_FOG_COLOR = new THREE.Color(0x0a3c64);
@@ -2759,6 +2760,32 @@ function animate() {
           regenTimer = 0;
           player.takeDamage(2);
           ui.updateHearts(player.health, player.maxHealth);
+        }
+      }
+    }
+
+    // ── Sand/gravel gravity ───────────────────────────────────────────────────
+    if (isSingleplayer) {
+      _gravityTimer += dt;
+      if (_gravityTimer >= 0.2) {
+        _gravityTimer = 0;
+        const GRAVITY_BLOCKS = new Set([4, 12]); // sand=4, gravel=12
+        const gx = Math.round(player.position.x), gz = Math.round(player.position.z);
+        for (let dx = -6; dx <= 6; dx++) {
+          for (let dz = -6; dz <= 6; dz++) {
+            for (let dy = 1; dy <= 8; dy++) { // check up to 8 blocks above ground
+              const bx = gx + dx, by = Math.round(player.position.y) + dy - 4, bz = gz + dz;
+              const bt = world.getBlockType(bx, by, bz);
+              if (bt && GRAVITY_BLOCKS.has(bt)) {
+                const below = world.getBlockType(bx, by - 1, bz);
+                if (!below) { // air below — fall
+                  world.removeBlock(bx, by, bz);
+                  world.placeBlock(bx, by - 1, bz, bt, true);
+                  particles.burst(bx, by, bz, bt);
+                }
+              }
+            }
+          }
         }
       }
     }

@@ -547,6 +547,7 @@ export class Player {
     if (this.gameMode === "creative" || this.gameMode === "spectator") this.updateCreative(dt);
     else                              this.applyPhysics(dt);
     this.applyMovement(dt);
+    this._applyBlockEffects(dt);
     this.updateCamera();
     this.updateHighlight();
     this.updateSelfModel(dt);
@@ -762,6 +763,13 @@ export class Player {
     if (this.speedBonus > 0) speed *= (1 + this.speedBonus); // Speed enchantment
     // Swimming reduces speed to 60% of normal
     if (this.inWater) speed *= 0.6;
+    // Cobweb (type 102) slows to 10% — check block at player center
+    const _cbType = this.world.getBlockType(
+      Math.round(this.position.x),
+      Math.floor(this.position.y - EYE_HEIGHT + 0.5),
+      Math.round(this.position.z)
+    );
+    if (_cbType === 102) speed *= 0.1;
 
     if (move.lengthSq() > 0) {
       move.normalize().multiplyScalar(speed * dt);
@@ -784,6 +792,50 @@ export class Player {
     if (this.keys["Space"] && this.onGround && this.gameMode === "survival" && !this.inWater) {
       this.velocity.y = JUMP_FORCE;
       this.onGround   = false;
+    }
+  }
+
+  // ── Block-based movement effects ─────────────────────────────────────────
+
+  private _iceVelX = 0;
+  private _iceVelZ = 0;
+
+  private _applyBlockEffects(dt: number) {
+    if (this.gameMode !== "survival" || !this.onGround) {
+      this._iceVelX *= 0.85;
+      this._iceVelZ *= 0.85;
+      return;
+    }
+    const bx = Math.round(this.position.x);
+    const feetY = Math.floor(this.position.y - EYE_HEIGHT);
+    const bz = Math.round(this.position.z);
+
+    const blockBelow = this.world.getBlockType(bx, feetY, bz);
+    const blockAt    = this.world.getBlockType(bx, Math.floor(this.position.y - EYE_HEIGHT + 0.5), bz);
+
+    // Cobweb (type 102) — severe slow
+    if (blockAt === 102) {
+      this.velocity.y = Math.max(this.velocity.y, -0.05); // fall very slowly
+      this._iceVelX = 0; this._iceVelZ = 0;
+      return; // movement already reduced by physics
+    }
+
+    // Ice (type 21) — slide: carry momentum from last frame
+    if (blockBelow === 21) {
+      const dx = this.position.x - (this.position.x - this._iceVelX * dt);
+      const dz = this.position.z - (this.position.z - this._iceVelZ * dt);
+      this._iceVelX = (this.position.x - bx) !== 0 ? this._iceVelX * 0.97 + (this.position.x - bx) * 5 : this._iceVelX * 0.97;
+      this._iceVelZ = (this.position.z - bz) !== 0 ? this._iceVelZ * 0.97 + (this.position.z - bz) * 5 : this._iceVelZ * 0.97;
+      this.position.x += this._iceVelX * dt;
+      this.position.z += this._iceVelZ * dt;
+    } else {
+      this._iceVelX *= 0.7; // friction on normal ground
+      this._iceVelZ *= 0.7;
+    }
+
+    // Vine (type 103) — climb like ladder
+    if (blockAt === 103) {
+      this.onLadder = true;
     }
   }
 

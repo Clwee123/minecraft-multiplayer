@@ -111,6 +111,8 @@ export const BLOCK_TYPES: Record<number, {
   98: { name: "Resistance Potion",   color: 0xddaa00, solid: false },
   99: { name: "Brewing Stand",       color: 0x884422 },
   100: { name: "Note Block",         color: 0x884422, emissive: 0x220000 },
+  102: { name: "Cobweb",            color: 0xcccccc, solid: false, transparent: true },
+  103: { name: "Vine",              color: 0x336633, solid: false, transparent: true },
 
   // ── Crafting materials & tools ────────────────────────────────────────────
   280: { name: "Stick",             color: 0xc8a464, solid: false },
