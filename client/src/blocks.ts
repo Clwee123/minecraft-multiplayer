@@ -110,6 +110,7 @@ export const BLOCK_TYPES: Record<number, {
   97: { name: "Jump Boost Potion",   color: 0x22dd22, solid: false },
   98: { name: "Resistance Potion",   color: 0xddaa00, solid: false },
   99: { name: "Brewing Stand",       color: 0x884422 },
+  100: { name: "Note Block",         color: 0x884422, emissive: 0x220000 },
 
   // ── Crafting materials & tools ────────────────────────────────────────────
   280: { name: "Stick",             color: 0xc8a464, solid: false },

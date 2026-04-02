@@ -755,6 +755,7 @@ let underwaterBubbleTimer = 0;
 const NORMAL_FOG_NEAR = 55;
 let NORMAL_FOG_FAR  = 96; // mutable — allows fog distance slider
 let WORLD_BORDER    = 500; // blocks from origin before damage kicks in
+let _spawnerTimer   = 0;   // ticks spawner blocks every 10s
 const WATER_FOG_NEAR  = 2;
 const WATER_FOG_FAR   = 20;
 const WATER_FOG_COLOR = new THREE.Color(0x0a3c64);
@@ -1481,6 +1482,17 @@ async function startGame(name: string) {
           }
         }
 
+        if (enchantBlock && enchantBlock.type === 100) { // Note Block
+          // Play a note — cycle through 25 semitones on repeated clicks
+          const key = `${enchantHit.x},${enchantHit.y},${enchantHit.z}`;
+          const noteMap = (window as any).__noteBlockPitch = (window as any).__noteBlockPitch ?? {};
+          noteMap[key] = ((noteMap[key] ?? 0) + 1) % 25;
+          const freq = 261.63 * Math.pow(2, (noteMap[key] - 12) / 12); // C4 base
+          sounds.playNote(freq);
+          ui.addChatMessage("", `🎵 Note: ${noteMap[key] + 1}/25`, true);
+          return;
+        }
+
         if (enchantBlock && enchantBlock.type === 99) { // Brewing Stand
           // Simple brewing: nether wart + water bottle → awkward potion base, then add ingredient
           const BREW_RECIPES: Array<{ ingredient: number; base: number; output: number; name: string }> = [
@@ -2004,6 +2016,7 @@ async function startGame(name: string) {
     saddle:           { ingredients: { 95: 7 },           output: { type: 93,  count: 1 } }, // 7 leather → saddle
     anvil:            { ingredients: { 62: 4 },           output: { type: 94,  count: 1 } }, // 4 iron ingot → anvil
     brewing_stand:    { ingredients: { 62: 1, 3: 3 },    output: { type: 99,  count: 1 } }, // 1 iron + 3 stone → brewing stand
+    note_block:       { ingredients: { 5: 8, 64: 1 },   output: { type: 100, count: 1 } }, // 8 planks + 1 coal → note block
     crafting_table:   { ingredients: { 10: 4 },          output: { type: 22,  count: 1 } },
     furnace:          { ingredients: { 11: 8 },          output: { type: 23,  count: 1 } },
     chest:            { ingredients: { 10: 8 },          output: { type: 31,  count: 1 } },
@@ -2746,6 +2759,31 @@ function animate() {
           regenTimer = 0;
           player.takeDamage(2);
           ui.updateHearts(player.health, player.maxHealth);
+        }
+      }
+    }
+
+    // ── Spawner block activation ──────────────────────────────────────────────
+    if (isSingleplayer && mobManager) {
+      _spawnerTimer += dt;
+      if (_spawnerTimer >= 10) {
+        _spawnerTimer = 0;
+        // Check for spawner blocks within 16 blocks of player
+        const px = Math.round(player.position.x), pz = Math.round(player.position.z);
+        for (let dx = -16; dx <= 16; dx += 4) {
+          for (let dz = -16; dz <= 16; dz += 4) {
+            for (let dy = -8; dy <= 8; dy += 4) {
+              const bx = px + dx, by = Math.round(player.position.y) + dy, bz = pz + dz;
+              if (world.getBlockType(bx, by, bz) === 48) { // Spawner
+                const distSq = dx*dx + dz*dz;
+                if (distSq < 256 && (window as any).__mobSpawningEnabled !== false) {
+                  const types = ["zombie", "skeleton", "spider"] as const;
+                  const type = types[Math.floor(Math.random() * types.length)];
+                  mobManager.spawnMob(type, bx + (Math.random()-0.5)*2, by + 1, bz + (Math.random()-0.5)*2);
+                }
+              }
+            }
+          }
         }
       }
     }
