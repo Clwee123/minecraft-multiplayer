@@ -22,7 +22,9 @@ export class OtherPlayer {
   private prevPos    = new THREE.Vector3();
   private dead       = false;
 
+  readonly name: string;
   constructor(scene: THREE.Scene, name: string) {
+    this.name = name;
     this.group = new THREE.Group();
     this.prevPos.copy(this.group.position);
 

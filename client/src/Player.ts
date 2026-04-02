@@ -40,6 +40,7 @@ export class Player {
   private spawnGrace = 0; // seconds of invincibility after spawning
   armor       = 0;
   speedBonus  = 0; // multiplier bonus from enchantments (0 = no bonus, 0.2 = +20%)
+  jumpBonus   = 0; // extra jump velocity (0 = normal 8.5, 4 = +4 height)
 
   private fallStartY   = 0;
   private wasOnGround  = false;
@@ -735,7 +736,7 @@ export class Player {
         this.position.y = newY;
         this.onGround   = false;
       }
-      if (this.keys["Space"] && this.onGround) { this.velocity.y = JUMP_FORCE; this.onGround = false; }
+      if (this.keys["Space"] && this.onGround) { this.velocity.y = JUMP_FORCE + this.jumpBonus; this.onGround = false; }
       if (this.position.y < -20) { this.position.y = 36; this.velocity.y = 0; }
     }
   }

@@ -216,6 +216,14 @@ export class MultiplayerManager {
     this.cb.onPlayerCount(this.room?.state.players.size ?? 0);
   }
 
+  getOnlinePlayerNames(): string[] {
+    const names: string[] = [];
+    for (const [, op] of this.players) {
+      if ((op as any).name) names.push((op as any).name);
+    }
+    return names;
+  }
+
   get sessionId()  { return this.room?.sessionId; }
   get connected()  { return !!this.room; }
 }

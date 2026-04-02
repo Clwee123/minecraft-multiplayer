@@ -229,7 +229,7 @@ function updateDayNight(dt: number) {
   skyDome.followCamera(camera.position);
 
   sun.intensity       = sunIntensity;
-  ambient.intensity   = Math.max(ambientIntensity, 0.04);
+  ambient.intensity   = Math.max(ambientIntensity, 0.04) + (potionEffects.nightVision > 0 ? 0.5 : 0);
   moonLight.intensity = Math.max(0.35 - sunIntensity * 0.2, 0);
   hemi.intensity      = ambientIntensity * 0.5;
 
@@ -380,7 +380,7 @@ const enchants = { sharpness: 0, protection: 0, speed: 0 };
 
 // ── Potions ───────────────────────────────────────────────────────────────────
 
-const potionEffects = { strength: 0, speed: 0 };
+const potionEffects = { strength: 0, speed: 0, nightVision: 0, jumpBoost: 0, resistance: 0 };
 
 // ── Wave 9: Wither Effect ─────────────────────────────────────────────────────
 
@@ -486,6 +486,13 @@ function handleCommand(cmd: string, playerName: string): boolean {
     ui.addChatMessage("", "Teleported to spawn.", true);
     return true;
   }
+  if (base === "/list") {
+    if (isSingleplayer) { ui.addChatMessage("", "Singleplayer — no other players online.", true); return true; }
+    const names = mp?.getOnlinePlayerNames() ?? [];
+    const total = (names.length + 1); // +1 for self
+    ui.addChatMessage("", `Online (${total}): ${currentPlayerName}${names.length ? ", " + names.join(", ") : ""}`, true);
+    return true;
+  }
   if (base === "/scoreboard") {
     ui.showScoreboard(stats.getAll(), dayCount);
     document.exitPointerLock();
@@ -528,9 +535,12 @@ function handleCommand(cmd: string, playerName: string): boolean {
   }
   if (base === "/effect") {
     const eff = parts[1]?.toLowerCase();
-    if (eff === "strength") { potionEffects.strength = 30; ui.addChatMessage("", "Applied Strength I (30s)", true); }
-    else if (eff === "speed") { potionEffects.speed = 30; player.speedBonus = Math.max(player.speedBonus, 0.3); ui.addChatMessage("", "Applied Speed I (30s)", true); }
-    else ui.addChatMessage("", "Usage: /effect strength | speed", true);
+    if (eff === "strength")    { potionEffects.strength = 30; ui.addChatMessage("", "Applied Strength I (30s)", true); }
+    else if (eff === "speed")  { potionEffects.speed = 30; player.speedBonus = Math.max(player.speedBonus, 0.3); ui.addChatMessage("", "Applied Speed I (30s)", true); }
+    else if (eff === "nightvision" || eff === "night_vision") { potionEffects.nightVision = 60; ui.addChatMessage("", "Applied Night Vision (60s)", true); }
+    else if (eff === "jump" || eff === "jump_boost")          { potionEffects.jumpBoost = 30; player.jumpBonus = 4; ui.addChatMessage("", "Applied Jump Boost I (30s)", true); }
+    else if (eff === "resistance")                            { potionEffects.resistance = 30; ui.addChatMessage("", "Applied Resistance I (30s)", true); }
+    else ui.addChatMessage("", "Usage: /effect strength|speed|nightvision|jump|resistance", true);
     return true;
   }
   if (base === "/give") {
@@ -732,6 +742,7 @@ const underwaterOverlay = document.getElementById("underwaterOverlay")!;
 
 // ── Underwater effect state ──────────────────────────────────────────────────
 let isUnderwater     = false;
+let airSupply        = 15.0; // seconds of air (resets when surfacing)
 let underwaterBubbleTimer = 0;
 const NORMAL_FOG_NEAR = 55;
 let NORMAL_FOG_FAR  = 96; // mutable — allows fog distance slider
@@ -2056,14 +2067,18 @@ async function startGame(name: string) {
     leather: 95,
     // Potions
     potion_strength: 91, potion_speed: 92,
+    potion_night_vision: 96, potion_jump_boost: 97, potion_resistance: 98,
     // Equipment
     saddle: 93,
   };
 
-  // Potion use on right-click — type 91 = strength, 92 = speed
-  const POTION_DEFS: Record<number, { effect: "strength" | "speed"; duration: number; label: string }> = {
-    91: { effect: "strength", duration: 30, label: "Strength I (+4 dmg, 30s)" },
-    92: { effect: "speed",    duration: 30, label: "Speed I (+30% move, 30s)" },
+  // Potion use on right-click
+  const POTION_DEFS: Record<number, { effect: keyof typeof potionEffects; duration: number; label: string }> = {
+    91: { effect: "strength",    duration: 30, label: "Strength I (+4 dmg, 30s)" },
+    92: { effect: "speed",       duration: 30, label: "Speed I (+30% move, 30s)" },
+    96: { effect: "nightVision", duration: 60, label: "Night Vision (60s)" },
+    97: { effect: "jumpBoost",   duration: 30, label: "Jump Boost I (30s)" },
+    98: { effect: "resistance",  duration: 30, label: "Resistance I (-50% dmg, 30s)" },
   };
   document.addEventListener("mousedown", e => {
     if (!document.pointerLockElement || ui.isChatOpen()) return;
@@ -2072,7 +2087,8 @@ async function startGame(name: string) {
     if (!potion) return;
     if (invRemoveItem(player.selectedBlockType, 1)) {
       potionEffects[potion.effect] = potion.duration;
-      if (potion.effect === "speed") player.speedBonus = Math.max(player.speedBonus, 0.3);
+      if (potion.effect === "speed")      player.speedBonus = Math.max(player.speedBonus, 0.3);
+      if (potion.effect === "jumpBoost")  player.jumpBonus  = 4;
       ui.addChatMessage("", `🧪 Drank ${potion.label}!`, true);
       sounds.play("eat");
       ui.updateHotbarFromInventory(inventory, invCount);
@@ -2112,6 +2128,7 @@ async function startGame(name: string) {
           else if (_diff === "hard") actualDamage = Math.ceil(actualDamage * 1.5);
           else if (_diff === "peaceful") { actualDamage = 0; }
           if (enchants.protection > 0) actualDamage = Math.max(0, actualDamage - 3 * enchants.protection); // Protection I: -3 dmg
+          if (potionEffects.resistance > 0) actualDamage = Math.ceil(actualDamage * 0.5); // Resistance: -50%
           if (shieldActive && shieldDurability > 0) {
             // Shield reduces damage by 80%
             actualDamage = Math.ceil(actualDamage * 0.2);
@@ -2697,20 +2714,21 @@ function animate() {
     }
 
     // ── Potion effects ────────────────────────────────────────────────────────
-    const prevStrength = potionEffects.strength;
-    const prevSpeed    = potionEffects.speed;
-    potionEffects.strength = Math.max(0, potionEffects.strength - dt);
-    potionEffects.speed    = Math.max(0, potionEffects.speed    - dt);
-    // Clear speed bonus when speed potion expires (only if not also from enchantment)
-    if (prevSpeed > 0 && potionEffects.speed === 0 && enchants.speed === 0) {
-      player.speedBonus = 0;
+    const prevStrength   = potionEffects.strength;
+    const prevSpeed      = potionEffects.speed;
+    const prevNightVis   = potionEffects.nightVision;
+    const prevJumpBoost  = potionEffects.jumpBoost;
+    const prevResistance = potionEffects.resistance;
+    for (const k of Object.keys(potionEffects) as Array<keyof typeof potionEffects>) {
+      potionEffects[k] = Math.max(0, potionEffects[k] - dt);
     }
-    if (prevStrength > 0 && potionEffects.strength === 0) {
-      ui.addChatMessage("", "Strength effect wore off.", true);
-    }
-    if (prevSpeed > 0 && potionEffects.speed === 0) {
-      ui.addChatMessage("", "Speed effect wore off.", true);
-    }
+    if (prevSpeed > 0 && potionEffects.speed === 0 && enchants.speed === 0)        { player.speedBonus = 0; }
+    if (prevJumpBoost > 0 && potionEffects.jumpBoost === 0)                         { player.jumpBonus  = 0; }
+    if (prevStrength > 0   && potionEffects.strength === 0)   ui.addChatMessage("", "Strength wore off.", true);
+    if (prevSpeed > 0      && potionEffects.speed === 0)      ui.addChatMessage("", "Speed wore off.", true);
+    if (prevNightVis > 0   && potionEffects.nightVision === 0)ui.addChatMessage("", "Night Vision wore off.", true);
+    if (prevJumpBoost > 0  && potionEffects.jumpBoost === 0)  ui.addChatMessage("", "Jump Boost wore off.", true);
+    if (prevResistance > 0 && potionEffects.resistance === 0) ui.addChatMessage("", "Resistance wore off.", true);
 
     // ── Day/Night ambient events ───────────────────────────────────────────────
     if (prevDayTime < 0.22 && dayTime >= 0.22) {
@@ -2808,9 +2826,24 @@ function animate() {
       isUnderwater = eyeInWater;
       underwaterOverlay.style.opacity = isUnderwater ? "1" : "0";
       if (isUnderwater) achievements.trigger("deep_dive");
+      if (!isUnderwater) airSupply = 15.0; // surfaced — restore air
     }
 
     if (isUnderwater) {
+      // Air supply — 15s before drowning, then 1hp/s damage
+      if (player.gameMode === "survival") {
+        airSupply = Math.max(0, airSupply - dt);
+        if (airSupply <= 0) {
+          regenTimer += dt;
+          if (regenTimer > 1.0) {
+            regenTimer = 0;
+            lastDeathCause = "You drowned";
+            player.takeDamage(1);
+            ui.updateHearts(player.health, player.maxHealth);
+            if (player.health <= 0) { stats.increment("deaths"); ui.showDeath(lastDeathCause, player.position.x, player.position.y, player.position.z, xpLevel); }
+          }
+        }
+      }
       // Tighter, blue fog underwater
       const fog = scene.fog as THREE.Fog;
       fog.near = WATER_FOG_NEAR;
