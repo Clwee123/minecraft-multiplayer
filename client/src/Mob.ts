@@ -1,6 +1,6 @@
 import * as THREE from "three";
 
-export type MobType = "pig" | "zombie" | "chicken" | "cow" | "sheep" | "creeper" | "skeleton" | "horse" | "villager" | "enderdragon" | "spider" | "witherskeleton" | "wolf" | "cat" | "phantom" | "slime" | "warden" | "allay" | "frog" | "strider" | "axolotl";
+export type MobType = "pig" | "zombie" | "chicken" | "cow" | "sheep" | "creeper" | "skeleton" | "horse" | "villager" | "enderdragon" | "spider" | "witherskeleton" | "wolf" | "cat" | "phantom" | "slime" | "warden" | "allay" | "frog" | "strider" | "axolotl" | "pillager" | "drowned" | "husk" | "stray" | "ravager";
 
 // Pre-allocated module constant — no object literal created per damage event
 const MOB_ORIGINAL_COLORS: Record<MobType, number> = {

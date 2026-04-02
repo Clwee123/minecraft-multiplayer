@@ -1566,6 +1566,7 @@ async function startGame(name: string) {
         // Spawn XP orbs
         const xpTable: Record<string, number> = {
           "pig": 3, "chicken": 2, "cow": 5, "sheep": 3, "warden": 50, "allay": 5, "frog": 3, "strider": 4, "axolotl": 6,
+          "pillager": 10, "drowned": 8, "husk": 8, "stray": 10, "ravager": 20,
           "zombie": 8, "skeleton": 10, "creeper": 5, "horse": 10, "villager": 0, "enderdragon": 100,
           "phantom": 6, "slime": 4, "witherskeleton": 8, "spider": 5, "wolf": 4, "cat": 0,
         };
@@ -2417,7 +2418,7 @@ async function startGame(name: string) {
     oak_log: 5, oak_planks: 10, cobblestone: 11, stick: 280,
     dirt: 2, stone: 3, sand: 4, gravel: 12,
     coal: 64, iron_ingot: 62, gold_ingot: 63, diamond: 65,
-    leather: 95,
+    leather: 95, copper_ingot: 76,
     // Potions
     potion_strength: 91, potion_speed: 92,
     // New items
@@ -2537,6 +2538,17 @@ async function startGame(name: string) {
       },
     }, true);
     mobManager.onBurnParticle = (x, y, z) => particles.magic(x, y, z, 1);
+    mobManager.onHuskHunger = () => {
+      hunger = Math.max(0, hunger - 3); // husk drains 3 hunger
+      ui.updateHunger(hunger, maxHunger);
+      ui.addChatMessage("", "🧟 Husk inflicts hunger!", true);
+    };
+    mobManager.onStrayArrow = () => {
+      // Stray inflicts slowness: reduce speedBonus temporarily
+      player.speedBonus = Math.max(-0.4, player.speedBonus - 0.4);
+      setTimeout(() => { player.speedBonus = Math.max(0, player.speedBonus + 0.4); }, 5000);
+      ui.addChatMessage("", "❄ Stray's arrow inflicts slowness!", true);
+    };
     mobManager.onWardenBlind = () => {
       // Apply darkness/blind: desaturate screen for 5s
       renderer.domElement.style.filter = "brightness(0.1)";

@@ -34,6 +34,7 @@ interface Arrow {
   mesh: THREE.Mesh;
   vel: THREE.Vector3;
   life: number;
+  shooterType?: MobType;
 }
 
 // Callback signatures
@@ -71,7 +72,7 @@ export class MobManager {
 
   spawnMob(type: MobType, x: number, y: number, z: number, id?: string): Mob {
     const mobId    = id ?? uid();
-    const maxHp    = type === "zombie" ? 20 : type === "creeper" ? 20 : type === "skeleton" ? 20 : type === "witherskeleton" ? 40 : type === "chicken" ? 4 : type === "cow" ? 16 : type === "sheep" ? 12 : type === "horse" ? 30 : type === "villager" ? 20 : type === "enderdragon" ? 200 : type === "spider" ? 16 : type === "wolf" ? 20 : type === "cat" ? 10 : type === "phantom" ? 20 : type === "slime" ? 16 : type === "warden" ? 500 : type === "allay" ? 20 : type === "frog" ? 10 : type === "strider" ? 20 : type === "axolotl" ? 14 : 10;
+    const maxHp    = type === "zombie" ? 20 : type === "creeper" ? 20 : type === "skeleton" ? 20 : type === "witherskeleton" ? 40 : type === "chicken" ? 4 : type === "cow" ? 16 : type === "sheep" ? 12 : type === "horse" ? 30 : type === "villager" ? 20 : type === "enderdragon" ? 200 : type === "spider" ? 16 : type === "wolf" ? 20 : type === "cat" ? 10 : type === "phantom" ? 20 : type === "slime" ? 16 : type === "warden" ? 500 : type === "allay" ? 20 : type === "frog" ? 10 : type === "strider" ? 20 : type === "axolotl" ? 14 : type === "pillager" ? 24 : type === "drowned" ? 20 : type === "husk" ? 20 : type === "stray" ? 20 : type === "ravager" ? 100 : 10;
     const data: MobData = {
       id: mobId, type, x, y, z,
       rotY:      rnd(0, Math.PI * 2),
@@ -85,8 +86,8 @@ export class MobManager {
     return mob;
   }
 
-  private static HOSTILE_TYPES: Set<MobType> = new Set(["zombie", "skeleton", "creeper", "spider", "witherskeleton", "phantom", "warden"]);
-  private static UNDEAD_TYPES: Set<MobType> = new Set(["zombie", "skeleton", "witherskeleton", "phantom"]);
+  private static HOSTILE_TYPES: Set<MobType> = new Set(["zombie", "skeleton", "creeper", "spider", "witherskeleton", "phantom", "warden", "pillager", "drowned", "husk", "stray", "ravager"]);
+  private static UNDEAD_TYPES: Set<MobType> = new Set(["zombie", "skeleton", "witherskeleton", "phantom", "drowned", "husk", "stray"]);
 
   spawnRandom(cx: number, cz: number) {
     if (this.mobs.size >= MAX_SP_MOBS) return;
@@ -311,6 +312,8 @@ export class MobManager {
       if (dx * dx + dy * dy + dz * dz < 0.64) { // 0.8^2 = 0.64
         // Arrow hit player
         this.cb.onPlayerDamage(1); // arrow: 3→1
+        if (arrow.shooterType === "stray") this.onStrayArrow?.(); // slowness
+        if (arrow.shooterType === "pillager") this.cb.onPlayerDamage(1); // pillager does extra dmg
         this.scene.remove(arrow.mesh);
         this.arrows.splice(i, 1);
       } else if (arrow.life <= 0) {
@@ -434,6 +437,16 @@ export class MobManager {
         this.catAI(lm, dt, distSq, dx2, dz2, playerPos);
       } else if (d.type === "slime") {
         this.slimeAI(lm, dt, distSq, dx2, dz2, playerPos);
+      } else if (d.type === "pillager") {
+        this.pillagerAI(lm, dt, distSq, dx2, dz2, playerPos);
+      } else if (d.type === "drowned") {
+        this.zombieAI(lm, dt, distSq, dx2, dz2, playerPos); // same as zombie
+      } else if (d.type === "husk") {
+        this.huskAI(lm, dt, distSq, dx2, dz2, playerPos);
+      } else if (d.type === "stray") {
+        this.skeletonAI(lm, dt, distSq, dx2, dz2, playerPos); // uses skeleton AI (ranged)
+      } else if (d.type === "ravager") {
+        this.ravagerAI(lm, dt, distSq, dx2, dz2, playerPos);
       } else if (d.type === "warden") {
         this.wardenAI(lm, dt, distSq, dx2, dz2, playerPos);
       } else if (d.type === "allay" || d.type === "axolotl") {
@@ -640,7 +653,7 @@ export class MobManager {
 
       // Shoot arrow if ready
       if (lm.shootTimer <= 0) {
-        this.shootArrow(d.x, d.y + 0.5, d.z, playerPos);
+        this.shootArrow(d.x, d.y + 0.5, d.z, playerPos, d.type as MobType);
         lm.shootTimer = SHOOT_COOLDOWN;
       }
 
@@ -714,7 +727,7 @@ export class MobManager {
     }
   }
 
-  private shootArrow(x: number, y: number, z: number, targetPos: THREE.Vector3) {
+  private shootArrow(x: number, y: number, z: number, targetPos: THREE.Vector3, shooterType?: MobType) {
     // Reuse shared geometry and material — no allocation per arrow
     const arrowMesh = new THREE.Mesh(_ARROW_GEO, _ARROW_MAT);
     arrowMesh.position.set(x, y, z);
@@ -725,7 +738,7 @@ export class MobManager {
     const vel = _arrowDirTmp.clone().multiplyScalar(ARROW_SPEED);
 
     this.scene.add(arrowMesh);
-    this.arrows.push({ mesh: arrowMesh, vel, life: 3 });
+    this.arrows.push({ mesh: arrowMesh, vel, life: 3, shooterType });
   }
 
   private enderdragonAI(lm: LocalMob, dt: number) {
@@ -1025,6 +1038,59 @@ export class MobManager {
       // Slow patrol movement
       d.x += Math.sin(d.rotY) * 3 * dt;
       d.z += Math.cos(d.rotY) * 3 * dt;
+    }
+  }
+
+  private pillagerAI(lm: LocalMob, dt: number, playerDistSq: number, dx: number, dz: number, playerPos: THREE.Vector3) {
+    // Like skeleton but keeps more distance and shoots faster
+    const d = lm.data;
+    const SPEED = 2.5, SHOOT_RANGE_SQ = 20 * 20;
+    if (playerDistSq < SHOOT_RANGE_SQ) {
+      lm.aggro = true;
+      // Keep medium distance
+      if (playerDistSq < 5 * 5) {
+        d.rotY = Math.atan2(dx, dz) + Math.PI; // flee slightly
+        d.x += Math.sin(d.rotY) * SPEED * dt;
+        d.z += Math.cos(d.rotY) * SPEED * dt;
+      }
+      lm.shootTimer = (lm.shootTimer ?? 0) - dt;
+      if (lm.shootTimer <= 0) {
+        this.shootArrow(d.x, d.y + 0.5, d.z, playerPos, "pillager");
+        lm.shootTimer = 1.2; // faster shots than skeleton
+      }
+    } else {
+      lm.aggro = false;
+      this.animalAI(lm, dt, playerDistSq, dx, dz, 1.5);
+    }
+  }
+
+  private huskAI(lm: LocalMob, dt: number, playerDistSq: number, dx: number, dz: number, playerPos: THREE.Vector3) {
+    // Zombie variant: inflicts hunger (handled via extra damage callback)
+    this.zombieAI(lm, dt, playerDistSq, dx, dz, playerPos);
+    // Extra: inflict hunger on hit (done in onPlayerDamage via husk check)
+    if (playerDistSq < 1.8 * 1.8 && (lm.hitCooldown ?? 0) <= 0) {
+      this.onHuskHunger?.();
+    }
+  }
+
+  onHuskHunger?: () => void;
+  onStrayArrow?: () => void;
+
+  private ravagerAI(lm: LocalMob, dt: number, playerDistSq: number, dx: number, dz: number, playerPos: THREE.Vector3) {
+    const d = lm.data;
+    const SPEED = 4.0;
+    if (playerDistSq < 30 * 30) {
+      d.rotY = Math.atan2(dx, dz);
+      d.x += Math.sin(d.rotY) * SPEED * dt;
+      d.z += Math.cos(d.rotY) * SPEED * dt;
+      lm.aggro = true;
+      if (playerDistSq < 2.5 * 2.5 && (lm.hitCooldown ?? 0) <= 0) {
+        this.cb.onPlayerDamage(12); // heavy hit
+        lm.hitCooldown = 2.0;
+      }
+    } else {
+      lm.aggro = false;
+      this.animalAI(lm, dt, playerDistSq, dx, dz, 2.0);
     }
   }
 
