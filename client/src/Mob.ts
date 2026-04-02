@@ -1,6 +1,6 @@
 import * as THREE from "three";
 
-export type MobType = "pig" | "zombie" | "chicken" | "cow" | "sheep" | "creeper" | "skeleton" | "horse" | "villager" | "enderdragon" | "spider" | "witherskeleton" | "wolf" | "cat" | "phantom" | "slime" | "warden" | "allay" | "frog" | "strider" | "axolotl" | "pillager" | "drowned" | "husk" | "stray" | "ravager" | "irongolem" | "snowgolem" | "bat" | "enderman" | "blaze" | "ghast";
+export type MobType = "pig" | "zombie" | "chicken" | "cow" | "sheep" | "creeper" | "skeleton" | "horse" | "villager" | "enderdragon" | "spider" | "witherskeleton" | "wolf" | "cat" | "phantom" | "slime" | "warden" | "allay" | "frog" | "strider" | "axolotl" | "pillager" | "drowned" | "husk" | "stray" | "ravager" | "irongolem" | "snowgolem" | "bat" | "enderman" | "blaze" | "ghast" | "magmacube" | "silverfish" | "elderguardian" | "witch" | "evoker";
 
 // Pre-allocated module constant — no object literal created per damage event
 const MOB_ORIGINAL_COLORS: Record<MobType, number> = {
@@ -9,6 +9,7 @@ const MOB_ORIGINAL_COLORS: Record<MobType, number> = {
   villager: 0xffcc99, enderdragon: 0x110022, spider: 0x333333, wolf: 0x888888,
   cat: 0xdd8833, phantom: 0x1a4455, slime: 0x44aa44,
   irongolem: 0xcccccc, snowgolem: 0xffffff,
+  magmacube: 0xcc3300, silverfish: 0x888888, elderguardian: 0x8899aa, witch: 0x553388, evoker: 0x777777,
 };
 
 export interface MobData {
@@ -71,6 +72,11 @@ export class Mob {
       case "slime":   this.buildSlime();   break;
       case "irongolem": this.buildIronGolem(); break;
       case "snowgolem": this.buildSnowGolem(); break;
+      case "magmacube": this.buildMagmaCube(); break;
+      case "silverfish": this.buildSilverfish(); break;
+      case "elderguardian": this.buildElderGuardian(); break;
+      case "witch": this.buildWitch(); break;
+      case "evoker": this.buildEvoker(); break;
     }
 
     this.hpSprite = this.buildHpBar();
@@ -1030,6 +1036,205 @@ export class Mob {
     this.group.add(this.headGroup);
   }
 
+  private buildMagmaCube() {
+    const OUTER = 0xcc3300;
+    const INNER = 0xff6600;
+    const EYE = 0xffff00;
+
+    const outer = new THREE.Mesh(
+      new THREE.BoxGeometry(1.2, 1.2, 1.2),
+      new THREE.MeshLambertMaterial({ color: OUTER, transparent: true, opacity: 0.85 })
+    );
+    this.bodyMeshes.push(outer);
+    this.group.add(outer);
+
+    const inner = this.box(0.7, 0.7, 0.7, INNER);
+    this.group.add(inner);
+
+    // Eyes (yellow, menacing)
+    for (const side of [-0.25, 0.25]) {
+      const eye = new THREE.Mesh(
+        new THREE.SphereGeometry(0.12, 8, 8),
+        new THREE.MeshLambertMaterial({ color: EYE })
+      );
+      eye.position.set(side, 0.25, 0.5);
+      this.bodyMeshes.push(eye);
+      this.group.add(eye);
+    }
+  }
+
+  private buildSilverfish() {
+    const BODY = 0x888888;
+    const DARK = 0x555555;
+
+    // Tiny segmented body
+    const seg1 = this.box(0.2, 0.15, 0.25, BODY);
+    seg1.position.set(0, 0.08, 0.2);
+    this.group.add(seg1);
+
+    const seg2 = this.box(0.25, 0.18, 0.3, BODY);
+    seg2.position.set(0, 0.09, -0.05);
+    this.group.add(seg2);
+
+    const seg3 = this.box(0.18, 0.12, 0.2, DARK);
+    seg3.position.set(0, 0.06, -0.3);
+    this.group.add(seg3);
+
+    // Antennae
+    for (const side of [-0.06, 0.06]) {
+      const ant = this.box(0.02, 0.02, 0.15, DARK);
+      ant.position.set(side, 0.18, 0.4);
+      ant.rotation.x = -0.4;
+      this.group.add(ant);
+    }
+  }
+
+  private buildElderGuardian() {
+    const BODY = 0x8899aa;
+    const SPIKE = 0x667788;
+    const EYE = 0xff4400;
+
+    // Large body
+    const body = this.box(1.8, 1.4, 1.8, BODY);
+    body.position.set(0, 0.7, 0);
+    this.group.add(body);
+
+    // Eye (single, large, orange)
+    const eye = new THREE.Mesh(
+      new THREE.SphereGeometry(0.3, 8, 8),
+      new THREE.MeshLambertMaterial({ color: EYE })
+    );
+    eye.position.set(0, 0.9, 0.9);
+    this.bodyMeshes.push(eye);
+    this.group.add(eye);
+
+    // Spikes
+    for (const pos of [[0, 1.6, 0], [0.9, 0.7, 0], [-0.9, 0.7, 0], [0, 0.7, 0.9], [0, 0.7, -0.9]] as [number, number, number][]) {
+      const spike = this.box(0.15, 0.4, 0.15, SPIKE);
+      spike.position.set(pos[0], pos[1], pos[2]);
+      this.group.add(spike);
+    }
+
+    // Tail
+    const tail = this.box(0.3, 0.3, 0.8, SPIKE);
+    tail.position.set(0, 0.5, -1.2);
+    this.group.add(tail);
+  }
+
+  private buildWitch() {
+    const ROBE = 0x553388;
+    const SKIN = 0xddbb99;
+    const HAT = 0x222222;
+    const NOSE = 0xbb8866;
+
+    // Body/robe
+    const body = this.box(0.6, 0.9, 0.4, ROBE);
+    body.position.set(0, 0.45, 0);
+    this.group.add(body);
+
+    // Head
+    const head = this.box(0.5, 0.5, 0.5, SKIN);
+    this.headGroup.add(head);
+    // Nose (warty)
+    const nose = this.box(0.12, 0.15, 0.12, NOSE);
+    nose.position.set(0, -0.05, 0.3);
+    this.headGroup.add(nose);
+    // Eyes
+    for (const side of [-0.12, 0.12]) {
+      const eye = this.box(0.08, 0.06, 0.05, 0x660066);
+      eye.position.set(side, 0.08, 0.26);
+      this.headGroup.add(eye);
+    }
+    // Hat (cone-like)
+    const hatBrim = this.box(0.7, 0.06, 0.7, HAT);
+    hatBrim.position.set(0, 0.28, 0);
+    this.headGroup.add(hatBrim);
+    const hatTop = this.box(0.4, 0.5, 0.4, HAT);
+    hatTop.position.set(0, 0.55, 0);
+    this.headGroup.add(hatTop);
+    const hatTip = this.box(0.2, 0.3, 0.2, 0x331166);
+    hatTip.position.set(0.05, 0.85, 0.05);
+    hatTip.rotation.z = 0.3;
+    this.headGroup.add(hatTip);
+    this.headGroup.position.set(0, 1.15, 0);
+    this.group.add(this.headGroup);
+
+    // Arms
+    for (const side of [-1, 1]) {
+      const g = new THREE.Group();
+      const arm = this.box(0.2, 0.6, 0.2, ROBE);
+      arm.position.y = -0.3;
+      g.add(arm);
+      g.position.set(side * 0.4, 0.8, 0);
+      this.group.add(g);
+      this.arms.push(g);
+    }
+
+    // Legs
+    for (const side of [-1, 1]) {
+      const g = new THREE.Group();
+      const leg = this.box(0.2, 0.5, 0.2, ROBE);
+      leg.position.y = -0.25;
+      g.add(leg);
+      g.position.set(side * 0.15, 0.0, 0);
+      this.group.add(g);
+      this.legs.push(g);
+    }
+  }
+
+  private buildEvoker() {
+    const ROBE = 0x777777;
+    const TRIM = 0x333333;
+    const SKIN = 0xddbb99;
+
+    // Body/robe (dark grey with trim)
+    const body = this.box(0.6, 0.9, 0.4, ROBE);
+    body.position.set(0, 0.45, 0);
+    this.group.add(body);
+    const trim = this.box(0.62, 0.1, 0.42, TRIM);
+    trim.position.set(0, 0.0, 0);
+    this.group.add(trim);
+
+    // Head
+    const head = this.box(0.5, 0.5, 0.5, SKIN);
+    this.headGroup.add(head);
+    // Eyes (menacing)
+    for (const side of [-0.12, 0.12]) {
+      const eye = this.box(0.08, 0.06, 0.05, 0x222222);
+      eye.position.set(side, 0.08, 0.26);
+      this.headGroup.add(eye);
+    }
+    // Brow ridge
+    const brow = this.box(0.35, 0.05, 0.05, TRIM);
+    brow.position.set(0, 0.15, 0.26);
+    this.headGroup.add(brow);
+    this.headGroup.position.set(0, 1.15, 0);
+    this.group.add(this.headGroup);
+
+    // Arms (raised, casting)
+    for (const side of [-1, 1]) {
+      const g = new THREE.Group();
+      const arm = this.box(0.2, 0.6, 0.2, ROBE);
+      arm.position.y = -0.3;
+      g.add(arm);
+      g.position.set(side * 0.4, 0.8, 0);
+      g.rotation.x = -0.5; // arms raised
+      this.group.add(g);
+      this.arms.push(g);
+    }
+
+    // Legs
+    for (const side of [-1, 1]) {
+      const g = new THREE.Group();
+      const leg = this.box(0.2, 0.5, 0.2, TRIM);
+      leg.position.y = -0.25;
+      g.add(leg);
+      g.position.set(side * 0.15, 0.0, 0);
+      this.group.add(g);
+      this.legs.push(g);
+    }
+  }
+
   // ── HP bar ────────────────────────────────────────────────────────────────
 
   private buildHpBar(): THREE.Sprite {
@@ -1040,7 +1245,7 @@ export class Mob {
     const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false });
     const sp  = new THREE.Sprite(mat);
     sp.scale.set(1.2, 0.18, 1);
-    const hpY: Record<MobType, number> = { pig: 1.4, chicken: 1.0, zombie: 1.6, cow: 1.8, sheep: 1.7, creeper: 1.9, skeleton: 1.9, witherskeleton: 2.5, horse: 2.2, villager: 1.8, enderdragon: 3.5, spider: 0.8, wolf: 1.5, cat: 1.2, phantom: 1.5, slime: 1.5 };
+    const hpY: Record<MobType, number> = { pig: 1.4, chicken: 1.0, zombie: 1.6, cow: 1.8, sheep: 1.7, creeper: 1.9, skeleton: 1.9, witherskeleton: 2.5, horse: 2.2, villager: 1.8, enderdragon: 3.5, spider: 0.8, wolf: 1.5, cat: 1.2, phantom: 1.5, slime: 1.5, magmacube: 1.5, silverfish: 0.6, elderguardian: 2.2, witch: 2.2, evoker: 2.2 };
     sp.position.y = hpY[this.type] ?? 1.6;
     return sp;
   }
@@ -1130,11 +1335,20 @@ export class Mob {
       }
       // Head bobs
       this.headGroup.rotation.x = Math.abs(sw) * 0.05;
-    } else if (this.type === "slime") {
-      // Slime bounces up and down sinusoidally
-      const bounceTime = this.walkCycle / 2.5; // Sync with speed
-      const bounceAmount = 0.3 * Math.abs(Math.sin(bounceTime * Math.PI / 0.5)); // Oscillates every 0.5s
+    } else if (this.type === "slime" || this.type === "magmacube") {
+      // Slime/magma cube bounces up and down sinusoidally
+      const bounceTime = this.walkCycle / 2.5;
+      const bounceAmount = 0.3 * Math.abs(Math.sin(bounceTime * Math.PI / 0.5));
       this.group.position.y = this.targetPos.y + bounceAmount;
+    } else if (this.type === "witch" || this.type === "evoker") {
+      // Humanoid walk
+      if (this.legs.length >= 2) {
+        this.legs[0].rotation.x =  sw * SWING;
+        this.legs[1].rotation.x = -sw * SWING;
+      }
+      for (const arm of this.arms) {
+        arm.rotation.x = -sw * SWING * 0.5;
+      }
     }
   }
 

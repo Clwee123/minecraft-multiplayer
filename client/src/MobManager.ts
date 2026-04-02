@@ -80,7 +80,7 @@ export class MobManager {
 
   spawnMob(type: MobType, x: number, y: number, z: number, id?: string): Mob {
     const mobId    = id ?? uid();
-    const maxHp    = type === "zombie" ? 20 : type === "creeper" ? 20 : type === "skeleton" ? 20 : type === "witherskeleton" ? 40 : type === "chicken" ? 4 : type === "cow" ? 16 : type === "sheep" ? 12 : type === "horse" ? 30 : type === "villager" ? 20 : type === "enderdragon" ? 200 : type === "spider" ? 16 : type === "wolf" ? 20 : type === "cat" ? 10 : type === "phantom" ? 20 : type === "slime" ? 16 : type === "warden" ? 500 : type === "allay" ? 20 : type === "frog" ? 10 : type === "strider" ? 20 : type === "axolotl" ? 14 : type === "pillager" ? 24 : type === "drowned" ? 20 : type === "husk" ? 20 : type === "stray" ? 20 : type === "ravager" ? 100 : type === "irongolem" ? 100 : type === "snowgolem" ? 20 : type === "bat" ? 6 : type === "enderman" ? 40 : type === "blaze" ? 20 : type === "ghast" ? 10 : 10;
+    const maxHp    = type === "zombie" ? 20 : type === "creeper" ? 20 : type === "skeleton" ? 20 : type === "witherskeleton" ? 40 : type === "chicken" ? 4 : type === "cow" ? 16 : type === "sheep" ? 12 : type === "horse" ? 30 : type === "villager" ? 20 : type === "enderdragon" ? 200 : type === "spider" ? 16 : type === "wolf" ? 20 : type === "cat" ? 10 : type === "phantom" ? 20 : type === "slime" ? 16 : type === "warden" ? 500 : type === "allay" ? 20 : type === "frog" ? 10 : type === "strider" ? 20 : type === "axolotl" ? 14 : type === "pillager" ? 24 : type === "drowned" ? 20 : type === "husk" ? 20 : type === "stray" ? 20 : type === "ravager" ? 100 : type === "irongolem" ? 100 : type === "snowgolem" ? 20 : type === "bat" ? 6 : type === "enderman" ? 40 : type === "blaze" ? 20 : type === "ghast" ? 10 : type === "magmacube" ? 30 : type === "silverfish" ? 8 : type === "elderguardian" ? 80 : type === "witch" ? 26 : type === "evoker" ? 24 : 10;
     const data: MobData = {
       id: mobId, type, x, y, z,
       rotY:      rnd(0, Math.PI * 2),
@@ -94,7 +94,7 @@ export class MobManager {
     return mob;
   }
 
-  private static HOSTILE_TYPES: Set<MobType> = new Set(["zombie", "skeleton", "creeper", "spider", "witherskeleton", "phantom", "warden", "pillager", "drowned", "husk", "stray", "ravager", "blaze", "ghast"]);
+  private static HOSTILE_TYPES: Set<MobType> = new Set(["zombie", "skeleton", "creeper", "spider", "witherskeleton", "phantom", "warden", "pillager", "drowned", "husk", "stray", "ravager", "blaze", "ghast", "magmacube", "silverfish", "elderguardian", "witch", "evoker"]);
   private static UNDEAD_TYPES: Set<MobType> = new Set(["zombie", "skeleton", "witherskeleton", "phantom", "drowned", "husk", "stray"]);
 
   spawnRandom(cx: number, cz: number) {
@@ -323,6 +323,7 @@ export class MobManager {
         if (arrow.shooterType === "stray") this.onStrayArrow?.(); // slowness
         if (arrow.shooterType === "pillager") this.cb.onPlayerDamage(1); // pillager does extra dmg
         if (arrow.shooterType === "blaze" || arrow.shooterType === "ghast") this.cb.onPlayerDamage(2); // fire dmg
+        if (arrow.shooterType === "evoker") this.cb.onPlayerDamage(3); // vex does 4 total (1+3)
         this.scene.remove(arrow.mesh);
         this.arrows.splice(i, 1);
       } else if (arrow.life <= 0) {
@@ -514,6 +515,16 @@ export class MobManager {
         this.ironGolemAI(lm, dt, distSq, dx2, dz2, playerPos);
       } else if (d.type === "snowgolem") {
         this.snowGolemAI(lm, dt, distSq, dx2, dz2, playerPos);
+      } else if (d.type === "magmacube") {
+        this.magmaCubeAI(lm, dt, distSq, dx2, dz2, playerPos);
+      } else if (d.type === "silverfish") {
+        this.silverfishAI(lm, dt, distSq, dx2, dz2, playerPos);
+      } else if (d.type === "elderguardian") {
+        this.elderGuardianAI(lm, dt, distSq, dx2, dz2, playerPos);
+      } else if (d.type === "witch") {
+        this.witchAI(lm, dt, distSq, dx2, dz2, playerPos);
+      } else if (d.type === "evoker") {
+        this.evokerAI(lm, dt, distSq, dx2, dz2, playerPos);
       }
     }
 
@@ -1333,6 +1344,170 @@ export class MobManager {
   }
 
   onWardenBlind?: () => void; // callback to apply blindness effect
+  onWitchPotion?: (type: "damage" | "hunger") => void;
+
+  private magmaCubeAI(lm: LocalMob, dt: number, playerDistSq: number, dx: number, dz: number, playerPos: THREE.Vector3) {
+    const d = lm.data;
+    const speed = 2.5;
+
+    if (playerDistSq > 144) { // 12^2
+      d.state = "idle";
+      return;
+    }
+
+    // Hop toward player (like slime but fire-immune)
+    lm.timer -= dt;
+    if (lm.timer <= 0) {
+      const angleToPlayer = Math.atan2(dx, dz);
+      d.rotY = angleToPlayer;
+      d.x += Math.sin(angleToPlayer) * speed * dt;
+      d.z += Math.cos(angleToPlayer) * speed * dt;
+      lm.velY = 6;
+      d.state = "hopping";
+      lm.timer = 0.8;
+    }
+
+    if (lm.velY < 0 && playerDistSq < 4 && lm.hitCooldown <= 0) { // 2^2
+      this.cb.onPlayerDamage(6);
+      lm.hitCooldown = 1.5;
+    }
+  }
+
+  private silverfishAI(lm: LocalMob, dt: number, playerDistSq: number, dx: number, dz: number, playerPos: THREE.Vector3) {
+    const d = lm.data;
+    const SPEED = 3.5;
+
+    if (playerDistSq < 256) { // 16^2 — swarms aggressively
+      lm.aggro = true;
+      // Erratic movement — zigzag toward player
+      const angleToPlayer = Math.atan2(dx, dz);
+      const erratic = angleToPlayer + (Math.sin(Date.now() * 0.005 + lm.timer * 10) * 0.6);
+      d.rotY = erratic;
+      d.x += Math.sin(erratic) * SPEED * dt;
+      d.z += Math.cos(erratic) * SPEED * dt;
+      d.state = "chasing";
+
+      if (playerDistSq < 1.5 * 1.5 && lm.hitCooldown <= 0) {
+        this.cb.onPlayerDamage(1);
+        lm.hitCooldown = 0.8; // fast attacks (swarming)
+      }
+    } else {
+      lm.aggro = false;
+      this.animalAI(lm, dt, playerDistSq, dx, dz, 2.0);
+    }
+  }
+
+  private elderGuardianAI(lm: LocalMob, dt: number, playerDistSq: number, dx: number, dz: number, playerPos: THREE.Vector3) {
+    const d = lm.data;
+    const SPEED = 0.5;
+
+    if (playerDistSq < 20 * 20) {
+      lm.aggro = true;
+      d.rotY = Math.atan2(dx, dz);
+      // Slow swim toward player
+      d.x += Math.sin(d.rotY) * SPEED * dt;
+      d.z += Math.cos(d.rotY) * SPEED * dt;
+
+      // Laser attack: charges 2s then fires
+      lm.shootTimer = (lm.shootTimer ?? 0) - dt;
+      if (lm.shootTimer <= 0) {
+        if (playerDistSq < 15 * 15) {
+          // Laser fires — direct damage
+          this.cb.onPlayerDamage(8);
+        }
+        lm.shootTimer = 2.0; // 2s recharge
+      }
+      d.state = "attacking";
+    } else {
+      lm.aggro = false;
+      // Idle drift
+      d.x += Math.sin(d.rotY) * 0.3 * dt;
+      d.z += Math.cos(d.rotY) * 0.3 * dt;
+      if (lm.timer <= 0) {
+        d.rotY = Math.random() * Math.PI * 2;
+        lm.timer = rnd(3, 6);
+      }
+    }
+  }
+
+  private witchAI(lm: LocalMob, dt: number, playerDistSq: number, dx: number, dz: number, playerPos: THREE.Vector3) {
+    const d = lm.data;
+    const SPEED = 1.8;
+
+    if (playerDistSq < 16 * 16) { // 256
+      lm.aggro = true;
+      d.rotY = Math.atan2(dx, dz);
+
+      // Keep distance (8-12 blocks)
+      if (playerDistSq < 64) { // 8^2 — too close, back away
+        d.x -= Math.sin(d.rotY) * SPEED * dt;
+        d.z -= Math.cos(d.rotY) * SPEED * dt;
+      } else if (playerDistSq > 144) { // 12^2 — too far, approach
+        d.x += Math.sin(d.rotY) * SPEED * dt;
+        d.z += Math.cos(d.rotY) * SPEED * dt;
+      }
+
+      // Throw splash potion every 2s
+      lm.shootTimer = (lm.shootTimer ?? 0) - dt;
+      if (lm.shootTimer <= 0) {
+        if (Math.random() < 0.6) {
+          this.cb.onPlayerDamage(5); // damage potion
+          this.onWitchPotion?.("damage");
+        } else {
+          this.onWitchPotion?.("hunger"); // hunger potion (-3 hunger)
+        }
+        lm.shootTimer = 2.0;
+      }
+      d.state = "attacking";
+    } else {
+      lm.aggro = false;
+      this.animalAI(lm, dt, playerDistSq, dx, dz, 1.2);
+    }
+  }
+
+  private evokerAI(lm: LocalMob, dt: number, playerDistSq: number, dx: number, dz: number, playerPos: THREE.Vector3) {
+    const d = lm.data;
+    const SPEED = 1.5;
+
+    if (playerDistSq < 20 * 20) { // 400
+      lm.aggro = true;
+      d.rotY = Math.atan2(dx, dz);
+
+      // Keep distance (10+ blocks)
+      if (playerDistSq < 100) { // 10^2 — back away
+        d.x -= Math.sin(d.rotY) * SPEED * dt;
+        d.z -= Math.cos(d.rotY) * SPEED * dt;
+      }
+
+      // Spawn vex projectiles every 3s
+      lm.shootTimer = (lm.shootTimer ?? 0) - dt;
+      if (lm.shootTimer <= 0) {
+        const vexCount = 2 + Math.floor(Math.random() * 2); // 2-3
+        for (let i = 0; i < vexCount; i++) {
+          this.shootVex(d.x, d.y + 1.0, d.z, playerPos);
+        }
+        lm.shootTimer = 3.0;
+      }
+      d.state = "attacking";
+    } else {
+      lm.aggro = false;
+      this.animalAI(lm, dt, playerDistSq, dx, dz, 1.0);
+    }
+  }
+
+  private shootVex(x: number, y: number, z: number, targetPos: THREE.Vector3) {
+    // Vex is a fast-moving small projectile that does 4 dmg
+    const vexGeo = new THREE.BoxGeometry(0.2, 0.3, 0.2);
+    const vexMat = new THREE.MeshLambertMaterial({ color: 0x8888ff, transparent: true, opacity: 0.7 });
+    const mesh = new THREE.Mesh(vexGeo, vexMat);
+    const offX = (Math.random() - 0.5) * 2;
+    const offZ = (Math.random() - 0.5) * 2;
+    mesh.position.set(x + offX, y, z + offZ);
+    _arrowDirTmp.set(targetPos.x - x, targetPos.y - y, targetPos.z - z).normalize();
+    const vel = _arrowDirTmp.clone().multiplyScalar(10);
+    this.scene.add(mesh);
+    this.arrows.push({ mesh, vel, life: 4, shooterType: "evoker" as MobType });
+  }
 
   private slimeAI(lm: LocalMob, dt: number, playerDistSq: number, dx: number, dz: number, playerPos: THREE.Vector3) {
     const d = lm.data;

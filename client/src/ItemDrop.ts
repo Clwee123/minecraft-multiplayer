@@ -108,6 +108,11 @@ const ITEM_COLORS: Record<string, number> = {
   iron_ingot: 0xcccccc,
   snowball: 0xeeeeff,
   copper_ingot: 0xcc7744,
+  magma_cream: 0xff6600,
+  prismarine_shard: 0x55aaaa,
+  redstone: 0xcc0000,
+  glowstone_dust: 0xffcc44,
+  totem_of_undying: 0xddaa33,
 };
 
 export const MOB_DROPS: Record<string, Array<{ item: string; chance: number; min: number; max: number }>> = {
@@ -137,4 +142,12 @@ export const MOB_DROPS: Record<string, Array<{ item: string; chance: number; min
   creeper: [{ item: "gunpowder", chance: 1.0, min: 0, max: 2 }],
   irongolem: [{ item: "iron_ingot", chance: 1.0, min: 3, max: 5 }],
   snowgolem: [{ item: "snowball", chance: 1.0, min: 1, max: 3 }],
+  magmacube: [{ item: "magma_cream", chance: 1.0, min: 1, max: 2 }],
+  silverfish: [],
+  elderguardian: [{ item: "prismarine_shard", chance: 1.0, min: 1, max: 3 }],
+  witch: [
+    { item: "redstone", chance: 0.5, min: 0, max: 2 },
+    { item: "glowstone_dust", chance: 0.5, min: 0, max: 2 },
+  ],
+  evoker: [{ item: "totem_of_undying", chance: 1.0, min: 1, max: 1 }],
 };

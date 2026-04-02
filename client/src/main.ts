@@ -1583,6 +1583,7 @@ async function startGame(name: string) {
           "zombie": 8, "skeleton": 10, "creeper": 5, "horse": 10, "villager": 0, "enderdragon": 100,
           "phantom": 6, "slime": 4, "witherskeleton": 8, "spider": 5, "wolf": 4, "cat": 0,
           "irongolem": 10, "snowgolem": 5,
+          "magmacube": 4, "silverfish": 5, "elderguardian": 10, "witch": 5, "evoker": 10,
         };
         const mobTypeStr = mobData.type.toLowerCase();
         const xpAmount = xpTable[mobTypeStr] || 1;
@@ -2440,6 +2441,8 @@ async function startGame(name: string) {
     potion_night_vision: 96, potion_jump_boost: 97, potion_resistance: 98,
     // Equipment
     saddle: 93,
+    // New mob drops
+    magma_cream: 0, prismarine_shard: 0, redstone: 0, glowstone_dust: 19, totem_of_undying: 131,
   };
 
   // Potion use on right-click
@@ -2576,6 +2579,15 @@ async function startGame(name: string) {
       renderer.domElement.style.filter = "brightness(0.1)";
       setTimeout(() => { renderer.domElement.style.filter = ""; }, 5000);
       ui.addChatMessage("", "⚡ Warden's sonic boom! You're blinded!", true);
+    };
+    mobManager.onWitchPotion = (type) => {
+      if (type === "damage") {
+        ui.addChatMessage("", "🧪 Witch throws a harmful potion!", true);
+      } else {
+        hunger = Math.max(0, hunger - 3);
+        ui.updateHunger(hunger, maxHunger);
+        ui.addChatMessage("", "🧪 Witch's potion drains your hunger!", true);
+      }
     };
 
     for (let i = 0; i < 10; i++) mobManager.spawnRandom(0, 0);
