@@ -789,6 +789,7 @@ function detectObsidianFrame(
 // ── Post-processing overlays ────────────────────────────────────────────────
 const damageFlash       = document.getElementById("damageFlash")!;
 const speedLinesEl      = document.getElementById("speedLines")!;
+const compassLabelEl    = document.getElementById("compassLabel") as HTMLElement | null;
 const lowHealthVignette = document.getElementById("lowHealthVignette")!;
 let damageFlashTimer = 0;
 let prevPlayerHealth = 40;
@@ -2407,6 +2408,22 @@ function animate() {
         }
       }
       minimap.update(dt, player.position, player.getYaw(), _minimapPlayersBuf, _minimapMobsBuf);
+    }
+
+    // Update compass label — facing direction + spawn bearing
+    if (compassLabelEl) {
+      const yaw = player.getYaw();
+      const yawDeg = ((yaw * 180 / Math.PI) % 360 + 360) % 360;
+      const dirs = ["S","SW","W","NW","N","NE","E","SE"];
+      const facing = dirs[Math.round(yawDeg / 45) % 8];
+      // Bearing to spawn (0,0)
+      const spawnDx = 0 - player.position.x;
+      const spawnDz = 0 - player.position.z;
+      const spawnAngleWorld = Math.atan2(spawnDx, spawnDz) * 180 / Math.PI; // world angle to spawn
+      const spawnAngleRel = ((spawnAngleWorld - yawDeg) % 360 + 360) % 360; // relative to camera
+      const arrowChars = ["↑","↗","→","↘","↓","↙","←","↖"];
+      const spawnArrow = arrowChars[Math.round(spawnAngleRel / 45) % 8];
+      compassLabelEl.textContent = `${facing} ${spawnArrow}⌂`;
     }
 
     // Update boss bar if dragon is alive
