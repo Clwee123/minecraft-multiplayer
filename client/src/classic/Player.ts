@@ -183,6 +183,20 @@ export class Player {
     return this.world.raycast(eye, dir, REACH);
   }
 
+  /**
+   * Can the player harvest a drop from this block? Mirrors real Minecraft:
+   * pickaxe-required blocks (stone, ores) only drop when an adequate tool
+   * is in the inventory. Other tools (axe/shovel) just speed things up.
+   */
+  canHarvest(blockId: number): boolean {
+    const def = BLOCKS[blockId];
+    if (!def || !def.tool || def.tool === "any") return true;
+    if (def.tool !== "pickaxe") return true;
+    const best = this.inv?.bestToolTier("pickaxe");
+    if (!best) return false;
+    return best.tier >= (def.minToolTier ?? 1);
+  }
+
   /** Estimate break time for a block given current held tool. */
   private estimateBreakTime(blockId: number): number {
     const def = BLOCKS[blockId];

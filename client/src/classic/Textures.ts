@@ -19,6 +19,8 @@ export interface BlockDef {
   drop?: number;
   dropCount?: number;
   tool?: "any" | "axe" | "pickaxe" | "shovel" | "shears";
+  /** Minimum tool tier needed for the block to drop. 1=wood, 2=stone, 3=iron, 4=diamond. Defaults to 1 when `tool` is set. */
+  minToolTier?: number;
   emissive?: boolean;
 }
 
@@ -111,12 +113,12 @@ export const BLOCKS: Record<number, BlockDef> = {
   13: { faces: [T_BOOKSHELF, T_BOOKSHELF, T_PLANKS, T_PLANKS, T_BOOKSHELF, T_BOOKSHELF], hardness: 1.5, tool: "axe" },
   14: { faces: all6(T_WOOL_W),               hardness: 0.8 },
   15: { faces: all6(T_WOOL_R),               hardness: 0.8 },
-  16: { faces: all6(T_OBSIDIAN),             hardness: 50, tool: "pickaxe" },
-  17: { faces: all6(T_MOSSY_COBB),           hardness: 2.0, tool: "pickaxe" },
-  18: { faces: all6(T_COAL_ORE),             hardness: 3.0, drop: 50, tool: "pickaxe" },
-  19: { faces: all6(T_IRON_ORE),             hardness: 3.0, tool: "pickaxe" },
-  20: { faces: all6(T_GOLD_ORE),             hardness: 3.0, tool: "pickaxe" },
-  21: { faces: all6(T_DIAM_ORE),             hardness: 3.0, drop: 51, tool: "pickaxe" },
+  16: { faces: all6(T_OBSIDIAN),             hardness: 50, tool: "pickaxe", minToolTier: 4 },
+  17: { faces: all6(T_MOSSY_COBB),           hardness: 2.0, tool: "pickaxe", minToolTier: 1 },
+  18: { faces: all6(T_COAL_ORE),             hardness: 3.0, drop: 50, tool: "pickaxe", minToolTier: 1 },
+  19: { faces: all6(T_IRON_ORE),             hardness: 3.0, tool: "pickaxe", minToolTier: 2 },
+  20: { faces: all6(T_GOLD_ORE),             hardness: 3.0, tool: "pickaxe", minToolTier: 3 },
+  21: { faces: all6(T_DIAM_ORE),             hardness: 3.0, drop: 51, tool: "pickaxe", minToolTier: 3 },
   22: { faces: all6(T_GLOWSTONE), emissive: true, hardness: 0.3 },
   23: { faces: all6(T_SNOW),                 hardness: 0.2, tool: "shovel" },
   24: { faces: all6(T_ICE), transparent: true, hardness: 0.5, drop: 0, tool: "pickaxe" },

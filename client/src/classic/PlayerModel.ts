@@ -92,6 +92,132 @@ export function spawnPlayer(): PlayerInstance | null {
   return { root, mixer, walkAction, idleAction };
 }
 
+// ── First-person right arm ──────────────────────────────────────────────────
+//
+// player.glb is laid out as separate body-part meshes parented to a single
+// armature. We clone the whole rig, hide every mesh except `default_arm_R`,
+// and align the right-shoulder bone (`ArmR1`) so the arm pokes into view
+// from the bottom-right of the camera.
+
+const ARM_OFFSET = new THREE.Vector3(0.35, -0.35, -0.55);
+const ARM_SHOULDER_FORWARD = 1.25; // radians, rotates arm to point forward
+const ARM_SWING_ARC = 1.6;          // radians at peak swing
+const ARM_TWIST = 0.25;             // a touch of Z-axis roll during swing
+
+export interface FirstPersonArm {
+  /** Add this to the camera (camera.add(arm.group)). */
+  group: THREE.Group;
+  /** Trigger a single swing (0..1 animates over ~250 ms). */
+  triggerSwing(strength?: number): void;
+  /** Trigger a mining swing — repeats while called continuously. */
+  triggerMineSwing(): void;
+  /** Advance animation. */
+  update(dt: number): void;
+}
+
+export function buildFirstPersonArm(): FirstPersonArm | null {
+  if (!_template) return null;
+  let cloned: THREE.Object3D;
+  try {
+    const { clone } = require("three/examples/jsm/utils/SkeletonUtils.js");
+    cloned = clone(_template) as THREE.Object3D;
+  } catch {
+    cloned = _template.clone(true);
+  }
+
+  // Hide everything except the right arm mesh. Use a name match so we don't
+  // depend on mesh order. Common naming in this rig: `default_arm_R`.
+  cloned.traverse((o: any) => {
+    if (o.isMesh || o.isSkinnedMesh) {
+      const keep = /arm_r$/i.test(o.name) || /^default_arm_r$/i.test(o.name);
+      o.visible = keep;
+      o.frustumCulled = false;
+      if (o.material) {
+        const mats = Array.isArray(o.material) ? o.material : [o.material];
+        mats.forEach((m: any) => {
+          // Always draw on top of the world — no depth test against the scene.
+          m.depthTest = false;
+          m.depthWrite = false;
+          m.transparent = true;
+        });
+        o.renderOrder = 1000;
+      }
+    }
+  });
+
+  // Find right-shoulder bone for swinging.
+  let shoulder: THREE.Object3D | null = null;
+  cloned.traverse((o: any) => {
+    if (!shoulder && (o.name === "ArmR1" || /^arm.*r1$/i.test(o.name))) shoulder = o;
+  });
+
+  // We need the bone's world-space position so we can offset the clone such
+  // that the shoulder lands at ARM_OFFSET in camera-local space.
+  cloned.updateMatrixWorld(true);
+  const shoulderWorld = new THREE.Vector3();
+  if (shoulder) (shoulder as THREE.Object3D).getWorldPosition(shoulderWorld);
+
+  cloned.position.set(
+    ARM_OFFSET.x - shoulderWorld.x,
+    ARM_OFFSET.y - shoulderWorld.y,
+    ARM_OFFSET.z - shoulderWorld.z,
+  );
+
+  let baseRotX = 0, baseRotZ = 0;
+  if (shoulder) {
+    baseRotX = (shoulder as THREE.Object3D).rotation.x;
+    baseRotZ = (shoulder as THREE.Object3D).rotation.z;
+    (shoulder as THREE.Object3D).rotation.x = baseRotX - ARM_SHOULDER_FORWARD;
+  }
+
+  const group = new THREE.Group();
+  group.name = "fp-arm";
+  group.add(cloned);
+  group.renderOrder = 1000;
+
+  let swingT = 0;        // 0..1, decays over time
+  let swingStrength = 1;
+  let miningSwingPhase = 0; // continuous angle for the chop loop
+  let miningActive = false;
+
+  return {
+    group,
+    triggerSwing(strength = 1) {
+      swingT = 1;
+      swingStrength = strength;
+      miningActive = false;
+    },
+    triggerMineSwing() {
+      miningActive = true;
+    },
+    update(dt: number) {
+      if (!shoulder) return;
+      const sh = shoulder as THREE.Object3D;
+      // One-shot swing
+      if (swingT > 0) {
+        const eased = Math.sin((1 - swingT) * Math.PI); // 0→1→0
+        sh.rotation.x = baseRotX - ARM_SHOULDER_FORWARD + eased * ARM_SWING_ARC * swingStrength;
+        sh.rotation.z = baseRotZ + eased * ARM_TWIST * swingStrength;
+        swingT = Math.max(0, swingT - dt * 4); // ~0.25s total
+      } else if (miningActive) {
+        // Continuous chop: ~3 swings per second
+        miningSwingPhase += dt * Math.PI * 3;
+        const v = (Math.sin(miningSwingPhase) + 1) * 0.5; // 0..1
+        sh.rotation.x = baseRotX - ARM_SHOULDER_FORWARD + v * ARM_SWING_ARC * 0.8;
+        sh.rotation.z = baseRotZ + v * ARM_TWIST * 0.7;
+        // Auto-stop if not called this frame: caller is expected to set
+        // miningActive=true every frame while LMB-mining. Reset here so
+        // it stops next frame unless re-triggered.
+        miningActive = false;
+      } else {
+        sh.rotation.x = baseRotX - ARM_SHOULDER_FORWARD;
+        sh.rotation.z = baseRotZ;
+        miningSwingPhase = 0;
+      }
+    },
+  };
+}
+
 /** Build a fallback box-humanoid mesh when the GLB isn't available. */
 export function buildFallbackPlayer(): THREE.Group {
   const root = new THREE.Group();

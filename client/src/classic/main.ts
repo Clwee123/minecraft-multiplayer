@@ -8,7 +8,7 @@ import { Inventory } from "./Inventory";
 import { CraftingUI } from "./CraftingUI";
 import { ItemDrops } from "./ItemDrops";
 import { MODES, ModeId, buildBedwars, buildParkour, buildOneBlock, pickOneBlockNext } from "./Modes";
-import { preloadPlayerModel } from "./PlayerModel";
+import { preloadPlayerModel, buildFirstPersonArm, FirstPersonArm } from "./PlayerModel";
 import { BreakHighlight, BreakParticles } from "./BreakEffects";
 
 // ── Renderer / scene ────────────────────────────────────────────────────────
@@ -51,6 +51,7 @@ let debugOn = false;
 let breakFx: BreakHighlight;
 let breakParticles: BreakParticles;
 let tabHeld = false;
+let fpArm: FirstPersonArm | null = null;
 
 // Day/night: 0..24000 ticks. 0=morning, 6000=noon, 12000=dusk, 18000=midnight.
 // Local clock when offline; mirrored from server state when MP.
@@ -200,7 +201,21 @@ renderer.domElement.addEventListener("click", () => {
   if (!document.pointerLockElement && !craftingUI?.open) document.body.requestPointerLock();
 });
 
-// ── Right-click on crafting table → open 3x3 ─ AND bed → sleep ──────────────
+// ── Arm-swing on every click ─ AND special right-click handling ─────────────
+let lmbHeld = false;
+document.addEventListener("mousedown", (e) => {
+  if (!document.pointerLockElement) return;
+  if (e.button === 0) {
+    lmbHeld = true;
+    fpArm?.triggerSwing(1);
+  } else if (e.button === 2) {
+    fpArm?.triggerSwing(0.65);
+  }
+});
+document.addEventListener("mouseup", (e) => {
+  if (e.button === 0) lmbHeld = false;
+});
+
 document.addEventListener("mousedown", (e) => {
   if (!document.pointerLockElement) return;
   if (e.button !== 2) return;
@@ -453,13 +468,26 @@ async function startGame(serverAddr: string | null) {
   breakFx = new BreakHighlight(scene);
   breakParticles = new BreakParticles(scene);
 
+  // First-person right arm — child of the camera, depth-tested off so it
+  // always sits on top of the world. Wait for the GLB so this is reliable;
+  // it's fine if it fails (we just skip the arm).
+  await preloadPlayerModel().catch(() => {});
+  scene.add(camera);
+  fpArm = buildFirstPersonArm();
+  if (fpArm) camera.add(fpArm.group);
+
   // Hooks
   player.onBreak = (x, y, z, prevType) => {
     breakParticles.spawn(prevType, x, y, z);
+    fpArm?.triggerSwing(1);
     const def = BLOCKS[prevType];
-    if (!cfg.isCreative && def && def.drop !== 0) {
-      const dropId = def.drop ?? prevType;
-      const dropCount = def.dropCount ?? 1;
+    // Real-Minecraft tool gating: drops only happen if the player held an
+    // adequate tool. Without a pickaxe, stone breaks but cobblestone does
+    // NOT drop. See Player.canHarvest().
+    const eligible = !cfg.isCreative && def && def.drop !== 0 && player.canHarvest(prevType);
+    if (eligible) {
+      const dropId = def!.drop ?? prevType;
+      const dropCount = def!.dropCount ?? 1;
       drops.spawn(dropId, dropCount, x, y, z);
     }
     if (mp?.isConnected()) mp.sendBlockUpdate(x, y, z, 0);
@@ -568,6 +596,14 @@ async function startGame(serverAddr: string | null) {
     refreshHotbar();
     tickWater(waterT);
     breakParticles.update(dt, (x, y, z) => world.isSolid(x, y, z));
+
+    // First-person arm: chop continuously while LMB held in survival
+    if (fpArm) {
+      if (lmbHeld && player.gameMode === "survival" && player.lastHit) {
+        fpArm.triggerMineSwing();
+      }
+      fpArm.update(dt);
+    }
 
     // Day/night
     if (mp?.isConnected() && Number.isFinite(mp.timeOfDay)) {
