@@ -16,6 +16,7 @@ import { preloadPlayerModel, buildFirstPersonArm, FirstPersonArm } from "./Playe
 import { BreakHighlight, BreakParticles } from "./BreakEffects";
 import { Legion, LegionUser, LegionFriend, readInstantJoinIntent } from "./Legion";
 import { sound, blockSurface } from "./Sound";
+import { blockIconCache, shouldRenderAsBlock } from "./BlockIconCache";
 
 // ── Renderer / scene ────────────────────────────────────────────────────────
 const renderer = new THREE.WebGLRenderer({ antialias: false });
@@ -300,13 +301,24 @@ function refreshHotbar() {
       ct.textContent = "";
       if (dur) dur.remove();
     } else {
-      const tile = getItemTile(data.id);
-      const col = tile % 16, row = Math.floor(tile / 16);
-      wrap.innerHTML = `<div class="slot-icon" style="
-        background-image:url(/terrain_atlas.png?v=5);
-        background-size:512px 512px;
-        background-position:-${col * 32}px -${row * 32}px;
-      "></div>`;
+      // Blocks → runtime-rendered iso cube. Items → flat atlas tile.
+      if (shouldRenderAsBlock(data.id)) {
+        const url = blockIconCache.get(data.id);
+        wrap.innerHTML = `<div class="slot-icon" style="
+          background-image:url('${url}');
+          background-size:contain;
+          background-repeat:no-repeat;
+          background-position:center;
+        "></div>`;
+      } else {
+        const tile = getItemTile(data.id);
+        const col = tile % 16, row = Math.floor(tile / 16);
+        wrap.innerHTML = `<div class="slot-icon" style="
+          background-image:url(/terrain_atlas.png?v=5);
+          background-size:512px 512px;
+          background-position:-${col * 32}px -${row * 32}px;
+        "></div>`;
+      }
       ct.textContent = data.count > 1 && data.count < 999 ? String(data.count) : "";
       // Durability bar (tools only; only when damaged).
       const item = ITEMS[data.id];
@@ -637,14 +649,12 @@ function showDeathScreen() {
 
 function respawnLocalPlayer() {
   if (!player || !inv) return;
-  // Clear inventory on death (survival-style — creative keeps its loadout).
-  if (inv.gameMode !== "creative") {
-    for (const s of inv.hotbar) { s.id = 0; s.count = 0; s.damage = 0; }
-    for (const s of inv.main)   { s.id = 0; s.count = 0; s.damage = 0; }
-  }
+  // Inventory was already dropped at the death position by onHealthChange.
+  // Just bring the player back at full hp/air at the respawn point.
   player.health = player.maxHealth;
   player.airSupply = player.maxAir;
-  player.onHealthChange?.(player.health);
+  // Don't fire onHealthChange — that would re-trigger the death flow.
+  renderHearts(player.health);
   player.spawnAt(_respawnPos.x, _respawnPos.y, _respawnPos.z);
   if (mp?.isConnected()) mp.sendRespawn();
   refreshHotbar();
@@ -937,6 +947,18 @@ async function startGame(serverAddr: string | null) {
     renderHearts(hp);
     if (hp <= 0) {
       sound.death();
+      // Drop the player's whole inventory at the death position before the
+      // respawn flow zeroes it out — that's vanilla survival behaviour.
+      // Creative keeps its loadout (also vanilla).
+      if (inv.gameMode !== "creative") {
+        const dx = player.pos.x, dy = player.pos.y, dz = player.pos.z;
+        for (const s of [...inv.hotbar, ...inv.main]) {
+          if (s.id !== 0 && s.count > 0) drops.spawn(s.id, s.count, dx, dy, dz);
+        }
+        for (const s of inv.hotbar) { s.id = 0; s.count = 0; s.damage = 0; }
+        for (const s of inv.main)   { s.id = 0; s.count = 0; s.damage = 0; }
+        refreshHotbar(); syncHeldItem();
+      }
       showDeathScreen();
     } else {
       sound.hurt();
@@ -965,6 +987,15 @@ async function startGame(serverAddr: string | null) {
     mp.onChat = (sender, msg) => { addChatLine(sender, msg); sound.chat(); };
     mp.onBlockUpdate = (x, y, z, type) => world.setBlock(x, y, z, type);
     mp.onLocalDamage = (d) => player.takeDamage(d);
+    mp.onLocalKnockback = (byX, _byY, byZ) => {
+      // Small impulse away from the attacker + a little upward lift, real-MC style.
+      const dx = player.pos.x - byX;
+      const dz = player.pos.z - byZ;
+      const len = Math.hypot(dx, dz) || 1;
+      player.vel.x += (dx / len) * 4.5;
+      player.vel.z += (dz / len) * 4.5;
+      if (player.onGround) player.vel.y = Math.max(player.vel.y, 3.6);
+    };
     // ── Remote break-overlay sync ──
     // Maintain one BreakHighlight per remote sessionId. We dispose it on
     // breakStop OR after 1.5 s without an update (safety against dropped

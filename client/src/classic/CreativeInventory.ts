@@ -10,6 +10,7 @@
 import { Inventory } from "./Inventory";
 import { BLOCKS, ITEMS, getItemTile, getItemName } from "./Textures";
 import { sound } from "./Sound";
+import { blockIconCache, shouldRenderAsBlock } from "./BlockIconCache";
 
 export class CreativeInventory {
   open = false;
@@ -83,17 +84,20 @@ export class CreativeInventory {
   }
 
   private makeCell(id: number, name: string): HTMLElement {
-    const tile = getItemTile(id);
-    const col = tile % 16, row = Math.floor(tile / 16);
     const cell = document.createElement("button");
     cell.className = "creative-cell";
     cell.title = `${name} (id ${id})`;
+    let iconStyle: string;
+    if (shouldRenderAsBlock(id)) {
+      const url = blockIconCache.get(id);
+      iconStyle = `background-image:url('${url}');background-size:contain;background-repeat:no-repeat;background-position:center;`;
+    } else {
+      const tile = getItemTile(id);
+      const col = tile % 16, row = Math.floor(tile / 16);
+      iconStyle = `background-image:url(/terrain_atlas.png?v=5);background-size:512px 512px;background-position:-${col * 32}px -${row * 32}px;`;
+    }
     cell.innerHTML = `
-      <div class="creative-icon" style="
-        background-image:url(/terrain_atlas.png?v=5);
-        background-size:512px 512px;
-        background-position:-${col * 32}px -${row * 32}px;
-      "></div>
+      <div class="creative-icon" style="${iconStyle}"></div>
       <div class="creative-label">${name}</div>
     `;
     cell.addEventListener("click", () => {

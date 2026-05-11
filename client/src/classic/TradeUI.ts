@@ -7,6 +7,7 @@
 import { Inventory } from "./Inventory";
 import { getItemTile, getItemName, ITEMS } from "./Textures";
 import { sound } from "./Sound";
+import { blockIconCache, shouldRenderAsBlock } from "./BlockIconCache";
 
 interface Trade {
   inputs: Array<{ id: number; count: number }>;
@@ -83,13 +84,17 @@ export class TradeUI {
   }
 
   private iconDiv(id: number, count: number): string {
-    const tile = getItemTile(id);
-    const col = tile % 16, row = Math.floor(tile / 16);
+    let style: string;
+    if (shouldRenderAsBlock(id)) {
+      const url = blockIconCache.get(id);
+      style = `background-image:url('${url}');background-size:contain;background-repeat:no-repeat;background-position:center;`;
+    } else {
+      const tile = getItemTile(id);
+      const col = tile % 16, row = Math.floor(tile / 16);
+      style = `background-image:url(/terrain_atlas.png?v=5);background-size:384px 384px;background-position:-${col * 24}px -${row * 24}px;`;
+    }
     return `
-      <div class="trade-icon" style="
-        background-image:url(/terrain_atlas.png?v=5);
-        background-position:-${col * 24}px -${row * 24}px;
-      " title="${getItemName(id)}"></div>
+      <div class="trade-icon" style="${style}" title="${getItemName(id)}"></div>
       <span>×${count}</span>
     `;
   }

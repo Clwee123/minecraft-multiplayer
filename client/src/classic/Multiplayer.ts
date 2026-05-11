@@ -87,6 +87,9 @@ export class Multiplayer {
   /** Fired when the server-side health of OUR player drops (e.g. zombie hit us).
    *  Delta is the positive damage amount. */
   onLocalDamage?: (dmg: number) => void;
+  /** Fired when WE got hit by another player. byX/Y/Z is the attacker position
+   *  so the client can compute a knockback impulse direction. */
+  onLocalKnockback?: (byX: number, byY: number, byZ: number) => void;
 
   /** A remote player started breaking a block. */
   onRemoteBreakStart?: (sid: string, x: number, y: number, z: number) => void;
@@ -179,6 +182,15 @@ export class Multiplayer {
       this.room.onMessage("playerDied", noop);
       this.room.onMessage("playerDamage", (msg: any) => {
         if (msg && typeof msg.damage === "number") this.onLocalDamage?.(msg.damage);
+      });
+      this.room.onMessage("playerHit", (msg: any) => {
+        if (!msg || msg.id !== this.sessionId) return; // only us
+        // health is already replicated through state.players[me].health, so we
+        // don't need to apply it here — onLocalDamage handles HUD updates via
+        // the state reconciler. We DO need the attacker position for knockback.
+        if (typeof msg.byX === "number" && typeof msg.byZ === "number") {
+          this.onLocalKnockback?.(msg.byX, msg.byY ?? 0, msg.byZ);
+        }
       });
       this.room.onMessage("playerRespawn", noop);
       this.room.onMessage("mobSpawn", noop);

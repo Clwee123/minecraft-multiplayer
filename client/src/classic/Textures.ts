@@ -136,6 +136,72 @@ export const T_I_LEATHER     = T(12, 5);
 export const T_I_BONE        = T(13, 5);
 export const T_I_EGG         = T(14, 5);
 export const T_I_ARROW       = T(15, 5);
+// Row 6 — cooked food + raw food + mob drops
+export const T_I_PORK_COOKED = T(0, 6);
+export const T_I_BEEF_COOKED = T(1, 6);
+export const T_I_CHK_COOKED  = T(2, 6);
+export const T_I_GOLDEN_APPLE= T(3, 6);
+export const T_I_CARROT      = T(4, 6);
+export const T_I_POTATO      = T(5, 6);
+export const T_I_POTATO_BAKED= T(6, 6);
+export const T_I_MELON       = T(7, 6);
+export const T_I_PUMPKIN_PIE = T(8, 6);
+export const T_I_CAKE        = T(9, 6);
+export const T_I_FISH_RAW    = T(10, 6);
+export const T_I_FISH_COOKED = T(11, 6);
+export const T_I_MUSH_STEW   = T(12, 6);
+export const T_I_ROTTEN      = T(13, 6);
+export const T_I_SPIDER_EYE  = T(14, 6);
+export const T_I_SUGAR       = T(15, 6);
+// Row 7 — tools / utility
+export const T_I_BUCKET      = T(0, 7);
+export const T_I_BUCKET_W    = T(1, 7);
+export const T_I_BUCKET_L    = T(2, 7);
+export const T_I_BUCKET_M    = T(3, 7);
+export const T_I_BOW         = T(4, 7);
+export const T_I_FISHING_ROD = T(5, 7);
+export const T_I_SHEARS      = T(6, 7);
+export const T_I_COMPASS     = T(7, 7);
+export const T_I_CLOCK       = T(8, 7);
+export const T_I_FLINT_STEEL = T(9, 7);
+export const T_I_BLAZE_ROD   = T(10, 7);
+export const T_I_ENDER_PEARL = T(11, 7);
+export const T_I_GHAST_TEAR  = T(12, 7);
+export const T_I_GLOWDUST    = T(13, 7);
+export const T_I_REDSTONE    = T(14, 7);
+export const T_I_SLIMEBALL   = T(15, 7);
+// Row 8 — armor
+export const T_I_HELM_LEATHER = T(0, 8);
+export const T_I_CHEST_LEATHER= T(1, 8);
+export const T_I_LEGS_LEATHER = T(2, 8);
+export const T_I_BOOTS_LEATHER= T(3, 8);
+export const T_I_HELM_IRON    = T(4, 8);
+export const T_I_CHEST_IRON   = T(5, 8);
+export const T_I_LEGS_IRON    = T(6, 8);
+export const T_I_BOOTS_IRON   = T(7, 8);
+export const T_I_HELM_GOLD    = T(8, 8);
+export const T_I_CHEST_GOLD   = T(9, 8);
+export const T_I_LEGS_GOLD    = T(10, 8);
+export const T_I_BOOTS_GOLD   = T(11, 8);
+export const T_I_HELM_DIAM    = T(12, 8);
+export const T_I_CHEST_DIAM   = T(13, 8);
+export const T_I_LEGS_DIAM    = T(14, 8);
+export const T_I_BOOTS_DIAM   = T(15, 8);
+// Row 9 — misc
+export const T_I_BOOK         = T(0, 9);
+export const T_I_PAPER        = T(1, 9);
+export const T_I_SNOWBALL     = T(2, 9);
+export const T_I_SADDLE       = T(3, 9);
+export const T_I_NAMETAG      = T(4, 9);
+export const T_I_LEAD         = T(5, 9);
+export const T_I_EMERALD      = T(6, 9);
+export const T_I_MAGMA_CREAM  = T(7, 9);
+export const T_I_NETHER_STAR  = T(8, 9);
+export const T_I_XP_BOTTLE    = T(9, 9);
+export const T_I_MINECART     = T(11, 9);
+export const T_I_BOAT         = T(12, 9);
+export const T_I_FIREWORKS    = T(14, 9);
+export const T_I_FIRE_CHARGE  = T(15, 9);
 
 // ── Block definitions ─────────────────────────────────────────────────────────
 export const BLOCKS: Record<number, BlockDef> = {
@@ -222,7 +288,73 @@ export const ITEMS: Record<number, { name: string; tile: number; tool?: "axe" | 
   78: { name: "Bone",           tile: T_I_BONE },
   79: { name: "Egg",            tile: T_I_EGG },
   80: { name: "Arrow",          tile: T_I_ARROW },
-  81: { name: "Emerald",        tile: T_I_DIAMOND /* fallback icon — atlas has no emerald yet */ },
+  81: { name: "Emerald",        tile: T_I_EMERALD },
+  // Cooked / golden foods
+  82: { name: "Cooked Porkchop", tile: T_I_PORK_COOKED, food: 8 },
+  83: { name: "Cooked Beef",     tile: T_I_BEEF_COOKED, food: 8 },
+  84: { name: "Cooked Chicken",  tile: T_I_CHK_COOKED,  food: 6 },
+  85: { name: "Golden Apple",    tile: T_I_GOLDEN_APPLE, food: 4 },
+  86: { name: "Carrot",          tile: T_I_CARROT,      food: 3 },
+  87: { name: "Potato",          tile: T_I_POTATO,      food: 1 },
+  88: { name: "Baked Potato",    tile: T_I_POTATO_BAKED,food: 5 },
+  89: { name: "Melon",           tile: T_I_MELON,       food: 2 },
+  90: { name: "Pumpkin Pie",     tile: T_I_PUMPKIN_PIE, food: 8 },
+  91: { name: "Cake",            tile: T_I_CAKE,        food: 2 },
+  92: { name: "Raw Fish",        tile: T_I_FISH_RAW,    food: 2 },
+  93: { name: "Cooked Fish",     tile: T_I_FISH_COOKED, food: 5 },
+  94: { name: "Mushroom Stew",   tile: T_I_MUSH_STEW,   food: 6 },
+  // Mob drops
+  95: { name: "Rotten Flesh",    tile: T_I_ROTTEN,      food: 4 },
+  96: { name: "Spider Eye",      tile: T_I_SPIDER_EYE },
+  97: { name: "Sugar",           tile: T_I_SUGAR },
+  // Tools / utility
+  98:  { name: "Bucket",          tile: T_I_BUCKET },
+  99:  { name: "Water Bucket",    tile: T_I_BUCKET_W },
+  100: { name: "Lava Bucket",     tile: T_I_BUCKET_L },
+  101: { name: "Milk Bucket",     tile: T_I_BUCKET_M },
+  102: { name: "Bow",             tile: T_I_BOW },
+  103: { name: "Fishing Rod",     tile: T_I_FISHING_ROD },
+  104: { name: "Shears",          tile: T_I_SHEARS,      tool: "shears", toolTier: 1, durability: 238 },
+  105: { name: "Compass",         tile: T_I_COMPASS },
+  106: { name: "Clock",           tile: T_I_CLOCK },
+  107: { name: "Flint and Steel", tile: T_I_FLINT_STEEL, durability: 65 },
+  108: { name: "Blaze Rod",       tile: T_I_BLAZE_ROD },
+  109: { name: "Ender Pearl",     tile: T_I_ENDER_PEARL },
+  110: { name: "Ghast Tear",      tile: T_I_GHAST_TEAR },
+  111: { name: "Glowstone Dust",  tile: T_I_GLOWDUST },
+  112: { name: "Redstone Dust",   tile: T_I_REDSTONE },
+  113: { name: "Slimeball",       tile: T_I_SLIMEBALL },
+  // Armor (no equip slot yet, but craftable + tradeable)
+  114: { name: "Leather Helmet",      tile: T_I_HELM_LEATHER,  durability: 55  },
+  115: { name: "Leather Chestplate",  tile: T_I_CHEST_LEATHER, durability: 80  },
+  116: { name: "Leather Leggings",    tile: T_I_LEGS_LEATHER,  durability: 75  },
+  117: { name: "Leather Boots",       tile: T_I_BOOTS_LEATHER, durability: 65  },
+  118: { name: "Iron Helmet",         tile: T_I_HELM_IRON,     durability: 165 },
+  119: { name: "Iron Chestplate",     tile: T_I_CHEST_IRON,    durability: 240 },
+  120: { name: "Iron Leggings",       tile: T_I_LEGS_IRON,     durability: 225 },
+  121: { name: "Iron Boots",          tile: T_I_BOOTS_IRON,    durability: 195 },
+  122: { name: "Golden Helmet",       tile: T_I_HELM_GOLD,     durability: 77  },
+  123: { name: "Golden Chestplate",   tile: T_I_CHEST_GOLD,    durability: 112 },
+  124: { name: "Golden Leggings",     tile: T_I_LEGS_GOLD,     durability: 105 },
+  125: { name: "Golden Boots",        tile: T_I_BOOTS_GOLD,    durability: 91  },
+  126: { name: "Diamond Helmet",      tile: T_I_HELM_DIAM,     durability: 363 },
+  127: { name: "Diamond Chestplate",  tile: T_I_CHEST_DIAM,    durability: 528 },
+  128: { name: "Diamond Leggings",    tile: T_I_LEGS_DIAM,     durability: 495 },
+  129: { name: "Diamond Boots",       tile: T_I_BOOTS_DIAM,    durability: 429 },
+  // Misc
+  130: { name: "Book",          tile: T_I_BOOK },
+  131: { name: "Paper",         tile: T_I_PAPER },
+  132: { name: "Snowball",      tile: T_I_SNOWBALL },
+  133: { name: "Saddle",        tile: T_I_SADDLE },
+  134: { name: "Name Tag",      tile: T_I_NAMETAG },
+  135: { name: "Lead",          tile: T_I_LEAD },
+  136: { name: "Magma Cream",   tile: T_I_MAGMA_CREAM },
+  137: { name: "Nether Star",   tile: T_I_NETHER_STAR },
+  138: { name: "Bottle o' Enchanting", tile: T_I_XP_BOTTLE },
+  139: { name: "Minecart",      tile: T_I_MINECART },
+  140: { name: "Boat",          tile: T_I_BOAT },
+  141: { name: "Firework Rocket", tile: T_I_FIREWORKS },
+  142: { name: "Fire Charge",   tile: T_I_FIRE_CHARGE },
 };
 
 export const BLOCK_NAMES: Record<number, string> = {

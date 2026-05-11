@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { clone as skeletonClone } from "three/examples/jsm/utils/SkeletonUtils.js";
-import { tileUV, getItemTile, getAtlasTexture } from "./Textures";
+import { tileUV, getItemTile, getAtlasTexture, BLOCKS } from "./Textures";
 
 /**
  * Loader for the player GLB model. Loads once, then clones the scene
@@ -264,15 +264,20 @@ export function buildFirstPersonArm(): FirstPersonArm | null {
 // ── Held-item models (shared between FP arm and remote players) ─────────────
 
 /**
- * Build a flat sprite-style item icon usable as a held item. The tile UVs
- * are baked into the geometry so we don't need a per-instance material set.
- * In MC pre-1.13 held items rendered as thin slabs; we do a single quad.
+ * Build the in-hand mesh for `itemId`. For BLOCKS we build an actual textured
+ * cube so the held item reads as a 3D block from any angle (Minecraft 1.8
+ * does the same). For ITEMS we build a flat sprite-style plane.
  */
-export function buildHeldItemModel(itemId: number, opts: { firstPerson?: boolean } = {}): THREE.Mesh {
+export function buildHeldItemModel(itemId: number, opts: { firstPerson?: boolean } = {}): THREE.Object3D {
+  const isBlock = itemId > 0 && itemId < 50 && !!BLOCKS[itemId] && !BLOCKS[itemId].crossShape;
+  if (isBlock) return buildHeldBlock(itemId, opts);
+  return buildHeldPlane(itemId, opts);
+}
+
+function buildHeldPlane(itemId: number, opts: { firstPerson?: boolean } = {}): THREE.Mesh {
   const tile = getItemTile(itemId);
   const [u0, v0, u1, v1] = tileUV(tile);
   const geo = new THREE.PlaneGeometry(opts.firstPerson ? 0.45 : 0.35, opts.firstPerson ? 0.45 : 0.35);
-  // PlaneGeometry UV order: [tl, tr, bl, br] in (col, row) → indices 0..7
   const uvAttr = geo.getAttribute("uv") as THREE.BufferAttribute;
   const arr = uvAttr.array as Float32Array;
   arr[0] = u0; arr[1] = v1;
@@ -290,6 +295,39 @@ export function buildHeldItemModel(itemId: number, opts: { firstPerson?: boolean
   const mesh = new THREE.Mesh(geo, mat);
   mesh.frustumCulled = false;
   mesh.renderOrder = opts.firstPerson ? 1001 : 1;
+  return mesh;
+}
+
+function buildHeldBlock(blockId: number, opts: { firstPerson?: boolean } = {}): THREE.Mesh {
+  const def = BLOCKS[blockId];
+  const size = opts.firstPerson ? 0.42 : 0.36;
+  const geo = new THREE.BoxGeometry(size, size, size);
+  // BoxGeometry face order: +X, -X, +Y, -Y, +Z, -Z. Each face has 4 UVs.
+  // Default PlaneGeometry-like UV order inside each face: [tl, tr, bl, br].
+  const uvAttr = geo.getAttribute("uv") as THREE.BufferAttribute;
+  const arr = uvAttr.array as Float32Array;
+  for (let f = 0; f < 6; f++) {
+    const tileIdx = def.faces[f];
+    const [u0, v0, u1, v1] = tileUV(tileIdx);
+    const base = f * 8;
+    arr[base + 0] = u0; arr[base + 1] = v1;
+    arr[base + 2] = u1; arr[base + 3] = v1;
+    arr[base + 4] = u0; arr[base + 5] = v0;
+    arr[base + 6] = u1; arr[base + 7] = v0;
+  }
+  uvAttr.needsUpdate = true;
+  const mat = new THREE.MeshLambertMaterial({
+    map: getAtlasTexture(),
+    transparent: !!def.transparent || !!def.isLeaf,
+    alphaTest: (def.transparent || def.isLeaf) ? 0.5 : 0,
+    depthTest: !opts.firstPerson,
+    depthWrite: !opts.firstPerson,
+  });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.frustumCulled = false;
+  mesh.renderOrder = opts.firstPerson ? 1001 : 1;
+  // Tilt so the front face is angled toward the camera — vanilla look.
+  mesh.rotation.set(0.4, 0.7, 0);
   return mesh;
 }
 

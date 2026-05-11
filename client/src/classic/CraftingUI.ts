@@ -1,6 +1,20 @@
 import { Inventory, InvSlot, matchRecipe, consumeGrid, emptySlot, RECIPES, Recipe } from "./Inventory";
 import { getItemTile, getItemName } from "./Textures";
 import { sound } from "./Sound";
+import { blockIconCache, shouldRenderAsBlock } from "./BlockIconCache";
+
+function iconStyleFor(id: number, size = 32): string {
+  if (shouldRenderAsBlock(id)) {
+    const url = blockIconCache.get(id);
+    return `background-image:url('${url}');background-size:contain;background-repeat:no-repeat;background-position:center;`;
+  }
+  const tile = getItemTile(id);
+  const col = tile % 16, row = Math.floor(tile / 16);
+  // Scale factor: source tile is 32px in a 512px atlas; if rendering at a
+  // different display size, scale background-size + position.
+  const scale = size / 32;
+  return `background-image:url(/terrain_atlas.png?v=5);background-size:${512 * scale}px ${512 * scale}px;background-position:-${col * 32 * scale}px -${row * 32 * scale}px;`;
+}
 
 /**
  * Drag-and-drop crafting UI.
@@ -146,14 +160,8 @@ export class CraftingUI {
     const recipe = matchRecipe(grid, dim);
     this.outputSlot.innerHTML = "";
     if (!recipe) return;
-    const tile = getItemTile(recipe.result);
-    const col = tile % 16, row = Math.floor(tile / 16);
     this.outputSlot.innerHTML = `
-      <div class="slot-icon" style="
-        background-image:url(/terrain_atlas.png?v=5);
-        background-size:512px 512px;
-        background-position:-${col * 32}px -${row * 32}px;
-      "></div>
+      <div class="slot-icon" style="${iconStyleFor(recipe.result)}"></div>
       <span class="slot-count">${recipe.count > 1 ? recipe.count : ""}</span>
     `;
     this.outputSlot.title = getItemName(recipe.result);
@@ -184,14 +192,8 @@ export class CraftingUI {
       this.cursorEl.style.display = "none";
       return;
     }
-    const tile = getItemTile(this.cursor.id);
-    const col = tile % 16, row = Math.floor(tile / 16);
     this.cursorEl.innerHTML = `
-      <div class="slot-icon" style="
-        background-image:url(/terrain_atlas.png?v=5);
-        background-size:512px 512px;
-        background-position:-${col * 32}px -${row * 32}px;
-      "></div>
+      <div class="slot-icon" style="${iconStyleFor(this.cursor.id)}"></div>
       <span class="slot-count">${this.cursor.count > 1 ? this.cursor.count : ""}</span>
     `;
     this.cursorEl.style.display = "block";
@@ -202,14 +204,8 @@ export class CraftingUI {
     el.className = "inv-slot";
     const s = arr[i];
     if (s.id !== 0 && s.count > 0) {
-      const tile = getItemTile(s.id);
-      const col = tile % 16, row = Math.floor(tile / 16);
       el.innerHTML = `
-        <div class="slot-icon" style="
-          background-image:url(/terrain_atlas.png?v=5);
-          background-size:512px 512px;
-          background-position:-${col * 32}px -${row * 32}px;
-        "></div>
+        <div class="slot-icon" style="${iconStyleFor(s.id)}"></div>
         <span class="slot-count">${s.count > 1 ? s.count : ""}</span>
       `;
       el.title = getItemName(s.id);
@@ -287,13 +283,7 @@ export class CraftingUI {
       const cell = document.createElement("div");
       cell.className = "recipe-cell";
       if (c != null) {
-        const tile = getItemTile(c);
-        const col = tile % 16, row = Math.floor(tile / 16);
-        cell.innerHTML = `<div class="recipe-icon" style="
-          background-image:url(/terrain_atlas.png?v=5);
-          background-size:384px 384px;
-          background-position:-${col * 24}px -${row * 24}px;
-        " title="${getItemName(c)}"></div>`;
+        cell.innerHTML = `<div class="recipe-icon" style="${iconStyleFor(c, 24)}" title="${getItemName(c)}"></div>`;
       }
       grid.appendChild(cell);
     }
@@ -306,14 +296,8 @@ export class CraftingUI {
 
     const out = document.createElement("div");
     out.className = "recipe-out";
-    const tile = getItemTile(r.result);
-    const col = tile % 16, rowi = Math.floor(tile / 16);
     out.innerHTML = `
-      <div class="recipe-icon" style="
-        background-image:url(/terrain_atlas.png?v=5);
-        background-size:384px 384px;
-        background-position:-${col * 24}px -${rowi * 24}px;
-      "></div>
+      <div class="recipe-icon" style="${iconStyleFor(r.result, 24)}"></div>
       <span class="recipe-label">${getItemName(r.result)}${r.count > 1 ? ` ×${r.count}` : ""}</span>
     `;
     row.appendChild(out);

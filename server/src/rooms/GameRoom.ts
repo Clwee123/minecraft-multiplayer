@@ -124,7 +124,12 @@ export class GameRoom extends Room<GameState> {
       if (d > 5.5) return;
       const dmg = Math.max(1, Math.min(20, (Number(data?.damage) || 4) | 0));
       target.health = Math.max(0, target.health - dmg) as any;
-      this.broadcast("playerHit", { id: targetId, by: client.sessionId, damage: dmg });
+      // Include attacker's position so the target client can compute a
+      // knockback direction without trusting per-attacker direction input.
+      this.broadcast("playerHit", {
+        id: targetId, by: client.sessionId, damage: dmg,
+        byX: attacker.x, byY: attacker.y, byZ: attacker.z,
+      });
       if (target.health <= 0) {
         // Respawn after a moment
         this.broadcast("playerDied", { id: targetId, by: client.sessionId, name: target.name });
