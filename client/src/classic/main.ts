@@ -56,6 +56,71 @@ let serverFinder: ServerFinder | null = null;
 let drops: ItemDrops;
 /** Chunk render distance — adjustable from the Options modal. */
 let _renderDist = 5;
+
+// ── Mode state machine (BuildBattle / HideAndSeek) ────────────────────────
+//
+// Lightweight, client-side. Each mode walks through a fixed sequence of
+// phases (waiting → playing → results). The HUD banner shows the current
+// phase + countdown so players actually know what's going on.
+interface ModePhase { name: string; help: string; durationSec: number; }
+let _modePhases: ModePhase[] = [];
+let _modePhaseIdx = 0;
+let _modePhaseEnd = 0;
+
+function startModeStates(modeId: ModeId) {
+  if (modeId === "buildbattle_mp") {
+    _modePhases = [
+      { name: "Waiting for players", help: "Hop on a plot — round starts in 30s", durationSec: 30 },
+      { name: "Build Phase",         help: "Build something cool on your plot!",  durationSec: 300 },
+      { name: "Voting",              help: "Walk around the plots — best build wins", durationSec: 90 },
+      { name: "Results!",            help: "Next round starting…",                 durationSec: 20 },
+    ];
+  } else if (modeId === "hideandseek_mp") {
+    _modePhases = [
+      { name: "Waiting for players", help: "Round starts in 30s",                          durationSec: 30 },
+      { name: "Hide!",               help: "Find a spot — seeker is frozen",              durationSec: 30 },
+      { name: "Seek!",               help: "Track down everyone before time runs out",    durationSec: 180 },
+      { name: "Round over",          help: "Resetting…",                                   durationSec: 15 },
+    ];
+  } else {
+    _modePhases = [];
+    setModeStateBanner(null);
+    return;
+  }
+  _modePhaseIdx = 0;
+  _modePhaseEnd = performance.now() + _modePhases[0].durationSec * 1000;
+  paintModePhase();
+}
+
+function paintModePhase() {
+  if (_modePhases.length === 0) { setModeStateBanner(null); return; }
+  const p = _modePhases[_modePhaseIdx];
+  setModeStateBanner(p.name, p.help);
+}
+
+function setModeStateBanner(phase: string | null, help = "") {
+  const el = document.getElementById("modeStateBanner");
+  if (!el) return;
+  if (!phase) { el.style.display = "none"; return; }
+  el.style.display = "block";
+  (el.querySelector(".phase") as HTMLElement).textContent = phase;
+  (el.querySelector(".help")  as HTMLElement).textContent = help;
+}
+
+function tickModeState() {
+  if (_modePhases.length === 0) return;
+  const remainingMs = Math.max(0, _modePhaseEnd - performance.now());
+  const secs = Math.ceil(remainingMs / 1000);
+  const m = Math.floor(secs / 60), s = secs % 60;
+  const el = document.getElementById("modeStateBanner");
+  const t = el?.querySelector(".timer") as HTMLElement | null;
+  if (t) t.textContent = `· ${m}:${String(s).padStart(2, "0")}`;
+  if (remainingMs <= 0) {
+    _modePhaseIdx = (_modePhaseIdx + 1) % _modePhases.length;
+    _modePhaseEnd = performance.now() + _modePhases[_modePhaseIdx].durationSec * 1000;
+    paintModePhase();
+  }
+}
 let mp: Multiplayer | null = null;
 let mode: ModeId = "creative_offline";
 let playerName = "Player";
@@ -867,7 +932,19 @@ function showDeathScreen() {
   const el = document.getElementById("deathScreen");
   if (!el) return;
   document.exitPointerLock();
+  // Close every other modal so the death screen is the only thing on top.
+  for (const id of ["invPanel", "creativeInv", "recipeBook", "tradeUI", "optionsModal", "keybindsModal", "controllerModal", "pauseMenu"]) {
+    const m = document.getElementById(id);
+    if (m) m.style.display = "none";
+  }
+  // Hide the first-person arm — the player has no body any more.
+  if (fpArm) fpArm.group.visible = false;
   el.style.display = "flex";
+  const cause = document.getElementById("deathCause");
+  if (cause) {
+    const reason = player?.lastDamageReason || "an unknown cause";
+    cause.textContent = `Killed by ${reason}`;
+  }
   if (!_deathWired) {
     _deathWired = true;
     document.getElementById("deathRespawnBtn")?.addEventListener("click", () => {
@@ -876,7 +953,6 @@ function showDeathScreen() {
       setTimeout(() => document.body.requestPointerLock(), 50);
     });
     document.getElementById("deathMenuBtn")?.addEventListener("click", () => {
-      // Reload to the main menu — simplest reset.
       window.location.reload();
     });
   }
@@ -885,18 +961,19 @@ function showDeathScreen() {
 function respawnLocalPlayer() {
   if (!player || !inv) return;
   // Inventory was already dropped at the death position by onHealthChange.
-  // Just bring the player back at full hp/air at the respawn point.
   player.health = player.maxHealth;
   player.airSupply = player.maxAir;
-  player.isDead = false;          // re-enable input + interactions
-  // XP reset on death (vanilla actually keeps part; we drop everything).
+  player.isDead = false;
+  player.lastDamageReason = "";
   player.xpLevel = 0;
   player.xpProgress = 0;
   renderXp(0, 0);
-  // Don't fire onHealthChange — that would re-trigger the death flow.
   renderHearts(player.health);
   renderBubbles(player.maxAir, player.maxAir);
+  hunger = 20; renderHunger(hunger);
   player.spawnAt(_respawnPos.x, _respawnPos.y, _respawnPos.z);
+  // Show the first-person arm again — we were "despawned" while dead.
+  if (fpArm) fpArm.group.visible = true;
   if (mp?.isConnected()) mp.sendRespawn();
   refreshHotbar();
   syncHeldItem();
@@ -1107,9 +1184,16 @@ async function startGame(serverAddr: string | null) {
     mp.onDisconnected = () => addChatLine("", "Disconnected from server");
     mp.onError = (err) => addChatLine("", "Connect error: " + err);
     mp.onChat = (sender, msg) => { addChatLine(sender, msg); sound.chat(); };
-    mp.onBlockUpdate = (x, y, z, type) => { if (world) world.setBlock(x, y, z, type); };
-    mp.onLocalDamage = (d) => player?.takeDamage(d);
+    mp.onBlockUpdate = (x, y, z, type) => {
+      // Server-replicated changes must NOT auto-create empty chunks (that
+      // would prevent terrain generation for those chunks later — see
+      // World.setBlock). If the chunk isn't loaded, the change is buffered
+      // and applied when generateChunk reaches it.
+      if (world) world.setBlock(x, y, z, type, { autoCreate: false });
+    };
+    mp.onLocalDamage = (d) => player?.takeDamage(d, "a monster");
     mp.onLocalKnockback = (byX, _byY, byZ) => {
+      if (player) player.lastDamageReason = "another player";
       if (!player) return;
       const dx = player.pos.x - byX;
       const dz = player.pos.z - byZ;
@@ -1344,8 +1428,9 @@ async function startGame(serverAddr: string | null) {
 
   Legion.loadingEnd();
   Legion.gameplayStart();
-  // Now that the world is up, ESC → pause is meaningful.
   pauseGameStarted = true;
+  // Start the per-mode phase ticker for modes that have one.
+  startModeStates(mode);
 
   // Game loop
   let last = performance.now();
@@ -1397,6 +1482,7 @@ async function startGame(serverAddr: string | null) {
       world.updateAroundPlayer(player.pos.x, player.pos.z, _renderDist);
     }
     pollGamepad(dt);
+    tickModeState();
     world.rebuildDirty(2, player.pos.x, player.pos.z);
 
     if (!cfg.isCreative) {
@@ -1406,7 +1492,7 @@ async function startGame(serverAddr: string | null) {
       if (hungerTimer > 60) {
         hungerTimer = 0;
         if (hunger > 0) hunger--;
-        else if (player.health > 0) player.takeDamage(1);
+        else if (player.health > 0) player.takeDamage(1, "starvation");
         renderHunger(hunger);
       }
     }
@@ -1512,12 +1598,11 @@ async function startGame(serverAddr: string | null) {
       if (cfg.isCreative) {
         player.spawnAt(spawnX, spawnY, spawnZ);
       } else {
-        // The takeDamage(20) will drop hp to 0 → onHealthChange shows the
-        // death screen. Don't teleport here — Respawn handles that.
-        player.takeDamage(20);
+        player.takeDamage(20, "the void");
         if (player.health > 0) player.spawnAt(spawnX, spawnY, spawnZ);
       }
     }
+    // Hunger starvation also has a clearer reason now (was "other").
 
     if (mp?.isConnected()) {
       mpSendTimer += dt;

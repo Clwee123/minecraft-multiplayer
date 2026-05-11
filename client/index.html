@@ -86,8 +86,14 @@
       margin-top: 16px;
     }
     .menu-panel {
-      max-width: 1200px;
+      /* Definite width so the auto-fill mode-grid actually multi-columns.
+       * `align-items: center` on #mainMenu otherwise makes us shrink to
+       * content size, which collapsed the grid to a single column. */
+      width: min(1100px, 95vw);
+      min-width: 0;
+      max-width: 1100px;
     }
+    .mode-grid { width: 100%; }
     .mode-card {
       position: relative;
       aspect-ratio: 16 / 9;
@@ -1022,6 +1028,39 @@
       z-index: 30; pointer-events: none;
     }
 
+    /* ── Mode-state banner (BuildBattle / HideAndSeek) ──────────── */
+    #modeStateBanner {
+      position: fixed; top: 32px; left: 50%;
+      transform: translateX(-50%);
+      padding: 6px 18px;
+      background: rgba(0,0,0,0.55);
+      border: 1px solid rgba(255,255,255,0.15);
+      border-radius: 4px;
+      color: #fff;
+      font-family: 'Minecraft', 'Courier New', monospace;
+      font-size: 15px;
+      text-shadow: 2px 2px 0 #000;
+      z-index: 31;
+      pointer-events: none;
+      display: none;
+      text-align: center;
+      max-width: 70vw;
+    }
+    #modeStateBanner .phase {
+      color: #ffe66d;
+      letter-spacing: 1px;
+    }
+    #modeStateBanner .timer {
+      color: #5be17a;
+      margin-left: 8px;
+    }
+    #modeStateBanner .help {
+      display: block;
+      font-size: 11px;
+      opacity: 0.75;
+      margin-top: 2px;
+    }
+
     #fps {
       position: fixed; top: 10px; right: 12px;
       color: rgba(255,255,255,0.85);
@@ -1343,6 +1382,7 @@
       <table><tbody id="playerListBody"></tbody></table>
     </div>
     <div id="modeLabel"></div>
+    <div id="modeStateBanner"><span class="phase"></span><span class="timer"></span><span class="help"></span></div>
     <div id="helpHud">
       <div><b>WASD</b> move · <b>Shift</b> sprint · <b>C</b> crouch · <b>Space</b> jump · <b>2×Space</b> fly</div>
       <div><b>Mouse</b> look · <b>LMB</b> break (hold) · <b>RMB</b> place / open crafting table</div>

@@ -454,6 +454,29 @@ export class Multiplayer {
    * This is the resilient path — works even if Colyseus schema callbacks
    * never fire (server version skew, etc.).
    */
+  /**
+   * Simple swing animation for the four shoulder/hip bones of a remote
+   * player's GLB rig. Walk phase advances with speed; arms swing opposite
+   * to the same-side leg like a normal human gait.
+   */
+  private _limbPhase = new WeakMap<object, number>();
+  private animateLimbs(rp: RemotePlayer, dt: number) {
+    const moving = rp.speed > 0.5;
+    let phase = this._limbPhase.get(rp) ?? 0;
+    if (moving) phase += Math.min(rp.speed, 6) * dt * 1.4;
+    else        phase *= 0.92; // ease out so legs return to neutral
+    this._limbPhase.set(rp, phase);
+    const swing = Math.sin(phase) * (moving ? 0.55 : 0);
+    const armR = rp.mesh.getObjectByName("ArmR1");
+    const armL = rp.mesh.getObjectByName("ArmL1");
+    const legR = rp.mesh.getObjectByName("LegR1");
+    const legL = rp.mesh.getObjectByName("LegL1");
+    if (armR) armR.rotation.x = -swing;
+    if (armL) armL.rotation.x =  swing;
+    if (legR) legR.rotation.x =  swing;
+    if (legL) legL.rotation.x = -swing;
+  }
+
   private reconcileFromState() {
     if (!this.room) return;
     const state: any = this.room.state;
@@ -590,15 +613,19 @@ export class Multiplayer {
 
       if (rp.anim) {
         rp.anim.mixer?.update(dt);
-        const moving = rp.speed > 0.5;
         if (rp.anim.walkAction && rp.anim.idleAction) {
+          const moving = rp.speed > 0.5;
           const tw = moving ? 1 : 0;
           const ti = moving ? 0 : 1;
           rp.anim.walkAction.weight += (tw - rp.anim.walkAction.weight) * Math.min(1, dt * 8);
           rp.anim.idleAction.weight += (ti - rp.anim.idleAction.weight) * Math.min(1, dt * 8);
+        } else {
+          // GLB has no baked animations — drive the arm/leg bones manually
+          // so other players don't just glide around in a T-pose.
+          this.animateLimbs(rp, dt);
         }
       } else {
-        // Box-humanoid leg swing fallback
+        // Box-humanoid leg swing fallback (used when GLB failed to load).
         const t = performance.now() * 0.008;
         const moving = rp.speed > 0.5;
         const amp = moving ? 0.6 : 0;

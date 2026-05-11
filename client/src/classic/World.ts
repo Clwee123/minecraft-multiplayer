@@ -94,6 +94,9 @@ export class World {
   private dirtyChunks: Set<string> = new Set();
   private infinite: boolean;
   private seed: number;
+  /** Buffered block changes for chunks that haven't been generated yet.
+   *  Applied automatically inside generateChunk() once we get there. */
+  private pendingBlockChanges: Map<string, Array<{ x: number; y: number; z: number; type: number }>> = new Map();
 
   private opaqueMat: THREE.Material | null = null;
   private leavesMat: THREE.Material | null = null;
@@ -184,13 +187,24 @@ export class World {
     return chunk.get(lx, y, lz);
   }
 
-  setBlock(x: number, y: number, z: number, type: number) {
+  setBlock(x: number, y: number, z: number, type: number, opts: { autoCreate?: boolean } = {}) {
     if (y < 0 || y >= CHUNK_H) return;
+    const autoCreate = opts.autoCreate !== false;
     const cx = Math.floor(x / CHUNK_W);
     const cz = Math.floor(z / CHUNK_W);
     const key = `${cx},${cz}`;
     let chunk = this.chunks.get(key);
     if (!chunk) {
+      if (!autoCreate) {
+        // Buffer: we don't know the natural terrain for this chunk yet, so
+        // creating an empty chunk here would BLOCK generateChunk() from
+        // running later (it skips chunks that already exist). That's the
+        // bug behind those rectangular "hole" patches in the world.
+        const list = this.pendingBlockChanges.get(key) ?? [];
+        list.push({ x, y, z, type });
+        this.pendingBlockChanges.set(key, list);
+        return;
+      }
       chunk = new Chunk();
       this.chunks.set(key, chunk);
     }
@@ -199,7 +213,6 @@ export class World {
     if (chunk.get(lx, y, lz) === type) return;
     chunk.set(lx, y, lz, type);
     this.dirtyChunks.add(key);
-    // Mark neighbors dirty if on boundary
     if (lx === 0)             this.dirtyChunks.add(`${cx - 1},${cz}`);
     if (lx === CHUNK_W - 1)   this.dirtyChunks.add(`${cx + 1},${cz}`);
     if (lz === 0)             this.dirtyChunks.add(`${cx},${cz - 1}`);
@@ -358,6 +371,22 @@ export class World {
           if (chunk.get(lx, y, lz) === 1) chunk.set(lx, y, lz, 23);
         }
       }
+    }
+
+    // Apply any pre-buffered block changes for this chunk before villages
+    // get placed — that way placed structures still win over server-replicated
+    // edits at the same coordinates.
+    const pendingKey = `${cx},${cz}`;
+    const pending = this.pendingBlockChanges.get(pendingKey);
+    if (pending) {
+      for (const c of pending) {
+        const lx = c.x - cx * CHUNK_W;
+        const lz = c.z - cz * CHUNK_W;
+        if (lx >= 0 && lx < CHUNK_W && lz >= 0 && lz < CHUNK_W && c.y >= 0 && c.y < CHUNK_H) {
+          chunk.set(lx, c.y, lz, c.type);
+        }
+      }
+      this.pendingBlockChanges.delete(pendingKey);
     }
 
     // ── Villages ──

@@ -63,6 +63,8 @@ export class Player {
    *  dead, all input is dropped and physics velocity is zeroed so the corpse
    *  can't pick up its own drops or wander away. */
   isDead = false;
+  /** Last damage source — shown on the death screen. */
+  lastDamageReason = "";
   inv: Inventory | null = null;
 
   // ── XP ──
@@ -149,9 +151,10 @@ export class Player {
     this.isDead = false;
   }
 
-  takeDamage(dmg: number) {
+  takeDamage(dmg: number, reason?: string) {
     if (this.gameMode === "creative") return;
     if (this.health <= 0 || this.isDead) return;
+    if (reason) this.lastDamageReason = reason;
     this.health = Math.max(0, this.health - dmg);
     if (this.health <= 0) this.isDead = true;
     this.onHealthChange?.(this.health);
@@ -318,13 +321,12 @@ export class Player {
     this.headUnderwater = headBlock === 7;
 
     // Air supply: drain while head submerged, INSTANT refill on surfacing.
-    // (Real MC also fills bubbles back instantly when you leave water.)
     const prevAir = this.airSupply;
     if (this.headUnderwater && this.gameMode !== "creative") {
       this.airSupply = Math.max(0, this.airSupply - AIR_DRAIN_PER_SEC * dt);
       if (this.airSupply <= 0) {
         this.drownTimer += dt;
-        if (this.drownTimer >= 1) { this.drownTimer = 0; this.takeDamage(DROWN_DPS); }
+        if (this.drownTimer >= 1) { this.drownTimer = 0; this.takeDamage(DROWN_DPS, "drowning"); }
       } else {
         this.drownTimer = 0;
       }
