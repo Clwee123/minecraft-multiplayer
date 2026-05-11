@@ -672,9 +672,7 @@ window.addEventListener("keydown", (e) => {
     const n = parseInt(e.code.slice(5)) - 1;
     if (n >= 0 && n < 9) selectSlot(n);
   }
-  if (e.code === "KeyE") {
-    // Creative mode opens the all-items grid; survival opens the crafting
-    // grid (matches MC's behaviour).
+  if (e.code === KEY_BIND.inventory) {
     if (player?.gameMode === "creative") {
       creativeInv.toggle();
       if (!creativeInv.open) document.body.requestPointerLock();
@@ -684,7 +682,7 @@ window.addEventListener("keydown", (e) => {
       else document.body.requestPointerLock();
     }
   }
-  if (e.code === "KeyP") {
+  if (e.code === KEY_BIND.debug) {
     debugOn = !debugOn;
     const el = document.getElementById("debugOverlay")!;
     el.style.display = debugOn ? "block" : "none";
@@ -699,7 +697,7 @@ window.addEventListener("keydown", (e) => {
     }
   }
   // L key is now unbound (friends moved into the pause menu — see ESC flow).
-  if (e.code === "KeyQ" && document.pointerLockElement) {
+  if (e.code === KEY_BIND.drop && document.pointerLockElement) {
     e.preventDefault();
     dropOneFromHotbar();
   }
@@ -837,7 +835,7 @@ function addChatLine(sender: string, msg: string) {
 function escapeHtml(s: string) { return s.replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"} as any)[c]); }
 const chatInput = document.getElementById("chatInput") as HTMLInputElement;
 window.addEventListener("keydown", (e) => {
-  if (e.code === "KeyT" && !chatInput.matches(":focus") && document.pointerLockElement) {
+  if (e.code === KEY_BIND.chat && !chatInput.matches(":focus") && document.pointerLockElement) {
     document.exitPointerLock();
     chatInput.style.display = "block";
     chatInput.focus();

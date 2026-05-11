@@ -167,7 +167,12 @@ export class Player {
     window.addEventListener("keydown", (e) => {
       if ((document.activeElement as HTMLElement)?.tagName === "INPUT") return;
       this.keys[e.code] = true;
-      if (e.code === "Space") {
+      // Double-tap Space → toggle flight (creative only). Critical: only
+      // react on the INITIAL keydown — `e.repeat` is true for the auto-fire
+      // events that browsers spam while a key is held, and the old code was
+      // toggling flight on every one of those (~30ms intervals) so the
+      // player oscillated up/down while holding Space to fly up.
+      if (e.code === "Space" && !e.repeat) {
         const now = performance.now();
         if (this.gameMode === "creative" && now - this.lastSpace < 300) {
           this.flying = !this.flying;
@@ -364,14 +369,17 @@ export class Player {
 
     if (this.flying) {
       let vy = 0;
-      if (this.keys["Space"]) vy += FLY_SPEED;
-      if (this.keys["ShiftLeft"] || this.keys["ShiftRight"]) vy -= FLY_SPEED;
+      if (this.keys[KEY_BIND.jump]) vy += FLY_SPEED;
+      // Descend with the CROUCH key (C by default), NOT Shift — Shift is for
+      // sprinting and should never affect vertical movement.
+      if (this.keys[KEY_BIND.crouch]) vy -= FLY_SPEED;
       this.vel.y = vy;
     } else if (this.inWater) {
       this.vel.y -= WATER_GRAVITY * dt;
       if (this.vel.y < WATER_TERMINAL) this.vel.y = WATER_TERMINAL;
       if (this.keys[KEY_BIND.jump]) this.vel.y = SWIM_UP_VEL;
-      if (this.keys[KEY_BIND.sprint]) this.vel.y -= 2 * dt;
+      // Dive with C (crouch), same logic as flying — keeps Shift = sprint pure.
+      if (this.keys[KEY_BIND.crouch]) this.vel.y -= 2 * dt;
     } else {
       this.vel.y -= GRAVITY * dt;
       if (this.vel.y < -50) this.vel.y = -50;

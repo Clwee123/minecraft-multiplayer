@@ -611,6 +611,12 @@ export function getAtlasTexture(): THREE.Texture {
   return _atlasTex;
 }
 
+/** Backing canvas the live atlas reads from — exposed for offscreen pixel
+ *  sampling (sprite extrusion, etc.). Null if preloadAtlas hasn't run. */
+export function getAtlasCanvas(): HTMLCanvasElement | null { return _liveAtlasCanvas; }
+export const ATLAS_TILE_PX = TILE_SIZE;
+export const ATLAS_COLS = COLS;
+
 /** Animate water tile each frame. */
 export function tickWater(elapsed: number) {
   if (!_liveAtlasCanvas || !_liveAtlasTex) return;

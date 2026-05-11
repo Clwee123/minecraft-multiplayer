@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { OBJLoader } from "three/examples/jsm/loaders/OBJLoader.js";
 import { clone as skeletonClone } from "three/examples/jsm/utils/SkeletonUtils.js";
-import { tileUV, getItemTile, getAtlasTexture, BLOCKS } from "./Textures";
+import { tileUV, getItemTile, getAtlasTexture, getAtlasCanvas, ATLAS_TILE_PX, ATLAS_COLS, BLOCKS } from "./Textures";
 
 /**
  * Loader for the player GLB model. Loads once, then clones the scene
@@ -265,23 +265,23 @@ export function buildFirstPersonArm(): FirstPersonArm | null {
     setHeldItem(itemId: number) {
       if (itemId === currentHeldId) return;
       currentHeldId = itemId;
-      // Tear down old
       if (heldMesh) {
         heldMesh.parent?.remove(heldMesh);
         const m = (heldMesh as THREE.Mesh).material as THREE.Material | undefined;
         m?.dispose?.();
-        ((heldMesh as THREE.Mesh).geometry as THREE.BufferGeometry | undefined)?.dispose?.();
+        // Don't dispose geometry — it might be cached / shared.
         heldMesh = null;
       }
       if (itemId === 0) return;
       heldMesh = buildHeldItemModel(itemId, { firstPerson: true });
-      // Attach to the cloned root so it stays anchored at the hand position.
-      // The hand offset from the shoulder is ~0.6 m forward and 0.4 m down
-      // after our ARM_SHOULDER_FORWARD rotation; the offsets below were
-      // tuned visually.
-      heldMesh.position.set(0.05, -0.25, -0.45);
-      heldMesh.rotation.set(-0.3, -0.3, 0.5);
-      cloned.add(heldMesh);
+      // Attach to the GROUP (camera-local, unscaled) instead of the cloned
+      // model — the model is scaled down ~0.4× so local offsets inside it
+      // were shrinking to nothing. Group is at identity, so these offsets
+      // are camera-relative directly.
+      heldMesh.position.set(0.35, -0.42, -0.55);
+      // Hold tools at the classic vanilla angle so the diagonal is visible.
+      heldMesh.rotation.set(0.18, -0.55, 0.55);
+      group.add(heldMesh);
     },
   };
 }
@@ -301,6 +301,11 @@ export function buildHeldItemModel(itemId: number, opts: { firstPerson?: boolean
 }
 
 function buildHeldPlane(itemId: number, opts: { firstPerson?: boolean } = {}): THREE.Mesh {
+  // Try the extruded-sprite path first (looks like MC 1.8 — chunky 3D item
+  // from any angle). Falls back to the flat plane if the atlas canvas isn't
+  // available yet (preloadAtlas hasn't run).
+  const extruded = tryBuildExtrudedItem(itemId, opts);
+  if (extruded) return extruded;
   const tile = getItemTile(itemId);
   const [u0, v0, u1, v1] = tileUV(tile);
   const geo = new THREE.PlaneGeometry(opts.firstPerson ? 0.45 : 0.35, opts.firstPerson ? 0.45 : 0.35);
@@ -322,6 +327,112 @@ function buildHeldPlane(itemId: number, opts: { firstPerson?: boolean } = {}): T
   mesh.frustumCulled = false;
   mesh.renderOrder = opts.firstPerson ? 1001 : 1;
   return mesh;
+}
+
+// ── Extruded-sprite items (MC 1.8 look for swords / picks / bows / etc.) ──
+//
+// Reads the item's atlas tile from the offscreen atlas canvas, then builds a
+// voxel mesh: each opaque pixel becomes a thin cube. Only EXPOSED faces are
+// emitted so the geometry stays reasonable (~1k tris for a typical tool).
+// Vertex colours are baked in so the mesh needs no texture.
+const _extrudedCache = new Map<number, THREE.BufferGeometry>();
+
+function tryBuildExtrudedItem(itemId: number, opts: { firstPerson?: boolean } = {}): THREE.Mesh | null {
+  const geo = getOrBuildExtrudedGeometry(itemId);
+  if (!geo) return null;
+  const mat = new THREE.MeshLambertMaterial({
+    vertexColors: true,
+    transparent: false,
+    depthTest: !opts.firstPerson,
+    depthWrite: !opts.firstPerson,
+  });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.frustumCulled = false;
+  mesh.renderOrder = opts.firstPerson ? 1001 : 1;
+  return mesh;
+}
+
+function getOrBuildExtrudedGeometry(itemId: number): THREE.BufferGeometry | null {
+  const cached = _extrudedCache.get(itemId);
+  if (cached) return cached;
+  const canvas = getAtlasCanvas();
+  if (!canvas) return null;
+  const tile = getItemTile(itemId);
+  const col = tile % ATLAS_COLS, row = Math.floor(tile / ATLAS_COLS);
+  const TPX = ATLAS_TILE_PX;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
+  let pixels: Uint8ClampedArray;
+  try {
+    pixels = ctx.getImageData(col * TPX, row * TPX, TPX, TPX).data;
+  } catch (e) {
+    // Could happen if the atlas image isn't from same-origin and tainted
+    // the canvas. Fall back to plane.
+    return null;
+  }
+
+  // 1.8-style proportions: ~0.5 m wide if the sprite uses the whole 16-px
+  // grid. Per-pixel size ~0.5/16. Depth is one pixel.
+  const PIXEL = 0.5 / TPX;
+  const DEPTH = PIXEL * 1.5;
+  const offX = -TPX * PIXEL / 2;
+  const offY = -TPX * PIXEL / 2;
+
+  const isOpaque = (x: number, y: number) =>
+    x >= 0 && x < TPX && y >= 0 && y < TPX &&
+    pixels[(y * TPX + x) * 4 + 3] >= 128;
+
+  const positions: number[] = [];
+  const colors: number[] = [];
+  const normals: number[] = [];
+  const indices: number[] = [];
+
+  const pushQuad = (
+    ax: number, ay: number, az: number,
+    bx: number, by: number, bz: number,
+    cx: number, cy: number, cz: number,
+    dx: number, dy: number, dz: number,
+    nx: number, ny: number, nz: number,
+    r: number, g: number, b: number,
+  ) => {
+    const start = positions.length / 3;
+    positions.push(ax, ay, az, bx, by, bz, cx, cy, cz, dx, dy, dz);
+    for (let i = 0; i < 4; i++) {
+      colors.push(r, g, b);
+      normals.push(nx, ny, nz);
+    }
+    indices.push(start, start + 1, start + 2, start, start + 2, start + 3);
+  };
+
+  for (let py = 0; py < TPX; py++) {
+    for (let px = 0; px < TPX; px++) {
+      const i = (py * TPX + px) * 4;
+      if (pixels[i + 3] < 128) continue;
+      const r = pixels[i] / 255, g = pixels[i + 1] / 255, b = pixels[i + 2] / 255;
+      const x0 = offX + px * PIXEL;
+      const x1 = x0 + PIXEL;
+      const y0 = offY + (TPX - 1 - py) * PIXEL;
+      const y1 = y0 + PIXEL;
+      const z0 = -DEPTH / 2, z1 = DEPTH / 2;
+      // Front + back always visible
+      pushQuad(x0,y0,z1, x1,y0,z1, x1,y1,z1, x0,y1,z1, 0,0,1, r,g,b);
+      pushQuad(x1,y0,z0, x0,y0,z0, x0,y1,z0, x1,y1,z0, 0,0,-1, r,g,b);
+      // Side faces — only when the neighbour pixel is transparent.
+      if (!isOpaque(px - 1, py)) pushQuad(x0,y0,z0, x0,y0,z1, x0,y1,z1, x0,y1,z0, -1,0,0, r,g,b);
+      if (!isOpaque(px + 1, py)) pushQuad(x1,y0,z1, x1,y0,z0, x1,y1,z0, x1,y1,z1,  1,0,0, r,g,b);
+      if (!isOpaque(px, py - 1)) pushQuad(x0,y1,z1, x1,y1,z1, x1,y1,z0, x0,y1,z0,  0,1,0, r,g,b);
+      if (!isOpaque(px, py + 1)) pushQuad(x0,y0,z0, x1,y0,z0, x1,y0,z1, x0,y0,z1,  0,-1,0, r,g,b);
+    }
+  }
+
+  if (positions.length === 0) return null;
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+  geo.setAttribute("color",    new THREE.Float32BufferAttribute(colors, 3));
+  geo.setAttribute("normal",   new THREE.Float32BufferAttribute(normals, 3));
+  geo.setIndex(indices);
+  _extrudedCache.set(itemId, geo);
+  return geo;
 }
 
 function buildHeldBlock(blockId: number, opts: { firstPerson?: boolean } = {}): THREE.Mesh {
