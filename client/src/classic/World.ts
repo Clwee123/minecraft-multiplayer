@@ -72,6 +72,17 @@ export class World {
     return this.blocks[this.idx(x, y, z)];
   }
 
+  /** Clear the entire world (used by special game modes that build custom maps). */
+  clearAll() {
+    this.blocks.fill(0);
+    // Mark all chunks dirty
+    const CX_COUNT = SIZE_X / 16, CY_COUNT = SIZE_Y / 16, CZ_COUNT = SIZE_Z / 16;
+    for (let cx = 0; cx < CX_COUNT; cx++)
+      for (let cy = 0; cy < CY_COUNT; cy++)
+        for (let cz = 0; cz < CZ_COUNT; cz++)
+          this.dirtyChunks.add(`${cx},${cy},${cz}`);
+  }
+
   setBlock(x: number, y: number, z: number, type: number) {
     if (x < 0 || x >= SIZE_X || y < 0 || y >= SIZE_Y || z < 0 || z >= SIZE_Z) return;
     if (this.blocks[this.idx(x, y, z)] === type) return;

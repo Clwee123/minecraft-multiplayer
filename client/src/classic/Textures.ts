@@ -5,78 +5,161 @@ const TILE_SIZE = 16;
 const COLS = ATLAS_SIZE / TILE_SIZE;
 
 let _atlasTex: THREE.Texture | null = null;
-let _atlasImg: HTMLImageElement | null = null;
 let _liveAtlasCanvas: HTMLCanvasElement | null = null;
 let _liveAtlasTex: THREE.CanvasTexture | null = null;
 
 export interface BlockDef {
-  faces: [number, number, number, number, number, number]; // [+X,-X,+Y,-Y,+Z,-Z] tile indices
+  faces: [number, number, number, number, number, number];
   transparent?: boolean;
   isWater?: boolean;
   isLeaf?: boolean;
-  solid?: boolean;       // collision (default true)
-  crossShape?: boolean;  // X-shape sprite (flowers, grass)
+  solid?: boolean;
+  crossShape?: boolean;
+  hardness?: number;
+  drop?: number;
+  dropCount?: number;
+  tool?: "any" | "axe" | "pickaxe" | "shovel" | "shears";
+  emissive?: boolean;
 }
 
 const T = (col: number, row: number) => col + row * COLS;
+const all6 = (t: number): [number,number,number,number,number,number] => [t,t,t,t,t,t];
 
-const T_GRASS_TOP   = T(0, 0);
-const T_GRASS_SIDE  = T(1, 0);
-const T_DIRT        = T(2, 0);
-const T_STONE       = T(3, 0);
-const T_SAND        = T(4, 0);
-const T_LOG_SIDE    = T(5, 0);
-const T_LOG_TOP     = T(6, 0);
-const T_LEAVES      = T(7, 0);
-const T_WATER       = T(8, 0);
-const T_PLANKS      = T(9, 0);
-const T_COBBLE      = T(10, 0);
-const T_GRAVEL      = T(11, 0);
-const T_GLASS       = T(12, 0);
-const T_BRICK       = T(13, 0);
-const T_BOOKSHELF   = T(14, 0);
-const T_CRAFT_TOP   = T(15, 0);
-const T_GOLD_ORE    = T(0, 1);
-const T_IRON_ORE    = T(1, 1);
-const T_COAL_ORE    = T(2, 1);
-const T_DIAM_ORE    = T(3, 1);
-const T_GLOWSTONE   = T(4, 1);
-const T_SNOW        = T(5, 1);
-const T_OBSIDIAN    = T(9, 1);
-const T_WOOL_W      = T(10, 1);
-const T_WOOL_R      = T(11, 1);
-const T_MOSSY_COBB  = T(12, 1);
-const T_FLOWER_RED  = T(0, 2);
-const T_FLOWER_YELL = T(1, 2);
+// Row 0
+export const T_GRASS_TOP   = T(0, 0);
+export const T_GRASS_SIDE  = T(1, 0);
+export const T_DIRT        = T(2, 0);
+export const T_STONE       = T(3, 0);
+export const T_SAND        = T(4, 0);
+export const T_LOG_SIDE    = T(5, 0);
+export const T_LOG_TOP     = T(6, 0);
+export const T_LEAVES      = T(7, 0);
+export const T_WATER       = T(8, 0);
+export const T_PLANKS      = T(9, 0);
+export const T_COBBLE      = T(10, 0);
+export const T_GRAVEL      = T(11, 0);
+export const T_GLASS       = T(12, 0);
+export const T_BRICK       = T(13, 0);
+export const T_BOOKSHELF   = T(14, 0);
+export const T_CRAFT_TOP   = T(15, 0);
+// Row 1
+export const T_GOLD_ORE    = T(0, 1);
+export const T_IRON_ORE    = T(1, 1);
+export const T_COAL_ORE    = T(2, 1);
+export const T_DIAM_ORE    = T(3, 1);
+export const T_GLOWSTONE   = T(4, 1);
+export const T_SNOW        = T(5, 1);
+export const T_ICE         = T(6, 1);
+export const T_TNT_SIDE    = T(7, 1);
+export const T_TNT_TOP     = T(8, 1);
+export const T_OBSIDIAN    = T(9, 1);
+export const T_WOOL_W      = T(10, 1);
+export const T_WOOL_R      = T(11, 1);
+export const T_MOSSY_COBB  = T(12, 1);
+export const T_STONEBRICK  = T(13, 1);
+export const T_SANDSTONE   = T(14, 1);
+export const T_SANDSTONE_T = T(15, 1);
+// Row 2
+export const T_FLOWER_RED  = T(0, 2);
+export const T_FLOWER_YEL  = T(1, 2);
+export const T_TALLGRASS   = T(2, 2);
+export const T_SAPLING     = T(3, 2);
+export const T_MUSHROOM_R  = T(4, 2);
+export const T_MUSHROOM_B  = T(5, 2);
+export const T_CACTUS      = T(6, 2);
+export const T_REEDS       = T(7, 2);
+export const T_FIRE        = T(8, 2);
+export const T_SPRUCE_SIDE = T(9, 2);
+export const T_SPRUCE_TOP  = T(10, 2);
+export const T_SPRUCE_LEAF = T(11, 2);
+export const T_BIRCH_SIDE  = T(12, 2);
+export const T_BIRCH_TOP   = T(13, 2);
+export const T_BIRCH_LEAF  = T(14, 2);
+export const T_IRON_BLOCK  = T(15, 2);
+// Row 3
+export const T_FURNACE_F   = T(0, 3);
+export const T_FURNACE_S   = T(1, 3);
+export const T_FURNACE_T   = T(2, 3);
+export const T_FURNACE_ON  = T(3, 3);
+export const T_DIAM_BLOCK  = T(4, 3);
+export const T_GOLD_BLOCK  = T(5, 3);
+export const T_COAL_BLOCK  = T(6, 3);
+export const T_REDSTONE_O  = T(7, 3);
+export const T_LAVA        = T(8, 3);
+export const T_CRAFT_SIDE  = T(9, 3);
+export const T_CRAFT_FRONT = T(10, 3);
+export const T_CHEST_TOP   = T(11, 3);
+export const T_LAPIS_ORE   = T(12, 3);
+export const T_LAPIS_BLOCK = T(13, 3);
+export const T_LADDER      = T(14, 3);
+export const T_TORCH       = T(15, 3);
 
+// ── Block definitions ─────────────────────────────────────────────────────────
 export const BLOCKS: Record<number, BlockDef> = {
-  // 0 = air
-  1:  { faces: [T_GRASS_SIDE, T_GRASS_SIDE, T_GRASS_TOP, T_DIRT, T_GRASS_SIDE, T_GRASS_SIDE] },
-  2:  { faces: [T_DIRT, T_DIRT, T_DIRT, T_DIRT, T_DIRT, T_DIRT] },
-  3:  { faces: [T_STONE, T_STONE, T_STONE, T_STONE, T_STONE, T_STONE] },
-  4:  { faces: [T_SAND, T_SAND, T_SAND, T_SAND, T_SAND, T_SAND] },
-  5:  { faces: [T_LOG_SIDE, T_LOG_SIDE, T_LOG_TOP, T_LOG_TOP, T_LOG_SIDE, T_LOG_SIDE] },
-  6:  { faces: [T_LEAVES, T_LEAVES, T_LEAVES, T_LEAVES, T_LEAVES, T_LEAVES], isLeaf: true },
-  7:  { faces: [T_WATER, T_WATER, T_WATER, T_WATER, T_WATER, T_WATER], transparent: true, isWater: true, solid: false },
-  8:  { faces: [T_PLANKS, T_PLANKS, T_PLANKS, T_PLANKS, T_PLANKS, T_PLANKS] },
-  9:  { faces: [T_COBBLE, T_COBBLE, T_COBBLE, T_COBBLE, T_COBBLE, T_COBBLE] },
-  10: { faces: [T_GRAVEL, T_GRAVEL, T_GRAVEL, T_GRAVEL, T_GRAVEL, T_GRAVEL] },
-  11: { faces: [T_GLASS, T_GLASS, T_GLASS, T_GLASS, T_GLASS, T_GLASS], transparent: true },
-  12: { faces: [T_BRICK, T_BRICK, T_BRICK, T_BRICK, T_BRICK, T_BRICK] },
-  13: { faces: [T_BOOKSHELF, T_BOOKSHELF, T_PLANKS, T_PLANKS, T_BOOKSHELF, T_BOOKSHELF] },
-  14: { faces: [T_WOOL_W, T_WOOL_W, T_WOOL_W, T_WOOL_W, T_WOOL_W, T_WOOL_W] },
-  15: { faces: [T_WOOL_R, T_WOOL_R, T_WOOL_R, T_WOOL_R, T_WOOL_R, T_WOOL_R] },
-  16: { faces: [T_OBSIDIAN, T_OBSIDIAN, T_OBSIDIAN, T_OBSIDIAN, T_OBSIDIAN, T_OBSIDIAN] },
-  17: { faces: [T_MOSSY_COBB, T_MOSSY_COBB, T_MOSSY_COBB, T_MOSSY_COBB, T_MOSSY_COBB, T_MOSSY_COBB] },
-  18: { faces: [T_COAL_ORE, T_COAL_ORE, T_COAL_ORE, T_COAL_ORE, T_COAL_ORE, T_COAL_ORE] },
-  19: { faces: [T_IRON_ORE, T_IRON_ORE, T_IRON_ORE, T_IRON_ORE, T_IRON_ORE, T_IRON_ORE] },
-  20: { faces: [T_GOLD_ORE, T_GOLD_ORE, T_GOLD_ORE, T_GOLD_ORE, T_GOLD_ORE, T_GOLD_ORE] },
-  21: { faces: [T_DIAM_ORE, T_DIAM_ORE, T_DIAM_ORE, T_DIAM_ORE, T_DIAM_ORE, T_DIAM_ORE] },
-  22: { faces: [T_GLOWSTONE, T_GLOWSTONE, T_GLOWSTONE, T_GLOWSTONE, T_GLOWSTONE, T_GLOWSTONE] },
-  23: { faces: [T_SNOW, T_SNOW, T_SNOW, T_SNOW, T_SNOW, T_SNOW] },
-  // Flowers (cross-shape sprites, non-solid)
-  30: { faces: [T_FLOWER_RED, T_FLOWER_RED, T_FLOWER_RED, T_FLOWER_RED, T_FLOWER_RED, T_FLOWER_RED], transparent: true, solid: false, crossShape: true },
-  31: { faces: [T_FLOWER_YELL, T_FLOWER_YELL, T_FLOWER_YELL, T_FLOWER_YELL, T_FLOWER_YELL, T_FLOWER_YELL], transparent: true, solid: false, crossShape: true },
+  1:  { faces: [T_GRASS_SIDE, T_GRASS_SIDE, T_GRASS_TOP, T_DIRT, T_GRASS_SIDE, T_GRASS_SIDE], hardness: 0.6, drop: 2, tool: "shovel" },
+  2:  { faces: all6(T_DIRT),                 hardness: 0.5, tool: "shovel" },
+  3:  { faces: all6(T_STONE),                hardness: 1.5, drop: 10, tool: "pickaxe" },
+  4:  { faces: all6(T_SAND),                 hardness: 0.5, tool: "shovel" },
+  5:  { faces: [T_LOG_SIDE, T_LOG_SIDE, T_LOG_TOP, T_LOG_TOP, T_LOG_SIDE, T_LOG_SIDE], hardness: 2.0, tool: "axe" },
+  6:  { faces: all6(T_LEAVES), isLeaf: true, hardness: 0.2, drop: 33, tool: "shears" }, // drops sapling
+  7:  { faces: all6(T_WATER), transparent: true, isWater: true, solid: false, hardness: 0, drop: 0 },
+  8:  { faces: all6(T_PLANKS),               hardness: 2.0, tool: "axe" },
+  9:  { faces: all6(T_COBBLE),               hardness: 2.0, tool: "pickaxe" },
+  10: { faces: all6(T_GRAVEL),               hardness: 0.6, tool: "shovel" },
+  11: { faces: all6(T_GLASS), transparent: true, hardness: 0.3, drop: 0 },
+  12: { faces: all6(T_BRICK),                hardness: 2.0, tool: "pickaxe" },
+  13: { faces: [T_BOOKSHELF, T_BOOKSHELF, T_PLANKS, T_PLANKS, T_BOOKSHELF, T_BOOKSHELF], hardness: 1.5, tool: "axe" },
+  14: { faces: all6(T_WOOL_W),               hardness: 0.8 },
+  15: { faces: all6(T_WOOL_R),               hardness: 0.8 },
+  16: { faces: all6(T_OBSIDIAN),             hardness: 50, tool: "pickaxe" },
+  17: { faces: all6(T_MOSSY_COBB),           hardness: 2.0, tool: "pickaxe" },
+  18: { faces: all6(T_COAL_ORE),             hardness: 3.0, drop: 50, tool: "pickaxe" },
+  19: { faces: all6(T_IRON_ORE),             hardness: 3.0, tool: "pickaxe" },
+  20: { faces: all6(T_GOLD_ORE),             hardness: 3.0, tool: "pickaxe" },
+  21: { faces: all6(T_DIAM_ORE),             hardness: 3.0, drop: 51, tool: "pickaxe" },
+  22: { faces: all6(T_GLOWSTONE), emissive: true, hardness: 0.3 },
+  23: { faces: all6(T_SNOW),                 hardness: 0.2, tool: "shovel" },
+  24: { faces: all6(T_ICE), transparent: true, hardness: 0.5, drop: 0, tool: "pickaxe" },
+  25: { faces: [T_TNT_SIDE, T_TNT_SIDE, T_TNT_TOP, T_TNT_TOP, T_TNT_SIDE, T_TNT_SIDE], hardness: 0 },
+  26: { faces: all6(T_STONEBRICK),           hardness: 1.5, tool: "pickaxe" },
+  27: { faces: [T_SANDSTONE, T_SANDSTONE, T_SANDSTONE_T, T_SANDSTONE_T, T_SANDSTONE, T_SANDSTONE], hardness: 0.8, tool: "pickaxe" },
+  28: { faces: [T_SPRUCE_SIDE, T_SPRUCE_SIDE, T_SPRUCE_TOP, T_SPRUCE_TOP, T_SPRUCE_SIDE, T_SPRUCE_SIDE], hardness: 2.0, tool: "axe" },
+  29: { faces: all6(T_SPRUCE_LEAF), isLeaf: true, hardness: 0.2, drop: 0, tool: "shears" },
+  30: { faces: all6(T_FLOWER_RED), transparent: true, solid: false, crossShape: true, hardness: 0 },
+  31: { faces: all6(T_FLOWER_YEL), transparent: true, solid: false, crossShape: true, hardness: 0 },
+  32: { faces: all6(T_TALLGRASS), transparent: true, solid: false, crossShape: true, hardness: 0, drop: 0 },
+  33: { faces: all6(T_SAPLING), transparent: true, solid: false, crossShape: true, hardness: 0 },
+  34: { faces: all6(T_MUSHROOM_R), transparent: true, solid: false, crossShape: true, hardness: 0 },
+  35: { faces: all6(T_MUSHROOM_B), transparent: true, solid: false, crossShape: true, hardness: 0 },
+  36: { faces: [T_CRAFT_SIDE, T_CRAFT_SIDE, T_CRAFT_TOP, T_PLANKS, T_CRAFT_FRONT, T_CRAFT_SIDE], hardness: 2.0, tool: "axe" },
+  37: { faces: [T_FURNACE_S, T_FURNACE_S, T_FURNACE_T, T_FURNACE_T, T_FURNACE_F, T_FURNACE_S], hardness: 3.0, tool: "pickaxe" },
+  38: { faces: [T_FURNACE_S, T_FURNACE_S, T_FURNACE_T, T_FURNACE_T, T_FURNACE_ON, T_FURNACE_S], hardness: 3.0, tool: "pickaxe", emissive: true },
+  39: { faces: all6(T_IRON_BLOCK),           hardness: 5.0, tool: "pickaxe" },
+  40: { faces: all6(T_GOLD_BLOCK),           hardness: 3.0, tool: "pickaxe" },
+  41: { faces: all6(T_DIAM_BLOCK),           hardness: 5.0, tool: "pickaxe" },
+  42: { faces: all6(T_TORCH), transparent: true, solid: false, crossShape: true, emissive: true, hardness: 0 },
+  43: { faces: all6(T_LADDER), transparent: true, solid: false, hardness: 0.4 },
+};
+
+// ── Items (id >= 50 = items, not placeable blocks) ────────────────────────────
+export const ITEMS: Record<number, { name: string; tile: number; tool?: "axe" | "pickaxe" | "shovel" | "sword" | "shears"; toolTier?: number; food?: number }> = {
+  50: { name: "Coal",           tile: T_COAL_ORE },
+  51: { name: "Diamond",        tile: T_DIAM_BLOCK },
+  52: { name: "Iron Ingot",     tile: T_IRON_BLOCK },
+  53: { name: "Gold Ingot",     tile: T_GOLD_BLOCK },
+  54: { name: "Stick",          tile: T_LOG_SIDE },
+  55: { name: "Wooden Pickaxe", tile: T_PLANKS, tool: "pickaxe", toolTier: 1 },
+  56: { name: "Wooden Axe",     tile: T_PLANKS, tool: "axe",     toolTier: 1 },
+  57: { name: "Wooden Shovel",  tile: T_PLANKS, tool: "shovel",  toolTier: 1 },
+  58: { name: "Wooden Sword",   tile: T_PLANKS, tool: "sword",   toolTier: 1 },
+  59: { name: "Stone Pickaxe",  tile: T_COBBLE, tool: "pickaxe", toolTier: 2 },
+  60: { name: "Stone Axe",      tile: T_COBBLE, tool: "axe",     toolTier: 2 },
+  61: { name: "Stone Sword",    tile: T_COBBLE, tool: "sword",   toolTier: 2 },
+  62: { name: "Iron Pickaxe",   tile: T_IRON_BLOCK, tool: "pickaxe", toolTier: 3 },
+  63: { name: "Iron Sword",     tile: T_IRON_BLOCK, tool: "sword",   toolTier: 3 },
+  64: { name: "Diamond Sword",  tile: T_DIAM_BLOCK, tool: "sword",   toolTier: 4 },
+  65: { name: "Apple",          tile: T_FLOWER_RED, food: 4 },
+  66: { name: "Bread",          tile: T_SAND,       food: 5 },
 };
 
 export const BLOCK_NAMES: Record<number, string> = {
@@ -85,11 +168,30 @@ export const BLOCK_NAMES: Record<number, string> = {
   12: "Bricks", 13: "Bookshelf", 14: "White Wool", 15: "Red Wool",
   16: "Obsidian", 17: "Mossy Cobblestone", 18: "Coal Ore", 19: "Iron Ore",
   20: "Gold Ore", 21: "Diamond Ore", 22: "Glowstone", 23: "Snow Block",
-  30: "Poppy", 31: "Dandelion",
+  24: "Ice", 25: "TNT", 26: "Stone Bricks", 27: "Sandstone",
+  28: "Spruce Log", 29: "Spruce Leaves",
+  30: "Poppy", 31: "Dandelion", 32: "Tall Grass", 33: "Oak Sapling",
+  34: "Red Mushroom", 35: "Brown Mushroom",
+  36: "Crafting Table", 37: "Furnace", 38: "Furnace (Lit)",
+  39: "Iron Block", 40: "Gold Block", 41: "Diamond Block",
+  42: "Torch", 43: "Ladder",
 };
 
-// Hotbar: 9 useful blocks
-export const HOTBAR_BLOCKS = [1, 3, 9, 2, 4, 5, 6, 8, 11];
+// Creative hotbar default
+export const CREATIVE_HOTBAR = [1, 3, 9, 8, 5, 36, 37, 22, 11];
+
+export function getItemTile(id: number): number {
+  if (id === 0) return 0;
+  if (id < 50) return BLOCKS[id]?.faces[0] ?? 0;
+  return ITEMS[id]?.tile ?? 0;
+}
+export function getItemName(id: number): string {
+  if (id < 50) return BLOCK_NAMES[id] ?? `Block ${id}`;
+  return ITEMS[id]?.name ?? `Item ${id}`;
+}
+export function isPlaceable(id: number): boolean {
+  return id > 0 && id < 50 && !!BLOCKS[id];
+}
 
 /** UV rect for a tile index in 0..1 atlas space. */
 export function tileUV(tileIdx: number): [number, number, number, number] {
@@ -107,8 +209,6 @@ export async function preloadAtlas(): Promise<void> {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.onload = () => {
-      _atlasImg = img;
-      // Build the live atlas canvas immediately so we can animate water
       _liveAtlasCanvas = document.createElement("canvas");
       _liveAtlasCanvas.width = _liveAtlasCanvas.height = ATLAS_SIZE;
       const ctx = _liveAtlasCanvas.getContext("2d")!;
@@ -122,7 +222,7 @@ export async function preloadAtlas(): Promise<void> {
       resolve();
     };
     img.onerror = reject;
-    img.src = "/terrain_atlas.png?v=2";
+    img.src = `/terrain_atlas.png?v=${Date.now()}`;
   });
 }
 
@@ -131,31 +231,20 @@ export function getAtlasTexture(): THREE.Texture {
   return _atlasTex;
 }
 
-/** Animate the water tile every frame. Stamps onto live atlas canvas. */
+/** Animate water tile each frame. */
 export function tickWater(elapsed: number) {
   if (!_liveAtlasCanvas || !_liveAtlasTex) return;
   const ctx = _liveAtlasCanvas.getContext("2d")!;
-  // Tile (8, 0) = water — x=128, y=0, size 16
-  const ox = 8 * TILE_SIZE, oy = 0 * TILE_SIZE;
-  // Animated wave: vertical scrolling streaks on classic MC blue
-  const t = elapsed * 1.2;
-  ctx.fillStyle = "#2c5dc6";
+  const ox = (T_WATER % COLS) * TILE_SIZE;
+  const oy = Math.floor(T_WATER / COLS) * TILE_SIZE;
+  const t = elapsed * 1.0;
+  ctx.fillStyle = "#3a6bcc";
   ctx.fillRect(ox, oy, 16, 16);
-  // 3 wave lines that scroll vertically
-  for (let i = 0; i < 3; i++) {
-    const y = ((t * (0.6 + i * 0.3) + i * 5.3) % 16);
-    const yy = Math.floor(y);
-    const alpha = 0.45 - i * 0.08;
-    ctx.fillStyle = `rgba(120,180,250,${alpha})`;
-    ctx.fillRect(ox, oy + yy, 16, 1);
-  }
-  // Highlight glints
   for (let i = 0; i < 4; i++) {
-    const seed = Math.floor(elapsed * 0.5 + i * 4) * 13;
-    const gx = (seed % 14);
-    const gy = ((seed >> 4) % 14);
-    ctx.fillStyle = "rgba(200,230,255,0.18)";
-    ctx.fillRect(ox + gx, oy + gy, 2, 1);
+    const y = (t * (0.5 + i * 0.25) + i * 4.7) % 16;
+    const alpha = 0.38 - i * 0.07;
+    ctx.fillStyle = `rgba(140,200,250,${alpha})`;
+    ctx.fillRect(ox, oy + Math.floor(y), 16, 1);
   }
   _liveAtlasTex.needsUpdate = true;
 }

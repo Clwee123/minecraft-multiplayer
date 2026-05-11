@@ -1,35 +1,50 @@
 import * as THREE from "three";
-import { World, SIZE_X, SIZE_Y, SIZE_Z } from "./World";
+import { World } from "./World";
+import { BLOCKS, ITEMS } from "./Textures";
+import type { Inventory } from "./Inventory";
 
 const WALK_SPEED   = 4.317;
 const SPRINT_SPEED = 5.612;
 const FLY_SPEED    = 10.0;
 const JUMP_VEL     = 8.4;
 const GRAVITY      = 28;
-const PLAYER_W     = 0.6;   // player AABB width  (half-width = 0.3)
-const PLAYER_H     = 1.8;   // player height (eyes at 1.62 from feet)
+const PLAYER_W     = 0.6;
+const PLAYER_H     = 1.8;
 const EYE          = 1.62;
 const REACH        = 5.0;
+
+export type GameMode = "survival" | "creative";
 
 const _v3 = new THREE.Vector3();
 
 export class Player {
-  pos = new THREE.Vector3();      // feet position
+  pos = new THREE.Vector3();
   vel = new THREE.Vector3();
   yaw = 0;
   pitch = 0;
   onGround = false;
-  flying = true;                  // start in creative-fly mode
+  flying = false;
+  gameMode: GameMode = "creative";
+  health = 20;     // 10 hearts = 20 hp
+  maxHealth = 20;
+  hunger = 20;     // 10 drumsticks = 20
+  inv: Inventory | null = null;
+
   private keys: Record<string, boolean> = {};
   private lastSpace = 0;
+  private mouseDown = false;
+  private breakingAt: { x: number; y: number; z: number } | null = null;
+  private breakProgress = 0; // 0..1
+  private breakTime = 0.5;   // seconds total for current target
 
   camera: THREE.PerspectiveCamera;
   world: World;
 
-  // Callbacks
-  onBreak?: (x: number, y: number, z: number) => void;
+  // Callbacks for multiplayer / events
+  onBreak?: (x: number, y: number, z: number, prevType: number) => void;
   onPlace?: (x: number, y: number, z: number, type: number) => void;
-  getHeldBlock: () => number = () => 1;
+  onHealthChange?: (hp: number) => void;
+  onBreakProgress?: (progress: number) => void;
 
   constructor(camera: THREE.PerspectiveCamera, world: World) {
     this.camera = camera;
@@ -37,26 +52,47 @@ export class Player {
     this.attachInput();
   }
 
+  setGameMode(mode: GameMode) {
+    this.gameMode = mode;
+    this.flying = mode === "creative";
+  }
+
   spawnAt(x: number, y: number, z: number) {
     this.pos.set(x, y, z);
     this.vel.set(0, 0, 0);
   }
 
+  takeDamage(dmg: number) {
+    if (this.gameMode === "creative") return;
+    this.health = Math.max(0, this.health - dmg);
+    this.onHealthChange?.(this.health);
+    if (this.health <= 0) {
+      // Respawn
+      setTimeout(() => {
+        this.health = this.maxHealth;
+        this.onHealthChange?.(this.health);
+      }, 800);
+    }
+  }
+
   private attachInput() {
     window.addEventListener("keydown", (e) => {
+      if ((document.activeElement as HTMLElement)?.tagName === "INPUT") return;
       this.keys[e.code] = true;
       if (e.code === "Space") {
         const now = performance.now();
-        if (now - this.lastSpace < 300) {
+        if (this.gameMode === "creative" && now - this.lastSpace < 300) {
           this.flying = !this.flying;
           this.vel.y = 0;
         }
         this.lastSpace = now;
       }
     });
-    window.addEventListener("keyup", (e) => { this.keys[e.code] = false; });
+    window.addEventListener("keyup", (e) => {
+      if ((document.activeElement as HTMLElement)?.tagName === "INPUT") return;
+      this.keys[e.code] = false;
+    });
 
-    // Mouse look (pointer lock)
     document.addEventListener("mousemove", (e) => {
       if (document.pointerLockElement) {
         this.yaw   -= e.movementX * 0.0025;
@@ -67,30 +103,54 @@ export class Player {
       }
     });
 
-    // Mouse buttons: 0=break, 2=place
     document.addEventListener("mousedown", (e) => {
       if (!document.pointerLockElement) return;
-      const hit = this.raycast();
-      if (!hit) return;
       if (e.button === 0) {
-        this.world.setBlock(hit.x, hit.y, hit.z, 0);
-        this.world.rebuildIfDirty();
-        this.onBreak?.(hit.x, hit.y, hit.z);
-      } else if (e.button === 2) {
-        const nx = hit.x + hit.nx, ny = hit.y + hit.ny, nz = hit.z + hit.nz;
-        // Don't place inside player AABB
-        if (!this.aabbBlocksOverlap(nx, ny, nz)) {
-          const type = this.getHeldBlock();
-          if (type > 0) {
-            this.world.setBlock(nx, ny, nz, type);
-            this.world.rebuildIfDirty();
-            this.onPlace?.(nx, ny, nz, type);
-          }
+        this.mouseDown = true;
+        if (this.gameMode === "creative") {
+          // Instant break in creative
+          this.doBreak();
         }
+        // In survival, mouseDown starts the break process which is ticked in update()
+      } else if (e.button === 2) {
+        this.doPlace();
       }
     });
-
+    document.addEventListener("mouseup", (e) => {
+      if (e.button === 0) {
+        this.mouseDown = false;
+        this.breakingAt = null;
+        this.breakProgress = 0;
+        this.onBreakProgress?.(0);
+      }
+    });
     document.addEventListener("contextmenu", (e) => e.preventDefault());
+  }
+
+  private doBreak() {
+    const hit = this.raycast();
+    if (!hit) return;
+    const prevType = this.world.getBlock(hit.x, hit.y, hit.z);
+    const def = BLOCKS[prevType];
+    if (!def || def.hardness === undefined) return;
+    this.world.setBlock(hit.x, hit.y, hit.z, 0);
+    this.onBreak?.(hit.x, hit.y, hit.z, prevType);
+    // Survival drops handled by caller via onBreak callback
+  }
+
+  private doPlace() {
+    const hit = this.raycast();
+    if (!hit) return;
+    const nx = hit.x + hit.nx, ny = hit.y + hit.ny, nz = hit.z + hit.nz;
+    if (this.aabbBlocksOverlap(nx, ny, nz)) return;
+    // Determine held block
+    const heldId = this.inv ? this.inv.getHeldBlock() : 0;
+    if (heldId === 0) return;
+    if (this.inv && this.gameMode === "survival") {
+      if (!this.inv.consumeHeld()) return;
+    }
+    this.world.setBlock(nx, ny, nz, heldId);
+    this.onPlace?.(nx, ny, nz, heldId);
   }
 
   private aabbBlocksOverlap(bx: number, by: number, bz: number): boolean {
@@ -114,68 +174,96 @@ export class Player {
     return this.world.raycast(eye, dir, REACH);
   }
 
+  /** Estimate break time for a block given current held tool. */
+  private estimateBreakTime(blockId: number): number {
+    const def = BLOCKS[blockId];
+    if (!def || def.hardness === undefined) return 0;
+    let baseTime = def.hardness;
+    // Tool speedup
+    if (this.inv && def.tool && def.tool !== "any") {
+      const cat = def.tool as any;
+      const best = this.inv.bestToolTier(cat === "shears" ? "axe" : cat);
+      if (best) {
+        const tierMult = [1, 2, 4, 6, 9][best.tier] ?? 1;
+        baseTime /= tierMult;
+      }
+    }
+    return Math.max(0.05, baseTime);
+  }
+
   update(dt: number) {
-    // ── Movement input ─────────────────────────────────────────────────
+    // ── Movement ──
     const forward = (this.keys["KeyW"] ? 1 : 0) - (this.keys["KeyS"] ? 1 : 0);
     const right   = (this.keys["KeyD"] ? 1 : 0) - (this.keys["KeyA"] ? 1 : 0);
-    const sprint  = this.keys["ShiftLeft"] || this.keys["ShiftRight"];
+    const sprint  = this.keys["ControlLeft"] || this.keys["ControlRight"];
 
     const baseSpeed = this.flying ? FLY_SPEED : (sprint ? SPRINT_SPEED : WALK_SPEED);
-
-    // Direction relative to yaw
     const sin = Math.sin(this.yaw), cos = Math.cos(this.yaw);
     let vx = (-sin * forward + cos * right) * baseSpeed;
     let vz = (-cos * forward - sin * right) * baseSpeed;
-
-    // Normalize diagonal
-    if (forward !== 0 && right !== 0) {
-      vx /= Math.SQRT2;
-      vz /= Math.SQRT2;
-    }
-
-    this.vel.x = vx;
-    this.vel.z = vz;
+    if (forward !== 0 && right !== 0) { vx /= Math.SQRT2; vz /= Math.SQRT2; }
+    this.vel.x = vx; this.vel.z = vz;
 
     if (this.flying) {
       let vy = 0;
       if (this.keys["Space"]) vy += FLY_SPEED;
       if (this.keys["ShiftLeft"] || this.keys["ShiftRight"]) vy -= FLY_SPEED;
-      // Actually let sprint+vertical conflict be OK; just allow ascend/descend with Space/Shift
-      // When flying, Shift descends (override sprint speed multiplier)
-      if (this.keys["ShiftLeft"] && !this.keys["KeyW"] && !this.keys["KeyS"] && !this.keys["KeyA"] && !this.keys["KeyD"]) {
-        // pure descend
-      }
       this.vel.y = vy;
     } else {
-      // Gravity
       this.vel.y -= GRAVITY * dt;
       if (this.vel.y < -50) this.vel.y = -50;
-      // Jump
       if (this.keys["Space"] && this.onGround) {
         this.vel.y = JUMP_VEL;
         this.onGround = false;
       }
     }
 
-    // ── Apply velocity with collision (axis by axis) ──────────────────
     this.moveAxis("x", this.vel.x * dt);
     this.moveAxis("y", this.vel.y * dt);
     this.moveAxis("z", this.vel.z * dt);
 
-    // ── Camera follow ─────────────────────────────────────────────────
+    // ── Survival: held-down mining ──
+    if (this.gameMode === "survival" && this.mouseDown) {
+      const hit = this.raycast();
+      if (hit) {
+        const same = this.breakingAt &&
+          this.breakingAt.x === hit.x && this.breakingAt.y === hit.y && this.breakingAt.z === hit.z;
+        if (!same) {
+          this.breakingAt = { x: hit.x, y: hit.y, z: hit.z };
+          this.breakProgress = 0;
+          this.breakTime = this.estimateBreakTime(this.world.getBlock(hit.x, hit.y, hit.z));
+        }
+        this.breakProgress += dt / Math.max(0.05, this.breakTime);
+        this.onBreakProgress?.(this.breakProgress);
+        if (this.breakProgress >= 1) {
+          this.doBreak();
+          this.breakingAt = null;
+          this.breakProgress = 0;
+          this.onBreakProgress?.(0);
+        }
+      } else {
+        this.breakingAt = null;
+        this.breakProgress = 0;
+        this.onBreakProgress?.(0);
+      }
+    }
+
+    // ── Fall damage ──
+    if (this.gameMode === "survival" && this.vel.y === 0 && !this.flying) {
+      // (Simplified — proper fall damage tracks airborne distance)
+    }
+
+    // ── Camera follow ──
     this.camera.position.set(this.pos.x, this.pos.y + EYE, this.pos.z);
     this.camera.rotation.order = "YXZ";
     this.camera.rotation.y = this.yaw;
     this.camera.rotation.x = this.pitch;
   }
 
-  /** Move along a single axis, resolving collisions. */
   private moveAxis(axis: "x" | "y" | "z", dist: number) {
     if (dist === 0) return;
     const oldPos = this.pos[axis];
     const newPos = oldPos + dist;
-
-    // Player AABB at new pos
     const hw = PLAYER_W / 2 - 0.01;
     const minX = (axis === "x" ? newPos : this.pos.x) - hw;
     const maxX = (axis === "x" ? newPos : this.pos.x) + hw;
@@ -183,14 +271,9 @@ export class Player {
     const maxY = (axis === "y" ? newPos : this.pos.y) + PLAYER_H;
     const minZ = (axis === "z" ? newPos : this.pos.z) - hw;
     const maxZ = (axis === "z" ? newPos : this.pos.z) + hw;
-
-    const bMinX = Math.floor(minX);
-    const bMaxX = Math.floor(maxX);
-    const bMinY = Math.floor(minY);
-    const bMaxY = Math.floor(maxY - 0.0001);
-    const bMinZ = Math.floor(minZ);
-    const bMaxZ = Math.floor(maxZ);
-
+    const bMinX = Math.floor(minX), bMaxX = Math.floor(maxX);
+    const bMinY = Math.floor(minY), bMaxY = Math.floor(maxY - 0.0001);
+    const bMinZ = Math.floor(minZ), bMaxZ = Math.floor(maxZ);
     let collided = false;
     for (let bx = bMinX; bx <= bMaxX && !collided; bx++) {
       for (let by = bMinY; by <= bMaxY && !collided; by++) {
@@ -199,7 +282,6 @@ export class Player {
         }
       }
     }
-
     if (!collided) {
       this.pos[axis] = newPos;
       if (axis === "y" && dist < 0) this.onGround = false;
@@ -210,7 +292,6 @@ export class Player {
       } else {
         this.vel[axis] = 0;
       }
-      // Snap to the wall
       if (dist > 0) {
         this.pos[axis] = Math.floor(newPos + (axis === "y" ? PLAYER_H : hw)) - (axis === "y" ? PLAYER_H : hw) - 0.001;
       } else {
