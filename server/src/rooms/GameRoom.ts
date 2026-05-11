@@ -16,6 +16,8 @@ export class PlayerState extends Schema {
   @type("string")  gameMode: string = "survival";
   /** False between death and respawn — clients hide the mesh when not alive. */
   @type("boolean") alive: boolean = true;
+  /** Replicated crouch state so remote clients can play the squat anim. */
+  @type("boolean") crouching: boolean = false;
 
   // Bloxity / Legion SDK avatar fields. Synced from the Legion API at join
   // time. All cosmetic / body-part IDs are 24-char ObjectIds (or "-1" for
@@ -141,6 +143,7 @@ export class GameRoom extends Room<GameState> {
       p.rotY = data.rotY; p.rotX = data.rotX; p.onGround = data.onGround;
       if (data.gameMode) p.gameMode = data.gameMode;
       if (typeof data.heldId === "number") p.heldId = (data.heldId | 0) & 0xff;
+      if (typeof data.crouching === "boolean") p.crouching = data.crouching;
     });
 
     this.onMessage("setHeld", (client, data: any) => {
@@ -156,6 +159,9 @@ export class GameRoom extends Room<GameState> {
       const target = this.state.players.get(targetId);
       if (!attacker || !target || target === attacker) return;
       if (target.gameMode === "creative" || target.gameMode === "spectator") return;
+      // Already dead — refuse new damage so the killer can't keep "hitting"
+      // a corpse and so we don't spam playerHit broadcasts.
+      if (!target.alive) return;
       // Range gate so a malicious client can't damage from across the map.
       const d = Math.hypot(attacker.x - target.x, attacker.y - target.y, attacker.z - target.z);
       if (d > 5.5) return;
@@ -224,7 +230,29 @@ export class GameRoom extends Room<GameState> {
       mob.health = Math.max(0, mob.health - dmg) as any;
       if (mob.health <= 0) {
         mob.alive = false;
-        this.broadcast("mobKilled", { mobId: data.mobId });
+        // Vanilla-ish drop tables. ITEM IDs below match Textures.ts.
+        // raw beef/pork/chicken are at item ids 212/213/214 (added in this
+        // pass); leather=77, rotten flesh=95, gunpowder=76, bone=78,
+        // arrow=80, feather=75, string=74, spider eye=96, wool=14 (white),
+        // emerald=81, raw rabbit=149, rabbit hide=176, rabbit foot=148.
+        const rng = (lo: number, hi: number) => lo + Math.floor(Math.random() * (hi - lo + 1));
+        const drops: Array<{ id: number; count: number }> = [];
+        switch (mob.type) {
+          case "zombie":    drops.push({ id: 95,  count: rng(0, 2) }); break;
+          case "skeleton":  drops.push({ id: 78,  count: rng(0, 2) }); drops.push({ id: 80, count: rng(0, 2) }); break;
+          case "creeper":   drops.push({ id: 76,  count: rng(0, 2) }); break;
+          case "spider":    drops.push({ id: 74,  count: rng(0, 2) }); if (Math.random() < 0.33) drops.push({ id: 96, count: 1 }); break;
+          case "cow":       drops.push({ id: 77,  count: rng(0, 2) }); drops.push({ id: 212, count: rng(1, 3) }); break;
+          case "pig":       drops.push({ id: 213, count: rng(1, 3) }); break;
+          case "chicken":   drops.push({ id: 75,  count: rng(0, 2) }); drops.push({ id: 214, count: 1 }); break;
+          case "sheep":     drops.push({ id: 14,  count: 1 }); break;
+          case "villager":  if (Math.random() < 0.5) drops.push({ id: 81, count: 1 }); break;
+          case "rabbit":    drops.push({ id: 176, count: rng(0, 1) }); drops.push({ id: 149, count: 1 }); break;
+          case "wolf":      break; // wolves don't drop in vanilla
+        }
+        // Filter zero-count entries before sending.
+        const real = drops.filter(d => d.count > 0);
+        this.broadcast("mobKilled", { mobId: data.mobId, type: mob.type, x: mob.x, y: mob.y, z: mob.z, drops: real });
         setTimeout(() => { this.state.mobs.delete(String(data.mobId)); }, 4000);
       } else {
         this.broadcast("mobHit", { mobId: data.mobId, health: mob.health });

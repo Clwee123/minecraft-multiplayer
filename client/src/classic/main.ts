@@ -394,11 +394,51 @@ function wirePauseButtons() {
   document.getElementById("optionsClose")?.addEventListener("click",    () => closeModal("optionsModal"));
   document.getElementById("keybindsClose")?.addEventListener("click",   () => closeModal("keybindsModal"));
   document.getElementById("controllerClose")?.addEventListener("click", () => closeModal("controllerModal"));
-  // Options sliders
-  wireOption("optVolume", "optVolumeVal", v => { sound.setVolume(v / 100); }, x => String(x));
-  wireOption("optRender", "optRenderVal", v => { _renderDist = v; }, x => String(x));
-  wireOption("optMouse",  "optMouseVal",  v => { if (player) player.mouseSensitivity = 0.001 * v; }, v => (v / 10).toFixed(1));
-  wireOption("optFov",    "optFovVal",    v => { camera.fov = v; camera.updateProjectionMatrix(); }, x => String(x));
+  // Options sliders — bind change handlers + restore from localStorage.
+  loadSettings();
+  wireOption("optVolume", "optVolumeVal", v => { sound.setVolume(v / 100); saveSettings(); }, x => String(x));
+  wireOption("optRender", "optRenderVal", v => { _renderDist = v;          saveSettings(); }, x => String(x));
+  wireOption("optMouse",  "optMouseVal",  v => { if (player) player.mouseSensitivity = 0.001 * v; saveSettings(); }, v => (v / 10).toFixed(1));
+  wireOption("optFov",    "optFovVal",    v => { camera.fov = v; camera.updateProjectionMatrix();  saveSettings(); }, x => String(x));
+}
+
+// ── Settings persistence ──────────────────────────────────────────────────
+//
+// Options + keybinds are stored under a single localStorage key. We snapshot
+// on every change (slider drag, key remap) plus once on hide via `beforeunload`.
+const SETTINGS_KEY = "mc.settings.v1";
+function saveSettings() {
+  try {
+    const data = {
+      volume: (document.getElementById("optVolume") as HTMLInputElement)?.value,
+      render: (document.getElementById("optRender") as HTMLInputElement)?.value,
+      mouse:  (document.getElementById("optMouse")  as HTMLInputElement)?.value,
+      fov:    (document.getElementById("optFov")    as HTMLInputElement)?.value,
+      keys:   { ...KEY_BIND },
+    };
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(data));
+  } catch (e) { console.warn("[settings] save failed", e); }
+}
+function loadSettings() {
+  try {
+    const raw = localStorage.getItem(SETTINGS_KEY);
+    if (!raw) return;
+    const data = JSON.parse(raw);
+    const set = (id: string, v: any) => {
+      if (v == null) return;
+      const el = document.getElementById(id) as HTMLInputElement | null;
+      if (el) el.value = String(v);
+    };
+    set("optVolume", data.volume);
+    set("optRender", data.render);
+    set("optMouse",  data.mouse);
+    set("optFov",    data.fov);
+    if (data.keys && typeof data.keys === "object") {
+      for (const k of Object.keys(KEY_BIND)) {
+        if (typeof data.keys[k] === "string") KEY_BIND[k] = data.keys[k];
+      }
+    }
+  } catch (e) { console.warn("[settings] load failed", e); }
 }
 
 function openModal(id: string)  { const el = document.getElementById(id); if (el) el.style.display = "flex"; }
@@ -467,6 +507,7 @@ window.addEventListener("keydown", (e) => {
   _keybindCapture.el.classList.remove("binding");
   _keybindCapture.el.textContent = displayKey(e.code);
   _keybindCapture = null;
+  saveSettings();
   e.preventDefault();
 }, true);
 
@@ -1260,7 +1301,12 @@ function tryAttackInFront(): boolean {
     if (!best || t < best.t) best = { kind, id, t, mesh };
   };
   for (const m of mp.getRemoteMobs())    considerBox("mob",    m.id, m.mesh, 0.5, 1.8);
-  for (const p of mp.getRemotePlayers()) considerBox("player", p.id, p.mesh, 0.45, 1.85);
+  // Skip dead players: server's alive=false hides their mesh, and we don't
+  // want the killer's swing to keep registering on the now-invisible corpse.
+  for (const p of mp.getRemotePlayers()) {
+    if (p.alive === false) continue;
+    considerBox("player", p.id, p.mesh, 0.45, 1.85);
+  }
   if (!best) return false;
   // Visual: red-flash whatever we hit for ~250 ms.
   flashHitFlash(best.mesh);
@@ -1454,6 +1500,15 @@ async function startGame(serverAddr: string | null) {
       // World.setBlock). If the chunk isn't loaded, the change is buffered
       // and applied when generateChunk reaches it.
       if (world) world.setBlock(x, y, z, type, { autoCreate: false });
+    };
+    mp.onMobKilled = (_id, _type, x, y, z, dropList) => {
+      // Spawn each drop at the mob's position. ItemDrops handles the
+      // bouncing visuals + grace-period before pickup. We don't gate on
+      // gameMode here — creative players can pick them up too (vanilla).
+      if (!drops) return;
+      for (const d of dropList) {
+        if (d.id > 0 && d.count > 0) drops.spawn(d.id, d.count, x, y + 0.5, z);
+      }
     };
     mp.onLocalDamage = (d, source) => {
       // Prefer the precise source from the server message ("a creeper" /
@@ -1971,7 +2026,7 @@ async function startGame(serverAddr: string | null) {
       if (mpSendTimer >= 0.05) {
         mpSendTimer = 0;
         const heldId = inv.hotbar[inv.selected]?.id ?? 0;
-        mp.sendMove(player.pos.x, player.pos.y, player.pos.z, player.yaw, player.pitch, heldId);
+        mp.sendMove(player.pos.x, player.pos.y, player.pos.z, player.yaw, player.pitch, heldId, player.crouching);
       }
       mp.update(dt, camera.position);
     }

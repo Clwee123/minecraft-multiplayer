@@ -43,6 +43,9 @@ export interface RemotePlayer {
   /** Server-replicated alive flag. When false, the mesh + nametag are hidden
    *  so a killer doesn't keep seeing a frozen corpse standing on screen. */
   alive: boolean;
+  /** Server-replicated crouch flag. When true the mesh is squashed + lowered
+   *  to match the local-player crouch visual. */
+  crouching: boolean;
 }
 
 export interface RemoteMob {
@@ -121,6 +124,8 @@ export class Multiplayer {
   onRemoteBreakProgress?: (sid: string, x: number, y: number, z: number, progress: number) => void;
   /** A remote player stopped breaking (LMB released or block broken). */
   onRemoteBreakStop?: (sid: string) => void;
+  /** A mob died — main.ts spawns the dropped items at the mob's position. */
+  onMobKilled?: (mobId: string, type: string, x: number, y: number, z: number, drops: Array<{ id: number; count: number }>) => void;
 
   private lastSelfHealth = -1;
 
@@ -247,6 +252,15 @@ export class Multiplayer {
       this.room.onMessage("playerRespawn", noop);
       this.room.onMessage("mobSpawn", noop);
       this.room.onMessage("mobDeath", noop);
+      this.room.onMessage("mobKilled", (msg: any) => {
+        if (!msg) return;
+        this.onMobKilled?.(
+          String(msg.mobId || ""),
+          String(msg.type || ""),
+          +msg.x || 0, +msg.y || 0, +msg.z || 0,
+          Array.isArray(msg.drops) ? msg.drops : [],
+        );
+      });
       this.room.onMessage("hunger", noop);
       this.room.onMessage("inventory", noop);
       // Catch-all: stop colyseus from logging warnings about any other unknown message types.
@@ -294,9 +308,9 @@ export class Multiplayer {
   getRemotePlayers(): RemotePlayer[] { return [...this.remotePlayers.values()]; }
   getRemoteMobs(): RemoteMob[] { return [...this.remoteMobs.values()]; }
 
-  sendMove(x: number, y: number, z: number, rotY: number, rotX: number, heldId = 0) {
+  sendMove(x: number, y: number, z: number, rotY: number, rotX: number, heldId = 0, crouching = false) {
     if (!this.room) return;
-    this.room.send("move", { x, y, z, rotY, rotX, onGround: true, heldId });
+    this.room.send("move", { x, y, z, rotY, rotX, onGround: true, heldId, crouching });
   }
 
   sendSetHeld(id: number) { this.room?.send("setHeld", { id }); }
@@ -433,6 +447,7 @@ export class Multiplayer {
       headBone,
       limbBaseRot,
       alive: player?.alive !== false,
+      crouching: !!player?.crouching,
     });
   }
 
@@ -596,6 +611,10 @@ export class Multiplayer {
           rp.mesh.visible = p.alive;
           if (rp.nameTag) rp.nameTag.visible = p.alive;
         }
+        // Crouch — squash + lower like vanilla. Local update() lerps the
+        // mesh.scale.y / position offset toward this target so the
+        // transition is smooth instead of popping.
+        if (typeof p.crouching === "boolean") rp.crouching = p.crouching;
         if (p.name && p.name !== rp.name) rp.name = String(p.name);
         // Avatar fields — rebuild the nametag if displayName or pfp changed.
         const newDisplay = String(p.displayName || rp.name);
@@ -674,7 +693,17 @@ export class Multiplayer {
       rp.speed = rp.speed * 0.85 + instSpeed * 0.15;
       rp.lastPos.set(rp.x, rp.y, rp.z);
 
-      rp.mesh.position.set(rp.x, rp.y, rp.z);
+      // Crouch visual: 0.78× vertical scale + drop the mesh by 0.12 m so the
+      // feet stay planted. Lerp toward the target so the squat eases in
+      // instead of popping. Stored on the mesh as `__crouchT` (0=stand,1=crouch).
+      const targetT = rp.crouching ? 1 : 0;
+      const curT = (rp.mesh as any).__crouchT ?? 0;
+      const newT = curT + (targetT - curT) * Math.min(1, dt * 10);
+      (rp.mesh as any).__crouchT = newT;
+      const yScale = 1 - newT * 0.22;
+      const yDrop  = -newT * 0.04; // a little extra droop relative to the position
+      rp.mesh.scale.y = yScale;
+      rp.mesh.position.set(rp.x, rp.y + yDrop, rp.z);
       rp.mesh.rotation.y = rp.rotY + Math.PI;
 
       // Nametag follows the head bone's world position each frame so it

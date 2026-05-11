@@ -19,6 +19,10 @@ export interface BlockDef {
   isLeaf?: boolean;
   solid?: boolean;
   crossShape?: boolean;
+  /** Tiny upright box at the bottom-centre of the cell, instead of a full
+   *  block or a cross-shape. Used for torches — gives them a real-looking
+   *  thin post + flame instead of filling the whole cell. */
+  miniColumn?: boolean;
   hardness?: number;
   drop?: number;
   dropCount?: number;
@@ -153,6 +157,11 @@ export const T_I_MUSH_STEW   = T(12, 6);
 export const T_I_ROTTEN      = T(13, 6);
 export const T_I_SPIDER_EYE  = T(14, 6);
 export const T_I_SUGAR       = T(15, 6);
+// Raw meat tiles — baked into previously-free atlas cells.
+export const T_I_PORK_RAW    = T(10, 9);
+export const T_I_BEEF_RAW    = T(13, 9);
+export const T_I_CHK_RAW     = T(14, 11);
+export const T_I_MUTTON_RAW  = T(15, 11);
 // Row 7 — tools / utility
 export const T_I_BUCKET      = T(0, 7);
 export const T_I_BUCKET_W    = T(1, 7);
@@ -346,7 +355,7 @@ export const BLOCKS: Record<number, BlockDef> = {
   39: { faces: all6(T_IRON_BLOCK),           hardness: 5.0, tool: "pickaxe" },
   40: { faces: all6(T_GOLD_BLOCK),           hardness: 3.0, tool: "pickaxe" },
   41: { faces: all6(T_DIAM_BLOCK),           hardness: 5.0, tool: "pickaxe" },
-  42: { faces: all6(T_TORCH), transparent: true, solid: false, crossShape: true, emissive: true, hardness: 0 },
+  42: { faces: all6(T_TORCH), transparent: true, solid: false, miniColumn: true, emissive: true, hardness: 0 },
   43: { faces: all6(T_LADDER), transparent: true, solid: false, hardness: 0.4 },
   44: { faces: [T_WOOL_R, T_WOOL_R, T_WOOL_W, T_PLANKS, T_WOOL_R, T_WOOL_R], hardness: 0.2, drop: 44, iconTile: T_I_BED },
   // Desert cactus — block-shaped to keep meshing simple; can't actually
@@ -385,9 +394,8 @@ export const BLOCKS: Record<number, BlockDef> = {
   171: { faces: [T_CHEST_SIDE, T_CHEST_SIDE, T_CHEST_TOP_2, T_CHEST_TOP_2, T_CHEST_FRONT, T_CHEST_SIDE], hardness: 2.5, tool: "axe" },
   // Redstone block (uses already-atlas redstone-block tile T_REDSTONE_O at T(7,3))
   172: { faces: all6(T(7, 3)), hardness: 5.0, tool: "pickaxe" },
-  // Redstone torch — just a regular emissive cross-shape; uses torch tile tinted red conceptually,
-  // but we don't have a separate tile, so reuse the torch tile.
-  173: { faces: all6(T_TORCH), transparent: true, solid: false, crossShape: true, emissive: true, hardness: 0 },
+  // Redstone torch — small upright miniColumn like the regular torch.
+  173: { faces: all6(T_TORCH), transparent: true, solid: false, miniColumn: true, emissive: true, hardness: 0 },
   // ── Redstone family ────────────────────────────────────────────────────
   // Mechanical block IDs at 220+ (174..211 are ITEM ids — keep the spaces
   // separate so getItemTile/Name don't collide between BLOCKS and ITEMS).
@@ -399,7 +407,7 @@ export const BLOCKS: Record<number, BlockDef> = {
   // Lever — flat cross-shape using the lever tile; not solid so player can pass.
   224: { faces: all6(T_LEVER), transparent: true, solid: false, crossShape: true, hardness: 0.2 },
   // Redstone torch (on) — emissive cross-shape, like the regular torch.
-  225: { faces: all6(T_REDSTONE_TORCH_N), transparent: true, solid: false, crossShape: true, emissive: true, hardness: 0 },
+  225: { faces: all6(T_REDSTONE_TORCH_N), transparent: true, solid: false, miniColumn: true, emissive: true, hardness: 0 },
   // Redstone dust laid on floor — visualized as a cross-shape for now (true
   // vanilla shape is a flat decal on the ground; cross-shape is the cheapest
   // 3D stand-in until we add billboarded floor decals).
@@ -559,6 +567,11 @@ export const ITEMS: Record<number, { name: string; tile: number; tool?: "axe" | 
   209: { name: "Music Disc — Ward",    tile: T_I_DISC_WARD },
   210: { name: "Music Disc — 11",      tile: T_I_DISC_11 },
   211: { name: "Music Disc — Wait",    tile: T_I_DISC_WAIT },
+  // Raw meat items (mob drops). Cookable in the furnace into 82/83/84.
+  212: { name: "Raw Beef",     tile: T_I_BEEF_RAW,   food: 3 },
+  213: { name: "Raw Porkchop", tile: T_I_PORK_RAW,   food: 3 },
+  214: { name: "Raw Chicken",  tile: T_I_CHK_RAW,    food: 2 },
+  215: { name: "Raw Mutton",   tile: T_I_MUTTON_RAW, food: 2 },
 };
 
 export const BLOCK_NAMES: Record<number, string> = {

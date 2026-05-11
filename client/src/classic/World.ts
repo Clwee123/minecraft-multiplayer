@@ -64,7 +64,14 @@ class Chunk {
   }
 }
 
-export type Biome = "ocean" | "beach" | "plains" | "forest" | "desert" | "hills" | "snowy";
+// Major biome categories the world generates. Drives surface block, height
+// offset, tree type, and decor selection in generateChunk.
+export type Biome =
+  | "ocean" | "deep_ocean" | "river" | "frozen_river" | "beach" | "cold_beach" | "stone_beach"
+  | "plains" | "forest" | "birch_forest" | "dark_forest" | "swamp" | "jungle" | "mushroom_island"
+  | "taiga" | "mega_taiga" | "ice_plains" | "extreme_hills" | "snowy"
+  | "desert" | "savanna" | "mesa"
+  | "hills";
 
 interface BiomeProfile {
   heightOffset: number;
@@ -73,14 +80,37 @@ interface BiomeProfile {
 }
 
 const BIOMES: Record<Biome, BiomeProfile> = {
-  ocean:  { heightOffset: -16, surface:  4, subsurface: 4 },   // sand under water
-  beach:  { heightOffset:  -8, surface:  4, subsurface: 4 },
-  plains: { heightOffset:   0, surface:  1, subsurface: 2 },   // grass on dirt
-  forest: { heightOffset:   1, surface:  1, subsurface: 2 },
-  desert: { heightOffset:  -1, surface:  4, subsurface: 4 },   // sand all the way
-  hills:  { heightOffset:  12, surface:  1, subsurface: 2 },
-  snowy:  { heightOffset:   6, surface: 23, subsurface: 2 },   // snow on dirt
+  // Aquatic
+  ocean:        { heightOffset: -16, surface:  4, subsurface: 4 },     // sand under water
+  deep_ocean:   { heightOffset: -28, surface:  4, subsurface: 9 },     // deeper, cobble floor
+  river:        { heightOffset:  -6, surface:  4, subsurface: 4 },
+  frozen_river: { heightOffset:  -6, surface: 24, subsurface: 4 },     // ice surface
+  beach:        { heightOffset:  -8, surface:  4, subsurface: 4 },     // sand
+  cold_beach:   { heightOffset:  -8, surface:  4, subsurface: 4 },     // sand (snow added by decor)
+  stone_beach:  { heightOffset:  -4, surface:  3, subsurface: 9 },     // stone + cobble
+  // Temperate
+  plains:       { heightOffset:   0, surface:  1, subsurface: 2 },     // grass / dirt
+  forest:       { heightOffset:   1, surface:  1, subsurface: 2 },
+  birch_forest: { heightOffset:   1, surface:  1, subsurface: 2 },     // birch trees added at decor
+  dark_forest:  { heightOffset:   1, surface:  1, subsurface: 2 },     // dense oak canopy
+  swamp:        { heightOffset:  -2, surface:  1, subsurface: 2 },     // grass, with extra water
+  jungle:       { heightOffset:   3, surface:  1, subsurface: 2 },     // big trees
+  mushroom_island: { heightOffset: 4, surface: 163, subsurface: 2 },   // mycelium top
+  // Cold
+  taiga:        { heightOffset:   2, surface:  1, subsurface: 2 },     // spruce trees
+  mega_taiga:   { heightOffset:   3, surface:  1, subsurface: 2 },     // bigger spruce
+  ice_plains:   { heightOffset:   1, surface: 23, subsurface: 2 },     // snow block on dirt
+  extreme_hills:{ heightOffset:  18, surface:  3, subsurface: 9 },     // bare stone peaks
+  snowy:        { heightOffset:   6, surface: 23, subsurface: 2 },     // snow on dirt
+  hills:        { heightOffset:  12, surface:  1, subsurface: 2 },
+  // Dry / hot
+  desert:       { heightOffset:  -1, surface:  4, subsurface: 4 },     // sand all the way
+  savanna:      { heightOffset:   2, surface:  1, subsurface: 2 },     // dry grass (re-tinted)
+  mesa:         { heightOffset:   4, surface: 161, subsurface: 159 },  // red hardened clay
 };
+
+/** Biomes that count as "land" for spawn/path/village placement. */
+const _LAND_BIOMES = new Set<Biome>(["plains","forest","birch_forest","dark_forest","savanna","taiga","mega_taiga","jungle","mushroom_island","desert","hills","extreme_hills","mesa","snowy","ice_plains","beach","cold_beach","stone_beach"]);
 
 export interface WorldOptions {
   infinite?: boolean;     // true = chunk-stream around player (survival/creative)
@@ -97,6 +127,10 @@ export class World {
   /** Buffered block changes for chunks that haven't been generated yet.
    *  Applied automatically inside generateChunk() once we get there. */
   private pendingBlockChanges: Map<string, Array<{ x: number; y: number; z: number; type: number }>> = new Map();
+  /** Per-block placement direction for torches/levers/etc. Default is "up"
+   *  (sitting on floor). Wall-mounted torches store the cardinal direction
+   *  of the wall they're attached to. */
+  torchDirs: Map<string, "up" | "+x" | "-x" | "+z" | "-z"> = new Map();
 
   private opaqueMat: THREE.Material | null = null;
   private leavesMat: THREE.Material | null = null;
@@ -111,6 +145,13 @@ export class World {
   private nCave2: (x: number, y: number, z: number) => number;
   private nOre:   (x: number, y: number, z: number) => number;
   private nBiome: (x: number, z: number) => number;
+  /** Second biome noise — combined with nBiome to give a 2D temperature ×
+   *  humidity classification (matches MC's whittaker-diagram-style biome
+   *  selection more than a single 1D noise). */
+  private nBiome2: (x: number, z: number) => number;
+  /** Tiny noise used to flip a few mushroom_island and ice_spikes patches in
+   *  otherwise-uniform regions. */
+  private nBiomeR: (x: number, z: number) => number;
 
   constructor(scene: THREE.Scene, seed = 0, options: WorldOptions = {}) {
     this.scene = scene;
@@ -125,20 +166,67 @@ export class World {
     this.nCave2 = createNoise3D(r);
     this.nOre   = createNoise3D(r);
     this.nBiome = createNoise2D(r);
+    this.nBiome2 = createNoise2D(r);
+    this.nBiomeR = createNoise2D(r);
 
     this.initMaterials();
   }
 
-  /** Coarse biome classification for a world-space column. */
+  /** Biome classification using temperature × humidity noise (whittaker-
+   *  diagram style). Returns one of ~22 biomes. */
   private biomeAt(wx: number, wz: number): Biome {
-    const t = this.nBiome(wx * 0.0045, wz * 0.0045); // -1..1, smooth large patches
-    if (t < -0.55) return "ocean";
-    if (t < -0.25) return "beach";
-    if (t < 0.05)  return "plains";
-    if (t < 0.25)  return "forest";
-    if (t < 0.5)   return "desert";
-    if (t < 0.75)  return "hills";
-    return "snowy";
+    // Two large-scale noises drive the biome map. The third (small-scale)
+    // perturbs rare-biome thresholds so we get occasional mushroom islands
+    // and ice-spike patches inside otherwise-uniform regions.
+    const t = this.nBiome (wx * 0.0035, wz * 0.0035);   // temperature (-1 cold .. 1 hot)
+    const h = this.nBiome2(wx * 0.0040, wz * 0.0040);   // humidity   (-1 dry  .. 1 wet)
+    const r = this.nBiomeR(wx * 0.0120, wz * 0.0120);   // small rarity perturbation
+
+    // Below-sea-level columns are aquatic, classified by humidity.
+    if (t < -0.65) {
+      if (h > 0.5) return "frozen_river";
+      return "deep_ocean";
+    }
+    if (t < -0.45) {
+      if (h > 0.4) return "ocean";
+      return "river";
+    }
+    if (t < -0.35) {
+      if (h < -0.3) return "stone_beach";
+      if (t < -0.4) return "cold_beach";
+      return "beach";
+    }
+
+    // Cold zone (-0.35 .. -0.1)
+    if (t < -0.1) {
+      if (r > 0.6)  return "ice_plains";      // rare patches inside cold
+      if (h > 0.55) return "mega_taiga";
+      if (h > 0.05) return "taiga";
+      if (h < -0.5) return "extreme_hills";
+      return "snowy";
+    }
+    // Temperate zone (-0.1 .. 0.4)
+    if (t < 0.4) {
+      if (r > 0.78 && h > 0.6) return "mushroom_island";
+      if (h > 0.6)  return "swamp";
+      if (h > 0.35 && t > 0.15) return "jungle";
+      if (h > 0.15) {
+        // Forest variants
+        const v = (this.nBiome(wx * 0.02, wz * 0.02) + 1) * 0.5;
+        if (v < 0.33) return "forest";
+        if (v < 0.66) return "birch_forest";
+        return "dark_forest";
+      }
+      if (h > -0.2) return "plains";
+      return "hills";
+    }
+    // Hot/dry zone (>= 0.4)
+    if (h < -0.3) {
+      if (t > 0.7 && r > 0.4) return "mesa";
+      return "desert";
+    }
+    if (h < 0.2) return "savanna";
+    return "jungle";
   }
 
   /** Public accessor — used by main.ts for biome-aware features. */
@@ -301,13 +389,24 @@ export class World {
     // Pick a "majority biome" for chunk-wide decisions like village placement.
     const centerBiome = biomeOfColumn[CHUNK_W >> 1][CHUNK_W >> 1];
 
-    // Trees + ground decor by biome at the column.
-    const treeTries = centerBiome === "forest" ? 8
-                    : centerBiome === "plains" ? 2
-                    : centerBiome === "hills"  ? 4
-                    : centerBiome === "snowy"  ? 3
-                    : centerBiome === "desert" ? 0
-                    : 0;
+    // Trees + ground decor by biome at the column. Density and species
+    // depend on the chunk's majority biome; placement uses the per-column
+    // biome so transition edges are nicer.
+    const treeTries =
+      centerBiome === "dark_forest"   ? 14 :
+      centerBiome === "jungle"        ? 12 :
+      centerBiome === "forest"        ?  8 :
+      centerBiome === "birch_forest"  ?  8 :
+      centerBiome === "mega_taiga"    ?  8 :
+      centerBiome === "taiga"         ?  6 :
+      centerBiome === "plains"        ?  2 :
+      centerBiome === "savanna"       ?  2 :
+      centerBiome === "hills"         ?  4 :
+      centerBiome === "snowy"         ?  3 :
+      centerBiome === "ice_plains"    ?  1 :
+      centerBiome === "mushroom_island" ? 0 : // mushrooms instead
+      centerBiome === "desert"        ?  0 :
+      0;
     for (let i = 0; i < treeTries; i++) {
       const lx = 2 + Math.floor(rng() * (CHUNK_W - 4));
       const lz = 2 + Math.floor(rng() * (CHUNK_W - 4));
@@ -316,14 +415,21 @@ export class World {
       const top = chunk.get(lx, y, lz);
       const biome = biomeOfColumn[lx][lz];
       // Only grow on the appropriate top block
-      if (y < CHUNK_H - 8 && (top === 1 || top === 23)) {
-        if (biome === "hills" || biome === "snowy") {
-          this.placeTree(chunk, lx, y + 1, lz, rng, 28, 29);   // spruce
-        } else if (biome === "forest" && rng() < 0.35) {
-          this.placeTree(chunk, lx, y + 1, lz, rng, 5,  6);    // oak — birch could go here too
-        } else {
-          this.placeTree(chunk, lx, y + 1, lz, rng, 5,  6);
+      if (y < CHUNK_H - 8 && (top === 1 || top === 23 || top === 163)) {
+        // Pick log/leaf ids for the biome. We only have oak and spruce
+        // textures wired up as block ids (5/6 oak, 28/29 spruce); other
+        // species fall back to oak with a comment for future textures.
+        let log = 5, leaf = 6;
+        if (biome === "taiga" || biome === "mega_taiga" || biome === "snowy" || biome === "ice_plains") {
+          log = 28; leaf = 29;                // spruce
+        } else if (biome === "birch_forest") {
+          // No birch BLOCK ids yet; use oak as stand-in until birch atlas
+          // is wired up (T_BIRCH_* exists but no BLOCKS entry).
+          log = 5; leaf = 6;
+        } else if (biome === "jungle") {
+          log = 5; leaf = 6;                  // jungle — use oak greens for now
         }
+        this.placeTree(chunk, lx, y + 1, lz, rng, log, leaf);
       }
     }
 
@@ -341,6 +447,88 @@ export class World {
         const w = rng();
         const id = w < 0.4 ? 30 : (w < 0.8 ? 31 : 32);
         chunk.set(lx, y + 1, lz, id);
+      }
+    }
+
+    // Mushroom island: scatter giant mushrooms (use red/brown mushroom block
+    // as a low-poly stand-in until a true HugeMushroom block lands).
+    if (centerBiome === "mushroom_island") {
+      const tries = 6;
+      for (let i = 0; i < tries; i++) {
+        const lx = 2 + Math.floor(rng() * (CHUNK_W - 4));
+        const lz = 2 + Math.floor(rng() * (CHUNK_W - 4));
+        let y = CHUNK_H - 1;
+        while (y > 0 && chunk.get(lx, y, lz) === 0) y--;
+        if (chunk.get(lx, y, lz) === 163 && y + 3 < CHUNK_H) {
+          chunk.set(lx, y + 1, lz, rng() < 0.5 ? 34 : 35);
+        }
+      }
+    }
+
+    // Ice plains: occasional ice patches in any "frozen river" or low spot.
+    if (centerBiome === "ice_plains" || centerBiome === "frozen_river") {
+      for (let lx = 0; lx < CHUNK_W; lx++) for (let lz = 0; lz < CHUNK_W; lz++) {
+        let y = CHUNK_H - 1;
+        while (y > 0 && chunk.get(lx, y, lz) === 0) y--;
+        if (chunk.get(lx, y, lz) === 7) chunk.set(lx, y, lz, 24); // ice on water
+      }
+    }
+
+    // Cold beach: light snow dusting on sand.
+    if (centerBiome === "cold_beach") {
+      const tries = 6;
+      for (let i = 0; i < tries; i++) {
+        const lx = Math.floor(rng() * CHUNK_W);
+        const lz = Math.floor(rng() * CHUNK_W);
+        let y = CHUNK_H - 1;
+        while (y > 0 && chunk.get(lx, y, lz) === 0) y--;
+        if (chunk.get(lx, y, lz) === 4 && y + 1 < CHUNK_H) chunk.set(lx, y + 1, lz, 23);
+      }
+    }
+
+    // Swamp: extra water pockets + lily-pad stand-in (tall grass on water).
+    if (centerBiome === "swamp") {
+      const tries = 4;
+      for (let i = 0; i < tries; i++) {
+        const lx = 2 + Math.floor(rng() * (CHUNK_W - 4));
+        const lz = 2 + Math.floor(rng() * (CHUNK_W - 4));
+        let y = CHUNK_H - 1;
+        while (y > 0 && chunk.get(lx, y, lz) === 0) y--;
+        // Carve a 2x2 pond on grass.
+        if (chunk.get(lx, y, lz) === 1) {
+          for (let dx = 0; dx < 2; dx++) for (let dz = 0; dz < 2; dz++) {
+            chunk.set(lx + dx, y, lz + dz, 7);
+          }
+        }
+      }
+    }
+
+    // Mesa: red clay layers — re-overwrite top few cells with stripe pattern.
+    if (centerBiome === "mesa") {
+      for (let lx = 0; lx < CHUNK_W; lx++) for (let lz = 0; lz < CHUNK_W; lz++) {
+        let y = CHUNK_H - 1;
+        while (y > 0 && chunk.get(lx, y, lz) === 0) y--;
+        for (let dy = 0; dy < 6; dy++) {
+          const yy = y - dy;
+          if (yy <= 0) break;
+          const id = (yy % 5 === 0) ? 160 /* orange */ : (yy % 7 === 0) ? 162 /* blue */ : 161 /* red */;
+          const cur = chunk.get(lx, yy, lz);
+          if (cur === 3 || cur === 1 || cur === 2 || cur === 159 || cur === 161) {
+            chunk.set(lx, yy, lz, id);
+          }
+        }
+      }
+    }
+
+    // Extreme hills: scatter cobblestone "rocks" on the bare stone.
+    if (centerBiome === "extreme_hills") {
+      const tries = 5;
+      for (let i = 0; i < tries; i++) {
+        const lx = Math.floor(rng() * CHUNK_W);
+        const lz = Math.floor(rng() * CHUNK_W);
+        let y = CHUNK_H - 1;
+        while (y > 0 && chunk.get(lx, y, lz) === 0) y--;
+        if (chunk.get(lx, y, lz) === 3 && y + 1 < CHUNK_H) chunk.set(lx, y + 1, lz, 17);
       }
     }
 
@@ -390,48 +578,168 @@ export class World {
     }
 
     // ── Villages ──
-    // Plains-biome chunks on a 6-chunk lattice get a village cluster of
-    // 3 huts plus a cobblestone path between them. Each hut footprint is
-    // 5×5; the spacing keeps them inside a single chunk.
-    if (centerBiome === "plains" && ((cx % 6) + 6) % 6 === 0 && ((cz % 6) + 6) % 6 === 0) {
-      const groundY = (cxL: number, czL: number) => {
-        let y = CHUNK_H - 1;
-        while (y > 0 && chunk.get(cxL, y, czL) === 0) y--;
-        return y;
-      };
-      const hutSites: Array<[number, number]> = [
-        [4, 4], [11, 4], [8, 11],
-      ];
-      const built: Array<{ x: number; y: number; z: number }> = [];
-      for (const [hx, hz] of hutSites) {
-        const gy = groundY(hx, hz);
-        const top = chunk.get(hx, gy, hz);
-        if ((top === 1 || top === 4) && gy < CHUNK_H - 6) {
-          this.placeHut(chunk, hx, gy + 1, hz);
-          built.push({ x: hx, y: gy + 1, z: hz });
-        }
-      }
-      // Cobblestone paths joining hut centres.
-      for (let i = 1; i < built.length; i++) {
-        this.placePath(chunk, built[i - 1], built[i]);
-      }
-      // Central well (a tiny 3×3 with a water cell in the middle).
-      if (built.length >= 2) {
-        const cxL = 8, czL = 7;
-        const gy = groundY(cxL, czL);
-        if (gy < CHUNK_H - 4) {
-          for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) {
-            const x = cxL + dx, z = czL + dz;
-            if (x < 0 || x >= CHUNK_W || z < 0 || z >= CHUNK_W) continue;
-            chunk.set(x, gy, z, 9);     // cobble rim
-            chunk.set(x, gy + 1, z, 0); // clear above
-          }
-          chunk.set(cxL, gy, czL, 7); // water in centre
-        }
-      }
+    // Plains/savanna chunks on a 7-chunk lattice get a proper village:
+    // ~7 buildings of varying sizes + 2 wheat farms + central well + paths +
+    // lamp-post torches. Stays inside one chunk for simplicity (real
+    // vanilla villages also tend to stay in a ~16×16 area).
+    const isVillageBiome = centerBiome === "plains" || centerBiome === "savanna";
+    if (isVillageBiome && ((cx % 7) + 7) % 7 === 0 && ((cz % 7) + 7) % 7 === 0) {
+      this.placeVillage(chunk);
     }
 
     return chunk;
+  }
+
+  /** Build a multi-building village in a single chunk. */
+  private placeVillage(chunk: Chunk) {
+    const groundY = (cxL: number, czL: number) => {
+      let y = CHUNK_H - 1;
+      while (y > 0 && chunk.get(cxL, y, czL) === 0) y--;
+      return y;
+    };
+    const ok = (x: number, z: number, h: number) => {
+      const gy = groundY(x, z);
+      const top = chunk.get(x, gy, z);
+      return (top === 1 || top === 4) && gy >= 0 && gy < CHUNK_H - h;
+    };
+
+    // Building plan (offset, kind). Buildings are positioned so paths can
+    // link them through the centre without overlap.
+    type Building = { x: number; z: number; kind: "small" | "big" | "farm" | "blacksmith" | "library" };
+    const plan: Building[] = [
+      { x: 3,  z: 3,  kind: "small" },
+      { x: 12, z: 3,  kind: "big" },
+      { x: 3,  z: 12, kind: "farm" },
+      { x: 12, z: 12, kind: "blacksmith" },
+      { x: 8,  z: 3,  kind: "library" },
+      { x: 3,  z: 8,  kind: "farm" },
+      { x: 12, z: 8,  kind: "small" },
+    ];
+    const built: Array<{ x: number; y: number; z: number }> = [];
+    for (const b of plan) {
+      if (!ok(b.x, b.z, 6)) continue;
+      const gy = groundY(b.x, b.z);
+      if (b.kind === "small")      this.placeHut(chunk, b.x, gy + 1, b.z);
+      else if (b.kind === "big")   this.placeBigHouse(chunk, b.x, gy + 1, b.z);
+      else if (b.kind === "farm")  this.placeFarm(chunk, b.x, gy + 1, b.z);
+      else if (b.kind === "blacksmith") this.placeBlacksmith(chunk, b.x, gy + 1, b.z);
+      else if (b.kind === "library")    this.placeLibrary(chunk, b.x, gy + 1, b.z);
+      built.push({ x: b.x, y: gy + 1, z: b.z });
+    }
+
+    // Central well at chunk centre — 3×3 cobblestone rim with water in the
+    // middle and four corner posts holding a roof slab.
+    const wxL = 8, wzL = 8;
+    if (ok(wxL, wzL, 4)) {
+      const gy = groundY(wxL, wzL);
+      for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) {
+        const x = wxL + dx, z = wzL + dz;
+        if (x < 0 || x >= CHUNK_W || z < 0 || z >= CHUNK_W) continue;
+        chunk.set(x, gy, z, 9);          // cobble rim
+        for (let dy = 1; dy <= 3; dy++) chunk.set(x, gy + dy, z, 0);
+      }
+      chunk.set(wxL, gy, wzL, 7);        // water
+      // Four corner posts (oak fence stand-in: ladder)
+      const posts: Array<[number, number]> = [[-1,-1],[1,-1],[-1,1],[1,1]];
+      for (const [dx, dz] of posts) {
+        for (let dy = 1; dy <= 2; dy++) chunk.set(wxL + dx, gy + dy, wzL + dz, 5); // oak log
+      }
+      // Slab "roof" — single layer of planks above the posts.
+      for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) {
+        chunk.set(wxL + dx, gy + 3, wzL + dz, 8);
+      }
+    }
+
+    // Cobblestone paths from each building toward the well.
+    for (const b of built) {
+      this.placePath(chunk, b, { x: wxL, y: b.y, z: wzL });
+    }
+
+    // Lamp-post torches at chunk corners (lights the village at night).
+    for (const [px, pz] of [[2, 2], [13, 2], [2, 13], [13, 13]] as Array<[number, number]>) {
+      if (!ok(px, pz, 3)) continue;
+      const gy = groundY(px, pz);
+      chunk.set(px, gy + 1, pz, 5);     // log post
+      chunk.set(px, gy + 2, pz, 5);
+      chunk.set(px, gy + 3, pz, 42);    // torch on top
+    }
+  }
+
+  /** Big 7×6 house with two rooms + door. */
+  private placeBigHouse(chunk: Chunk, lx: number, ly: number, lz: number) {
+    const W = 7, D = 6, H = 4;
+    const halfW = (W - 1) >> 1, halfD = (D - 1) >> 1;
+    for (let dx = -halfW; dx <= halfW; dx++) {
+      for (let dz = -halfD; dz <= halfD; dz++) {
+        const x = lx + dx, z = lz + dz;
+        if (x < 0 || x >= CHUNK_W || z < 0 || z >= CHUNK_W) continue;
+        for (let dy = 0; dy <= H + 1; dy++) if (ly + dy < CHUNK_H) chunk.set(x, ly + dy, z, 0);
+        if (ly - 1 >= 0) chunk.set(x, ly - 1, z, 8); // floor
+        const onEdge = Math.abs(dx) === halfW || Math.abs(dz) === halfD;
+        if (onEdge) for (let dy = 0; dy < H; dy++) chunk.set(x, ly + dy, z, 8);
+        if (ly + H < CHUNK_H) chunk.set(x, ly + H, z, 5); // roof
+      }
+    }
+    // Door
+    chunk.set(lx, ly,     lz + halfD, 0);
+    chunk.set(lx, ly + 1, lz + halfD, 0);
+    // Interior partition wall
+    for (let dx = -halfW + 1; dx <= halfW - 1; dx++) {
+      for (let dy = 0; dy < H; dy++) chunk.set(lx + dx, ly + dy, lz, 8);
+    }
+    chunk.set(lx, ly,     lz, 0);
+    chunk.set(lx, ly + 1, lz, 0);
+    // Torch
+    if (ly + H + 1 < CHUNK_H) chunk.set(lx, ly + H + 1, lz, 42);
+  }
+
+  /** Farm plot — 5×5 dirt + crops (red mushroom stands in for wheat crop). */
+  private placeFarm(chunk: Chunk, lx: number, ly: number, lz: number) {
+    const half = 2;
+    // Clear airspace above
+    for (let dx = -half; dx <= half; dx++) {
+      for (let dz = -half; dz <= half; dz++) {
+        const x = lx + dx, z = lz + dz;
+        if (x < 0 || x >= CHUNK_W || z < 0 || z >= CHUNK_W) continue;
+        for (let dy = 0; dy <= 3; dy++) if (ly + dy < CHUNK_H) chunk.set(x, ly + dy, z, 0);
+      }
+    }
+    // Dirt soil (farmland visual — uses dirt id 2 since we don't have a
+    // dedicated farmland tile) bordered by oak logs, water channel down the
+    // middle, and tall-grass "wheat" sprouts on the dirt.
+    for (let dx = -half; dx <= half; dx++) {
+      for (let dz = -half; dz <= half; dz++) {
+        const x = lx + dx, z = lz + dz;
+        if (x < 0 || x >= CHUNK_W || z < 0 || z >= CHUNK_W) continue;
+        const onEdge = Math.abs(dx) === half || Math.abs(dz) === half;
+        if (onEdge) chunk.set(x, ly - 1, z, 5);            // log border
+        else if (dz === 0) chunk.set(x, ly - 1, z, 7);     // water channel
+        else {
+          chunk.set(x, ly - 1, z, 2);                       // dirt soil
+          chunk.set(x, ly, z, 32);                          // tall grass = "wheat" stand-in
+        }
+      }
+    }
+  }
+
+  /** Blacksmith: small hut + open lava forge + a chest. */
+  private placeBlacksmith(chunk: Chunk, lx: number, ly: number, lz: number) {
+    this.placeHut(chunk, lx, ly, lz);
+    // Replace one wall block with a chest + a furnace-shaped block.
+    chunk.set(lx + 2, ly, lz, 171);    // chest
+    chunk.set(lx - 2, ly, lz, 37);     // furnace (unlit)
+  }
+
+  /** Library: small hut filled with bookshelves. */
+  private placeLibrary(chunk: Chunk, lx: number, ly: number, lz: number) {
+    this.placeHut(chunk, lx, ly, lz);
+    // Two rows of bookshelves inside.
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dy = 0; dy <= 1; dy++) {
+        chunk.set(lx + dx, ly + dy, lz - 1, 13); // bookshelf
+        chunk.set(lx + dx, ly + dy, lz + 1, 13);
+      }
+    }
   }
 
   /** Lay a cobblestone path between two hut centres at the ground level. */
@@ -594,6 +902,13 @@ export class World {
             const tileIdx = def.faces[0];
             const [u0, v0, u1, v1] = tileUV(tileIdx);
             addCrossShape(spritesData, wx, ly, wz, u0, v0, u1, v1);
+            continue;
+          }
+          if (def.miniColumn) {
+            const tileIdx = def.faces[0];
+            const [u0, v0, u1, v1] = tileUV(tileIdx);
+            const dir = this.torchDirs.get(`${wx},${ly},${wz}`) || "up";
+            addMiniColumn(spritesData, wx, ly, wz, u0, v0, u1, v1, dir);
             continue;
           }
 
@@ -880,6 +1195,47 @@ function makeMesh(data: MeshData, mat: THREE.Material): THREE.Mesh | null {
   const mesh = new THREE.Mesh(geo, mat);
   mesh.frustumCulled = true;
   return mesh;
+}
+
+/**
+ * Thin upright post centred on (x, z), bottom at y. Used for torches —
+ * looks like a real 1-block-tall stick instead of a full-cell sprite.
+ * The four side faces sample the FULL atlas tile so the torch's flame
+ * texture lands at the top, exactly like the cross-shape would.
+ */
+function addMiniColumn(data: MeshData, x: number, y: number, z: number, u0: number, v0: number, u1: number, v1: number, dir: "up" | "+x" | "-x" | "+z" | "-z" = "up") {
+  const w = 0.0625;  // 1/16 — vanilla torch is 2/16 wide, so 0.0625 each side of centre
+  const h = 0.625;   // 10/16 tall — vanilla torch height
+  // For wall-mounted torches push the bottom of the post toward the wall
+  // and raise the base a little so the flame visually leans away from the
+  // wall (matches vanilla close enough without doing real tilt geometry).
+  let baseX = 0.5, baseZ = 0.5, baseY = 0;
+  if (dir === "+x") { baseX = 0.82; baseY = 0.2; }
+  else if (dir === "-x") { baseX = 0.18; baseY = 0.2; }
+  else if (dir === "+z") { baseZ = 0.82; baseY = 0.2; }
+  else if (dir === "-z") { baseZ = 0.18; baseY = 0.2; }
+  const cx = x + baseX, cz = z + baseZ;
+  const x0 = cx - w, x1 = cx + w;
+  const z0 = cz - w, z1 = cz + w;
+  const y0 = y + baseY, y1 = y + baseY + h;
+  const addQuad = (corners: number[][]) => {
+    const startIdx = data.pos.length / 3;
+    for (let c = 0; c < 4; c++) {
+      data.pos.push(corners[c][0], corners[c][1], corners[c][2]);
+      data.col.push(1, 1, 1);
+      const u = (c === 0 || c === 3) ? u0 : u1;
+      const v = (c === 0 || c === 1) ? v0 : v1;
+      data.uv.push(u, v);
+    }
+    data.idx.push(startIdx, startIdx + 1, startIdx + 2, startIdx, startIdx + 2, startIdx + 3);
+  };
+  // Side faces
+  addQuad([[x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1]]); // +Z
+  addQuad([[x1, y0, z0], [x0, y0, z0], [x0, y1, z0], [x1, y1, z0]]); // -Z
+  addQuad([[x1, y0, z1], [x1, y0, z0], [x1, y1, z0], [x1, y1, z1]]); // +X
+  addQuad([[x0, y0, z0], [x0, y0, z1], [x0, y1, z1], [x0, y1, z0]]); // -X
+  // Top — the flame tip of the texture
+  addQuad([[x0, y1, z0], [x0, y1, z1], [x1, y1, z1], [x1, y1, z0]]);
 }
 
 function addCrossShape(data: MeshData, x: number, y: number, z: number, u0: number, v0: number, u1: number, v1: number) {

@@ -22,6 +22,9 @@ const SMELT: Record<number, number> = {
   87: 88,     // potato      → baked potato
   92: 93,     // raw fish    → cooked fish
   149: 174,   // raw rabbit  → cooked rabbit
+  212: 83,    // raw beef     → cooked beef (steak)
+  213: 82,    // raw porkchop → cooked porkchop (bacon)
+  214: 84,    // raw chicken  → cooked chicken
 };
 
 /** fuel id → burn seconds. */

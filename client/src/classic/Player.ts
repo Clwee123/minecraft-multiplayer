@@ -245,6 +245,18 @@ export class Player {
       if (!this.inv.consumeHeld()) return;
     }
     this.world.setBlock(nx, ny, nz, heldId);
+    // Torches & redstone torches: snap to the face the player clicked. When
+    // placed on a side, the torch mounts on that wall; on top, it sits on
+    // the floor centred. Wall-mounted direction points TOWARD the wall.
+    if (heldId === 42 || heldId === 173 || heldId === 225) {
+      let dir: "up" | "+x" | "-x" | "+z" | "-z" = "up";
+      if      (hit.nx ===  1) dir = "-x"; // clicked the +X face of the block below; torch attaches to the -X wall of the new cell
+      else if (hit.nx === -1) dir = "+x";
+      else if (hit.nz ===  1) dir = "-z";
+      else if (hit.nz === -1) dir = "+z";
+      // hit.ny === 1 → floor torch (default "up")
+      this.world.torchDirs.set(`${nx},${ny},${nz}`, dir);
+    }
     this.onPlace?.(nx, ny, nz, heldId);
   }
 
