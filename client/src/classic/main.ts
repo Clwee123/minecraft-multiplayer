@@ -11,6 +11,7 @@ import { MODES, ModeId, buildBedwars, buildParkour, buildOneBlock, pickOneBlockN
 import { preloadPlayerModel, buildFirstPersonArm, FirstPersonArm } from "./PlayerModel";
 import { BreakHighlight, BreakParticles } from "./BreakEffects";
 import { Legion, LegionUser, LegionFriend, readInstantJoinIntent } from "./Legion";
+import { sound, blockSurface } from "./Sound";
 
 // ── Renderer / scene ────────────────────────────────────────────────────────
 const renderer = new THREE.WebGLRenderer({ antialias: false });
@@ -373,9 +374,11 @@ document.addEventListener("mousedown", (e) => {
     lmbHeld = true;
     fpArm?.triggerSwing(1);
     // Attempt mob attack on LMB. If a mob is in front of us within reach,
-    // tell the server; otherwise the click flows through to block-mining
-    // (handled by Player.attachInput which has its own LMB listener).
-    tryAttackMob();
+    // tell the server (and play the meatier hit sound). Otherwise the click
+    // flows through to block-mining and we play the lighter swing sound.
+    const hitMob = tryAttackMob();
+    if (hitMob) sound.hit();
+    else        sound.swing();
   } else if (e.button === 2) {
     fpArm?.triggerSwing(0.65);
   }
@@ -400,6 +403,7 @@ document.addEventListener("mousedown", (e) => {
     if (timeOfDay > 12500 && timeOfDay < 23500) {
       timeOfDay = 0; // dawn
       mp?.sendSleep();
+      sound.sleep();
       addChatLine("", "You skip the night…");
     } else {
       addChatLine("", "You can only sleep at night.");
@@ -590,6 +594,7 @@ function dropOneFromHotbar() {
   const sy = player.pos.y + 1.4;
   const sz = player.pos.z + -cos * 1.2;
   drops.spawn(droppedId, 1, sx, sy, sz);
+  sound.drop();
   refreshHotbar();
 }
 
@@ -692,8 +697,9 @@ async function startGame(serverAddr: string | null) {
   player.spawnAt(spawnX, spawnY, spawnZ);
 
   drops = new ItemDrops(scene);
+  drops.onPickup = () => sound.pickup();
   craftingUI = new CraftingUI(inv);
-  craftingUI.onCraft = () => refreshHotbar();
+  craftingUI.onCraft = () => { refreshHotbar(); sound.craft(); };
   craftingUI.onClose = () => {
     refreshHotbar();
     setTimeout(() => document.body.requestPointerLock(), 50);
@@ -714,6 +720,7 @@ async function startGame(serverAddr: string | null) {
   player.onBreak = (x, y, z, prevType) => {
     breakParticles.spawn(prevType, x, y, z);
     fpArm?.triggerSwing(1);
+    sound.breakBlock(blockSurface(prevType));
     const def = BLOCKS[prevType];
     // Real-Minecraft tool gating: drops only happen if the player held an
     // adequate tool. Without a pickaxe, stone breaks but cobblestone does
@@ -736,8 +743,20 @@ async function startGame(serverAddr: string | null) {
   };
   player.onPlace = (x, y, z, type) => {
     if (mp?.isConnected()) mp.sendBlockUpdate(x, y, z, type);
+    sound.place(blockSurface(type));
   };
-  player.onHealthChange = (hp) => renderHearts(hp);
+  player.onHealthChange = (hp) => {
+    renderHearts(hp);
+    if (hp <= 0) sound.death(); else sound.hurt();
+  };
+  player.onJump = () => sound.jump();
+  player.onLand = () => {
+    // Find the block under our feet for surface-specific landing thud.
+    const bx = Math.floor(player.pos.x);
+    const by = Math.floor(player.pos.y) - 1;
+    const bz = Math.floor(player.pos.z);
+    sound.land(blockSurface(world.getBlock(bx, by, bz)));
+  };
   player.onBreakProgress = (p) => {
     breakFx.setProgress(p);
   };
@@ -750,7 +769,7 @@ async function startGame(serverAddr: string | null) {
     mp.onConnected = () => addChatLine("", `Connected as ${playerName}`);
     mp.onDisconnected = () => addChatLine("", "Disconnected from server");
     mp.onError = (err) => addChatLine("", "Connect error: " + err);
-    mp.onChat = (sender, msg) => addChatLine(sender, msg);
+    mp.onChat = (sender, msg) => { addChatLine(sender, msg); sound.chat(); };
     mp.onBlockUpdate = (x, y, z, type) => world.setBlock(x, y, z, type);
     mp.onLocalDamage = (d) => player.takeDamage(d);
     try {
@@ -795,6 +814,9 @@ async function startGame(serverAddr: string | null) {
   let lastFps = 60;
   let streamTimer = 0;
   let tabRefresh = 0;
+  // Footstep / splash tracking
+  let stepDist = 0;
+  let lastInWater = false;
   const RENDER_DIST = 5;
 
   function loop() {
@@ -868,6 +890,34 @@ async function startGame(serverAddr: string | null) {
       if (tabRefresh >= 0.5) { tabRefresh = 0; renderPlayerList(); }
     }
 
+    // Footstep cadence: emit a step sound every ~0.45 m of ground travel.
+    if (player.onGround && !player.flying) {
+      const horiz = Math.hypot(player.vel.x, player.vel.z);
+      if (horiz > 0.1) {
+        stepDist += horiz * dt;
+        const cadence = player.sprinting ? 0.35 : player.crouching ? 0.60 : 0.45;
+        if (stepDist >= cadence) {
+          stepDist = 0;
+          const bx = Math.floor(player.pos.x);
+          const by = Math.floor(player.pos.y) - 1;
+          const bz = Math.floor(player.pos.z);
+          sound.step(blockSurface(world.getBlock(bx, by, bz)));
+        }
+      } else {
+        stepDist = 0;
+      }
+    }
+
+    // Water splash: detect feet entering a water cell.
+    {
+      const bx = Math.floor(player.pos.x);
+      const by = Math.floor(player.pos.y);
+      const bz = Math.floor(player.pos.z);
+      const inWater = world.getBlock(bx, by, bz) === 7;
+      if (inWater && !lastInWater) sound.splash();
+      lastInWater = inWater;
+    }
+
     if (player.pos.y < -10) {
       if (cfg.isCreative) {
         player.spawnAt(spawnX, spawnY, spawnZ);
@@ -894,6 +944,10 @@ async function startGame(serverAddr: string | null) {
 
 const bs = document.getElementById("buildStamp");
 if (bs) bs.textContent = `build: ${__BUILD_TIME__}`;
+
+// Arm the audio engine — the first user click/keypress will create + resume
+// the AudioContext. Done at boot so menu UI clicks also tick.
+sound.arm();
 
 // Boot Legion SDK first so the menu can offer login before the user picks a mode.
 Legion.init().then(() => {

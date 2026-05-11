@@ -14,6 +14,8 @@ export class ItemDrops {
   private scene: THREE.Scene;
   private drops: Drop[] = [];
   private geo: THREE.BufferGeometry;
+  /** Fired when a drop is picked up by the local player. */
+  onPickup?: (id: number, count: number) => void;
 
   constructor(scene: THREE.Scene) {
     this.scene = scene;
@@ -84,13 +86,17 @@ export class ItemDrops {
         const dz = d.mesh.position.z - playerPos.z;
         const distSq = dx * dx + dy * dy + dz * dz;
         if (distSq < 2.0 * 2.0) {
+          const beforeCount = d.count;
           const leftover = inv.add(d.id, d.count);
           if (leftover === 0) {
+            this.onPickup?.(d.id, beforeCount);
             this.scene.remove(d.mesh);
             d.mesh.geometry.dispose();
             (d.mesh.material as THREE.Material).dispose();
             this.drops.splice(i, 1);
           } else {
+            // Partial pickup — fire for the consumed portion only.
+            if (leftover < beforeCount) this.onPickup?.(d.id, beforeCount - leftover);
             d.count = leftover;
           }
         }

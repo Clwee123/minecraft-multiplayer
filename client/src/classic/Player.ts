@@ -54,6 +54,10 @@ export class Player {
   onPlace?: (x: number, y: number, z: number, type: number) => void;
   onHealthChange?: (hp: number) => void;
   onBreakProgress?: (progress: number) => void;
+  /** Fired when the player jumps off the ground (one-shot). */
+  onJump?: () => void;
+  /** Fired when the player just landed on the ground (one-shot). */
+  onLand?: () => void;
 
   constructor(camera: THREE.PerspectiveCamera, world: World) {
     this.camera = camera;
@@ -251,6 +255,7 @@ export class Player {
       if (this.keys["Space"] && this.onGround) {
         this.vel.y = JUMP_VEL;
         this.onGround = false;
+        this.onJump?.();
       }
     }
 
@@ -333,7 +338,11 @@ export class Player {
       if (axis === "y" && dist < 0) this.onGround = false;
     } else {
       if (axis === "y") {
-        if (dist < 0) this.onGround = true;
+        if (dist < 0) {
+          const wasAirborne = !this.onGround;
+          this.onGround = true;
+          if (wasAirborne) this.onLand?.();
+        }
         this.vel.y = 0;
       } else {
         this.vel[axis] = 0;

@@ -1,5 +1,6 @@
 import { Inventory, InvSlot, matchRecipe, consumeGrid, emptySlot, RECIPES, Recipe } from "./Inventory";
 import { getItemTile, getItemName } from "./Textures";
+import { sound } from "./Sound";
 
 /**
  * Drag-and-drop crafting UI.
@@ -217,6 +218,7 @@ export class CraftingUI {
     el.addEventListener("mousedown", (e) => {
       e.preventDefault();
       this.handleSlotClick(arr, i, e.button === 2, source);
+      sound.click();
       if (e.button === 2) this.startRepeat(arr, i);
     });
     el.addEventListener("contextmenu", (e) => e.preventDefault());
