@@ -203,6 +203,88 @@ export const T_I_BOAT         = T(12, 9);
 export const T_I_FIREWORKS    = T(14, 9);
 export const T_I_FIRE_CHARGE  = T(15, 9);
 
+// ── Rows 10-11: new block face tiles ──────────────────────────────────────
+export const T_BEDROCK         = T(0, 10);
+export const T_NETHERRACK      = T(1, 10);
+export const T_SOUL_SAND       = T(2, 10);
+export const T_NETHER_BRICK    = T(3, 10);
+export const T_QUARTZ_TOP      = T(4, 10);
+export const T_QUARTZ_SIDE     = T(5, 10);
+export const T_END_STONE       = T(6, 10);
+export const T_PRISMARINE      = T(7, 10);
+export const T_PRISMARINE_DARK = T(8, 10);
+export const T_PRISMARINE_BRICK= T(9, 10);
+export const T_SEA_LANTERN     = T(10, 10);
+export const T_IRON_BARS       = T(11, 10);
+export const T_HARDENED_CLAY   = T(12, 10);
+export const T_HARDENED_CLAY_O = T(13, 10);
+export const T_HARDENED_CLAY_R = T(14, 10);
+export const T_HARDENED_CLAY_B = T(15, 10);
+export const T_MYCELIUM_TOP    = T(0, 11);
+export const T_MYCELIUM_SIDE   = T(1, 11);
+export const T_PACKED_ICE      = T(2, 11);
+export const T_MELON_TOP       = T(3, 11);
+export const T_MELON_SIDE      = T(4, 11);
+export const T_PUMPKIN_TOP     = T(5, 11);
+export const T_PUMPKIN_SIDE    = T(6, 11);
+export const T_PUMPKIN_FACE    = T(7, 11);
+export const T_HAY_TOP         = T(8, 11);
+export const T_HAY_SIDE        = T(9, 11);
+export const T_DEADBUSH        = T(10, 11);
+export const T_DRAGON_EGG      = T(11, 11);
+export const T_QUARTZ_ORE      = T(12, 11);
+export const T_LAPIS_BLOCK_2   = T(13, 11);
+export const T_CHEST_SIDE      = T(14, 11);
+export const T_CHEST_TOP_2     = T(15, 11);
+
+// ── Rows 12-14: new item icons ────────────────────────────────────────────
+export const T_I_CHARCOAL      = T(0, 12);
+export const T_I_WHEAT_SEEDS   = T(1, 12);
+export const T_I_ENDER_EYE     = T(2, 12);
+export const T_I_GOLD_CARROT   = T(3, 12);
+export const T_I_SPECKLED_MELON= T(4, 12);
+export const T_I_RABBIT_FOOT   = T(5, 12);
+export const T_I_RABBIT_RAW    = T(6, 12);
+export const T_I_RABBIT_COOKED = T(7, 12);
+export const T_I_RABBIT_STEW   = T(8, 12);
+export const T_I_RABBIT_HIDE   = T(9, 12);
+export const T_I_DRAGON_BREATH = T(10, 12);
+export const T_I_BLAZE_POWDER  = T(11, 12);
+export const T_I_GOLD_NUGGET   = T(12, 12);
+export const T_I_IRON_HORSE_A  = T(13, 12);
+export const T_I_GOLD_HORSE_A  = T(14, 12);
+export const T_I_DIAM_HORSE_A  = T(15, 12);
+export const T_I_GOLD_SWORD    = T(0, 13);
+export const T_I_GOLD_SHOVEL   = T(1, 13);
+export const T_I_GOLD_PICK     = T(2, 13);
+export const T_I_GOLD_AXE      = T(3, 13);
+export const T_I_GOLD_HOE      = T(4, 13);
+export const T_I_WOOD_HOE      = T(5, 13);
+export const T_I_STONE_HOE     = T(6, 13);
+export const T_I_IRON_HOE      = T(7, 13);
+export const T_I_DIAM_HOE      = T(8, 13);
+export const T_I_CHAIN_HELM    = T(9, 13);
+export const T_I_CHAIN_CHEST   = T(10, 13);
+export const T_I_CHAIN_LEGS    = T(11, 13);
+export const T_I_CHAIN_BOOTS   = T(12, 13);
+export const T_I_CARROT_STICK  = T(13, 13);
+export const T_I_BEETROOT      = T(14, 13);
+export const T_I_BEETROOT_SEEDS= T(15, 13);
+// Music discs
+export const T_I_DISC_13       = T(0, 14);
+export const T_I_DISC_CAT      = T(1, 14);
+export const T_I_DISC_BLOCKS   = T(2, 14);
+export const T_I_DISC_CHIRP    = T(3, 14);
+export const T_I_DISC_FAR      = T(4, 14);
+export const T_I_DISC_MALL     = T(5, 14);
+export const T_I_DISC_MELLOHI  = T(6, 14);
+export const T_I_DISC_STAL     = T(7, 14);
+export const T_I_DISC_STRAD    = T(8, 14);
+export const T_I_DISC_WARD     = T(9, 14);
+export const T_I_DISC_11       = T(10, 14);
+export const T_I_DISC_WAIT     = T(11, 14);
+export const T_I_BEETROOT_SOUP = T(13, 14);
+
 // ── Block definitions ─────────────────────────────────────────────────────────
 export const BLOCKS: Record<number, BlockDef> = {
   1:  { faces: [T_GRASS_SIDE, T_GRASS_SIDE, T_GRASS_TOP, T_DIRT, T_GRASS_SIDE, T_GRASS_SIDE], hardness: 0.6, drop: 2, tool: "shovel" },
@@ -252,6 +334,40 @@ export const BLOCKS: Record<number, BlockDef> = {
   // Desert cactus — block-shaped to keep meshing simple; can't actually
   // damage the player (TODO if we want stricter parity with vanilla).
   45: { faces: all6(T_CACTUS), hardness: 0.4 },
+  // ── 1.8/1.9 expansion ──────────────────────────────────────────────────
+  46: { faces: all6(T_LAVA), transparent: true, isWater: true, solid: false, hardness: 0, drop: 0, emissive: true },
+  47: { faces: all6(T_BEDROCK), hardness: -1, drop: 0 },                                       // bedrock — unbreakable
+  48: { faces: all6(T_NETHERRACK), hardness: 0.4, tool: "pickaxe" },
+  49: { faces: all6(T_SOUL_SAND), hardness: 0.5, tool: "shovel" },
+  // (skip ids 50+ — items)
+  150: { faces: all6(T_NETHER_BRICK), hardness: 2.0, tool: "pickaxe", minToolTier: 1 },
+  151: { faces: [T_QUARTZ_SIDE, T_QUARTZ_SIDE, T_QUARTZ_TOP, T_QUARTZ_TOP, T_QUARTZ_SIDE, T_QUARTZ_SIDE], hardness: 0.8, tool: "pickaxe" },
+  152: { faces: all6(T_QUARTZ_ORE), hardness: 3.0, tool: "pickaxe", drop: 51 /* drops quartz-like item — reuse diamond for now */ },
+  153: { faces: all6(T_END_STONE), hardness: 3.0, tool: "pickaxe" },
+  154: { faces: all6(T_PRISMARINE), hardness: 1.5, tool: "pickaxe" },
+  155: { faces: all6(T_PRISMARINE_DARK), hardness: 1.5, tool: "pickaxe" },
+  156: { faces: all6(T_PRISMARINE_BRICK), hardness: 1.5, tool: "pickaxe" },
+  157: { faces: all6(T_SEA_LANTERN), hardness: 0.3, emissive: true },
+  158: { faces: all6(T_IRON_BARS), transparent: true, hardness: 5.0, tool: "pickaxe" },
+  159: { faces: all6(T_HARDENED_CLAY), hardness: 1.25, tool: "pickaxe" },
+  160: { faces: all6(T_HARDENED_CLAY_O), hardness: 1.25, tool: "pickaxe" },
+  161: { faces: all6(T_HARDENED_CLAY_R), hardness: 1.25, tool: "pickaxe" },
+  162: { faces: all6(T_HARDENED_CLAY_B), hardness: 1.25, tool: "pickaxe" },
+  163: { faces: [T_MYCELIUM_SIDE, T_MYCELIUM_SIDE, T_MYCELIUM_TOP, T_DIRT, T_MYCELIUM_SIDE, T_MYCELIUM_SIDE], hardness: 0.6, tool: "shovel" },
+  164: { faces: all6(T_PACKED_ICE), hardness: 0.5, drop: 0, tool: "pickaxe" },
+  165: { faces: [T_MELON_SIDE, T_MELON_SIDE, T_MELON_TOP, T_MELON_TOP, T_MELON_SIDE, T_MELON_SIDE], hardness: 1.0, tool: "axe" },
+  166: { faces: [T_PUMPKIN_SIDE, T_PUMPKIN_SIDE, T_PUMPKIN_TOP, T_PUMPKIN_TOP, T_PUMPKIN_FACE, T_PUMPKIN_SIDE], hardness: 1.0, tool: "axe" },
+  167: { faces: [T_HAY_SIDE, T_HAY_SIDE, T_HAY_TOP, T_HAY_TOP, T_HAY_SIDE, T_HAY_SIDE], hardness: 0.5 },
+  168: { faces: all6(T_DEADBUSH), transparent: true, solid: false, crossShape: true, hardness: 0 },
+  169: { faces: all6(T_DRAGON_EGG), hardness: 3.0, emissive: true },
+  170: { faces: all6(T_COAL_BLOCK), hardness: 5.0, tool: "pickaxe" },
+  // Chest (uses chest placeholder tiles)
+  171: { faces: [T_CHEST_SIDE, T_CHEST_SIDE, T_CHEST_TOP_2, T_CHEST_TOP_2, T_CHEST_SIDE, T_CHEST_SIDE], hardness: 2.5, tool: "axe" },
+  // Redstone block (uses already-atlas redstone-block tile T_REDSTONE_O at T(7,3))
+  172: { faces: all6(T(7, 3)), hardness: 5.0, tool: "pickaxe" },
+  // Redstone torch — just a regular emissive cross-shape; uses torch tile tinted red conceptually,
+  // but we don't have a separate tile, so reuse the torch tile.
+  173: { faces: all6(T_TORCH), transparent: true, solid: false, crossShape: true, emissive: true, hardness: 0 },
 };
 
 // ── Items (id >= 50 = items, not placeable blocks) ────────────────────────────
@@ -355,6 +471,58 @@ export const ITEMS: Record<number, { name: string; tile: number; tool?: "axe" | 
   140: { name: "Boat",          tile: T_I_BOAT },
   141: { name: "Firework Rocket", tile: T_I_FIREWORKS },
   142: { name: "Fire Charge",   tile: T_I_FIRE_CHARGE },
+  // ── 1.8/1.9 item expansion ─────────────────────────────────────────────
+  143: { name: "Charcoal",      tile: T_I_CHARCOAL },
+  144: { name: "Wheat Seeds",   tile: T_I_WHEAT_SEEDS },
+  145: { name: "Eye of Ender",  tile: T_I_ENDER_EYE },
+  146: { name: "Golden Carrot", tile: T_I_GOLD_CARROT, food: 6 },
+  147: { name: "Glistering Melon", tile: T_I_SPECKLED_MELON },
+  148: { name: "Rabbit's Foot", tile: T_I_RABBIT_FOOT },
+  149: { name: "Raw Rabbit",    tile: T_I_RABBIT_RAW,    food: 3 },
+  // (150-173 are BLOCKS)
+  174: { name: "Cooked Rabbit", tile: T_I_RABBIT_COOKED, food: 5 },
+  175: { name: "Rabbit Stew",   tile: T_I_RABBIT_STEW,   food: 10 },
+  176: { name: "Rabbit Hide",   tile: T_I_RABBIT_HIDE },
+  177: { name: "Dragon's Breath", tile: T_I_DRAGON_BREATH },
+  178: { name: "Blaze Powder",  tile: T_I_BLAZE_POWDER },
+  179: { name: "Gold Nugget",   tile: T_I_GOLD_NUGGET },
+  180: { name: "Iron Horse Armor", tile: T_I_IRON_HORSE_A },
+  181: { name: "Gold Horse Armor", tile: T_I_GOLD_HORSE_A },
+  182: { name: "Diamond Horse Armor", tile: T_I_DIAM_HORSE_A },
+  // Golden tools (full tier)
+  183: { name: "Golden Sword",  tile: T_I_GOLD_SWORD,  tool: "sword",   toolTier: 1, durability: 32 },
+  184: { name: "Golden Shovel", tile: T_I_GOLD_SHOVEL, tool: "shovel",  toolTier: 1, durability: 32 },
+  185: { name: "Golden Pickaxe", tile: T_I_GOLD_PICK,  tool: "pickaxe", toolTier: 1, durability: 32 },
+  186: { name: "Golden Axe",    tile: T_I_GOLD_AXE,    tool: "axe",     toolTier: 1, durability: 32 },
+  // Hoes
+  187: { name: "Golden Hoe",    tile: T_I_GOLD_HOE,    tool: "shovel",  toolTier: 1, durability: 32 },
+  188: { name: "Wooden Hoe",    tile: T_I_WOOD_HOE,    tool: "shovel",  toolTier: 1, durability: 59 },
+  189: { name: "Stone Hoe",     tile: T_I_STONE_HOE,   tool: "shovel",  toolTier: 2, durability: 131 },
+  190: { name: "Iron Hoe",      tile: T_I_IRON_HOE,    tool: "shovel",  toolTier: 3, durability: 250 },
+  191: { name: "Diamond Hoe",   tile: T_I_DIAM_HOE,    tool: "shovel",  toolTier: 4, durability: 1561 },
+  // Chainmail armor
+  192: { name: "Chainmail Helmet",     tile: T_I_CHAIN_HELM,   durability: 165 },
+  193: { name: "Chainmail Chestplate", tile: T_I_CHAIN_CHEST,  durability: 240 },
+  194: { name: "Chainmail Leggings",   tile: T_I_CHAIN_LEGS,   durability: 225 },
+  195: { name: "Chainmail Boots",      tile: T_I_CHAIN_BOOTS,  durability: 195 },
+  // Misc 1.8/1.9
+  196: { name: "Carrot on a Stick",    tile: T_I_CARROT_STICK },
+  197: { name: "Beetroot",             tile: T_I_BEETROOT,        food: 1 },
+  198: { name: "Beetroot Seeds",       tile: T_I_BEETROOT_SEEDS },
+  199: { name: "Beetroot Soup",        tile: T_I_BEETROOT_SOUP,   food: 6 },
+  // Music discs
+  200: { name: "Music Disc — 13",      tile: T_I_DISC_13 },
+  201: { name: "Music Disc — Cat",     tile: T_I_DISC_CAT },
+  202: { name: "Music Disc — Blocks",  tile: T_I_DISC_BLOCKS },
+  203: { name: "Music Disc — Chirp",   tile: T_I_DISC_CHIRP },
+  204: { name: "Music Disc — Far",     tile: T_I_DISC_FAR },
+  205: { name: "Music Disc — Mall",    tile: T_I_DISC_MALL },
+  206: { name: "Music Disc — Mellohi", tile: T_I_DISC_MELLOHI },
+  207: { name: "Music Disc — Stal",    tile: T_I_DISC_STAL },
+  208: { name: "Music Disc — Strad",   tile: T_I_DISC_STRAD },
+  209: { name: "Music Disc — Ward",    tile: T_I_DISC_WARD },
+  210: { name: "Music Disc — 11",      tile: T_I_DISC_11 },
+  211: { name: "Music Disc — Wait",    tile: T_I_DISC_WAIT },
 };
 
 export const BLOCK_NAMES: Record<number, string> = {
@@ -370,26 +538,36 @@ export const BLOCK_NAMES: Record<number, string> = {
   36: "Crafting Table", 37: "Furnace", 38: "Furnace (Lit)",
   39: "Iron Block", 40: "Gold Block", 41: "Diamond Block",
   42: "Torch", 43: "Ladder", 44: "Bed", 45: "Cactus",
+  46: "Lava", 47: "Bedrock", 48: "Netherrack", 49: "Soul Sand",
+  150: "Nether Bricks", 151: "Quartz Block", 152: "Nether Quartz Ore",
+  153: "End Stone", 154: "Prismarine", 155: "Dark Prismarine",
+  156: "Prismarine Bricks", 157: "Sea Lantern", 158: "Iron Bars",
+  159: "Hardened Clay", 160: "Orange Hardened Clay", 161: "Red Hardened Clay",
+  162: "Blue Hardened Clay", 163: "Mycelium", 164: "Packed Ice",
+  165: "Melon", 166: "Pumpkin", 167: "Hay Bale", 168: "Dead Bush",
+  169: "Dragon Egg", 170: "Coal Block", 171: "Chest", 172: "Redstone Block",
+  173: "Redstone Torch",
 };
 
 // Creative hotbar default
 export const CREATIVE_HOTBAR = [1, 3, 9, 8, 5, 36, 37, 22, 11];
 
+/** ID classification — block ids may exceed 50 now that we have 1.8/1.9 expansion blocks. */
+export function isBlockId(id: number): boolean { return id > 0 && !!BLOCKS[id]; }
+export function isItemId(id: number): boolean  { return id > 0 && !!ITEMS[id]; }
+
 export function getItemTile(id: number): number {
   if (id === 0) return 0;
-  if (id < 50) {
-    const def = BLOCKS[id];
-    if (!def) return 0;
-    return def.iconTile ?? def.faces[0] ?? 0;
-  }
+  const def = BLOCKS[id];
+  if (def) return def.iconTile ?? def.faces[0] ?? 0;
   return ITEMS[id]?.tile ?? 0;
 }
 export function getItemName(id: number): string {
-  if (id < 50) return BLOCK_NAMES[id] ?? `Block ${id}`;
+  if (BLOCK_NAMES[id]) return BLOCK_NAMES[id];
   return ITEMS[id]?.name ?? `Item ${id}`;
 }
 export function isPlaceable(id: number): boolean {
-  return id > 0 && id < 50 && !!BLOCKS[id];
+  return isBlockId(id);
 }
 
 /** UV rect for a tile index in 0..1 atlas space. */

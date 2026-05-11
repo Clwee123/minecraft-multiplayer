@@ -269,7 +269,8 @@ export function buildFirstPersonArm(): FirstPersonArm | null {
  * does the same). For ITEMS we build a flat sprite-style plane.
  */
 export function buildHeldItemModel(itemId: number, opts: { firstPerson?: boolean } = {}): THREE.Object3D {
-  const isBlock = itemId > 0 && itemId < 50 && !!BLOCKS[itemId] && !BLOCKS[itemId].crossShape;
+  const def = BLOCKS[itemId];
+  const isBlock = !!def && !def.crossShape && !def.isWater;
   if (isBlock) return buildHeldBlock(itemId, opts);
   return buildHeldPlane(itemId, opts);
 }

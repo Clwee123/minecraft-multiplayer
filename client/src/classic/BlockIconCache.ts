@@ -101,11 +101,11 @@ export const blockIconCache = new BlockIconCacheImpl();
  * bed) keep the flat atlas-tile path.
  */
 export function shouldRenderAsBlock(id: number): boolean {
-  if (id <= 0 || id >= 50) return false;
+  if (id <= 0) return false;
   const def = BLOCKS[id];
   if (!def) return false;
   if (def.iconTile !== undefined) return false;
-  // Cross-shape sprites (flowers, sapling, tallgrass) look weird as cubes.
   if (def.crossShape) return false;
+  if (def.isWater) return false; // skip water/lava — flat-tinted is fine
   return true;
 }

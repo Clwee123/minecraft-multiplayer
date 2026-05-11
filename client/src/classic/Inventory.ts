@@ -1,4 +1,4 @@
-import { ITEMS, BLOCKS, CREATIVE_HOTBAR } from "./Textures";
+import { ITEMS, BLOCKS, CREATIVE_HOTBAR, isBlockId, isItemId } from "./Textures";
 
 export const HOTBAR_SLOTS = 9;
 export const INV_SLOTS = 27;
@@ -15,7 +15,9 @@ const TOOL_STACK = 1;
 
 function maxStackFor(id: number): number {
   if (id === 0) return 0;
-  if (id >= 50 && ITEMS[id]?.tool) return TOOL_STACK;  // tools don't stack
+  // Tools don't stack (regardless of which id range they live in).
+  if (ITEMS[id]?.tool) return TOOL_STACK;
+  if (ITEMS[id]?.durability) return TOOL_STACK; // durability-bearing items
   return MAX_STACK;
 }
 
@@ -56,8 +58,7 @@ export class Inventory {
   getHeldBlock(): number {
     const s = this.getHeld();
     if (s.id === 0 || s.count === 0) return 0;
-    if (s.id >= 50) return 0;
-    return s.id;
+    return isBlockId(s.id) ? s.id : 0;
   }
 
   /** All inventory slots (hotbar + main) for iteration. */
@@ -142,9 +143,9 @@ export class Inventory {
   bestToolTier(category: "axe" | "pickaxe" | "shovel" | "sword"): { id: number; tier: number } | null {
     let best: { id: number; tier: number } | null = null;
     for (const s of this.hotbar) {
-      if (s.id < 50 || s.count === 0) continue;
+      if (s.id === 0 || s.count === 0) continue;
       const item = ITEMS[s.id];
-      if (!item) continue;
+      if (!item) continue; // blocks aren't tools
       if (item.tool === category) {
         if (!best || (item.toolTier ?? 0) > best.tier) {
           best = { id: s.id, tier: item.toolTier ?? 1 };
