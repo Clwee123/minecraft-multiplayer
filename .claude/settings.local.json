@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(Get-ChildItem -Path \"F:\\\\Github\\\\minecraft-multiplayer\" -Force)",
+      "Bash(Select-Object Name, PSIsContainer)",
+      "Bash(ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 root@159.223.140.36 \"pm2 list; echo '---'; ls /opt/minecraft-multiplayer/ 2>/dev/null || echo 'No /opt/minecraft-multiplayer'\")"
+    ]
+  }
+}
