@@ -136,10 +136,10 @@ export function spawnPlayer(): PlayerInstance | null {
 // dev panel to twiddle. The defaults below mirror the values shipped in
 // production; export ARM_DEFAULTS to make "reset to default" easy.
 export const ARM_DEFAULTS = {
-  offsetX: 0.35,
-  offsetY: -0.35,
-  offsetZ: -0.55,
-  shoulderForward: 1.25,
+  offsetX: 0.355,
+  offsetY: -0.85,
+  offsetZ: -0.485,
+  shoulderForward: -1.92,
   swingArc: 1.6,
   twist: 0.25,
 };
