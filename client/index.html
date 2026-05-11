@@ -799,8 +799,9 @@
     }
 
     /* ── XP bar (survival only) ─────────────────────────────────── */
+    /* XP bar sits ABOVE the hotbar (hotbar top is ~62 px). */
     #xpBar {
-      position: fixed; bottom: 56px; left: 50%;
+      position: fixed; bottom: 84px; left: 50%;
       transform: translateX(-50%);
       width: 364px; height: 6px;
       background: rgba(0,0,0,0.55);
@@ -816,7 +817,7 @@
       width: 0%;
     }
     #xpLevel {
-      position: fixed; bottom: 61px; left: 50%;
+      position: fixed; bottom: 90px; left: 50%;
       transform: translateX(-50%);
       color: #7fff9b;
       font-family: 'Minecraft', 'Courier New', monospace;

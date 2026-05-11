@@ -8,7 +8,7 @@
  */
 import * as Colyseus from "colyseus.js";
 import * as THREE from "three";
-import { spawnPlayer, buildFallbackPlayer, makeNameTag, PlayerInstance, attachHeldItem, detachHeldItem, applySkinToCharacter } from "./PlayerModel";
+import { spawnPlayer, buildFallbackPlayer, makeNameTag, PlayerInstance, attachHeldItem, detachHeldItem, applySkinToCharacter, applyEquippedSet } from "./PlayerModel";
 import { Legion } from "./Legion";
 
 export interface RemotePlayer {
@@ -84,6 +84,10 @@ export class Multiplayer {
   public timeOfDay = 6000;
 
   onBlockUpdate?: BlockUpdateHandler;
+  /** Optional ground-snap callback set by main.ts so mob meshes sit on the
+   *  actual terrain surface (the server has no terrain knowledge). Returns
+   *  the y of the top solid block at (x, z), or null if not loaded. */
+  groundLookup?: (x: number, z: number) => number | null;
   onChat?: (sender: string, msg: string) => void;
   onConnected?: () => void;
   onDisconnected?: () => void;
@@ -355,10 +359,21 @@ export class Multiplayer {
     }
     this.scene.add(tag);
 
-    // Apply the player's Bloxity skin texture to the cloned GLB. Falls back
-    // to skin "0" for guests / new accounts.
+    // Apply the player's full Bloxity equipped set (skin texture + all body
+    // part meshes + hat + back). Defaults to the guest skin (id "0") when
+    // there's no equipped data.
     const initialSkin = String(player?.skinId || "0");
-    applySkinToCharacter(group, initialSkin);
+    applyEquippedSet(group, {
+      skinId:  initialSkin,
+      hatId:   player?.hatId,
+      backId:  player?.backId,
+      headId:  player?.headId,
+      armLId:  player?.armLId,
+      armRId:  player?.armRId,
+      legLId:  player?.legLId,
+      legRId:  player?.legRId,
+      torsoId: player?.torsoId,
+    });
 
     this.remotePlayers.set(sessionId, {
       id: sessionId,
@@ -539,11 +554,17 @@ export class Multiplayer {
           if (rp.heldMesh) { detachHeldItem(rp.mesh, rp.heldMesh); rp.heldMesh = null; }
           if (newHeld !== 0) rp.heldMesh = attachHeldItem(rp.mesh, newHeld);
         }
-        // Skin texture: reload if the user picked a different one.
+        // Avatar: re-apply the whole equipped set if any field changed.
         const newSkin = String(p.skinId || "0");
-        if (newSkin !== rp.skinId) {
+        const newAvatarKey = `${p.skinId}|${p.hatId}|${p.backId}|${p.headId}|${p.armLId}|${p.armRId}|${p.legLId}|${p.legRId}|${p.torsoId}`;
+        if (newAvatarKey !== (rp as any)._avatarKey) {
+          (rp as any)._avatarKey = newAvatarKey;
           rp.skinId = newSkin;
-          applySkinToCharacter(rp.mesh, newSkin);
+          applyEquippedSet(rp.mesh, {
+            skinId: newSkin, hatId: p.hatId, backId: p.backId,
+            headId: p.headId, armLId: p.armLId, armRId: p.armRId,
+            legLId: p.legLId, legRId: p.legRId, torsoId: p.torsoId,
+          });
         }
       });
       // Remove vanished players
@@ -642,7 +663,14 @@ export class Multiplayer {
       rm.y += (rm.targetY - rm.y) * k;
       rm.z += (rm.targetZ - rm.z) * k;
       rm.rotY += (rm.targetRotY - rm.rotY) * k;
-      rm.mesh.position.set(rm.x, rm.y, rm.z);
+      // Ground-snap visually — server doesn't know our terrain height, so
+      // its y is a guess. We replace it with the actual surface block above.
+      let drawY = rm.y;
+      if (this.groundLookup) {
+        const gy = this.groundLookup(rm.x, rm.z);
+        if (gy != null) drawY = gy;
+      }
+      rm.mesh.position.set(rm.x, drawY, rm.z);
       rm.mesh.rotation.y = rm.rotY;
     }
   }

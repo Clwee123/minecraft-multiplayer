@@ -363,12 +363,15 @@ export class GameRoom extends Room<GameState> {
       let timer = this.mobTimers.get(id) ?? 0;
       timer -= dt;
 
-      // Gravity + floor snap (floor is roughly y=9 for sea-level terrain)
+      // Gravity + floor snap. Our terrain ranges y≈28-40 (SEA_LEVEL=28 plus
+      // biome offsets), so the old floorY=9 was burying every mob inside
+      // stone. We now clamp to 32 — above sea level so mobs are always
+      // visible. The client also ground-snaps to the real surface block
+      // each frame for nicer placement.
       let velY = this.mobVelY.get(id) ?? 0;
       velY  = Math.max(velY - 28 * dt, -50);
       mob.y += velY * dt;
-      // Terrain surface is between y=6 (water) and y=18 (hills); clamp to 9
-      const floorY = 9;
+      const floorY = 32;
       if (mob.y < floorY) { mob.y = floorY; velY = 0; }
       this.mobVelY.set(id, velY);
 

@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { OBJLoader } from "three/examples/jsm/loaders/OBJLoader.js";
 import { clone as skeletonClone } from "three/examples/jsm/utils/SkeletonUtils.js";
 import { tileUV, getItemTile, getAtlasTexture, BLOCKS } from "./Textures";
 
@@ -379,6 +380,189 @@ export function attachHeldItem(playerRoot: THREE.Object3D, itemId: number): THRE
     playerRoot.add(mesh);
   }
   return mesh;
+}
+
+// ── Bloxity avatar parts (arms / legs / torso / head / hat / back) ────────
+//
+// Matches the test-game.html flow exactly. Body parts are loaded as GLBs
+// from `${CDN}/parts/<dir>/<id><suffix>.glb`, their SkinnedMesh geometry
+// is cloned and skinIndex-remapped to OUR cloned skeleton, then assigned
+// to the corresponding target mesh's geometry. Hats and back items load
+// as OBJ + texture and attach to a bone (Neck1 for hats, Spine2 for back).
+const AVATAR_CDN = "https://static.bloxity.io/avatars";
+const SLOT_INFO: Record<string, { dir: string; suffix: string; meshName: string }> = {
+  head:  { dir: "head",  suffix: "",   meshName: "default_head"  },
+  arm_L: { dir: "arms",  suffix: "_L", meshName: "default_arm_L" },
+  arm_R: { dir: "arms",  suffix: "_R", meshName: "default_arm_R" },
+  leg_L: { dir: "legs",  suffix: "_L", meshName: "default_leg_L" },
+  leg_R: { dir: "legs",  suffix: "_R", meshName: "default_leg_R" },
+  torso: { dir: "torso", suffix: "",   meshName: "default_torso" },
+};
+
+const _partGeometryCache: Map<string, THREE.BufferGeometry> = new Map();
+const _hatObjCache: Map<string, THREE.Object3D> = new Map();
+const _hatTexCache: Map<string, THREE.Texture> = new Map();
+
+function isEquippedId(id: string | null | undefined): boolean {
+  return !!id && id !== "-1" && id !== "undefined" && id.length > 0;
+}
+
+/**
+ * Swap a body part on `root` to the part identified by `itemId`. If the
+ * part can't be loaded (404 / network) we just leave the default mesh in
+ * place. Geometry is cached per URL so multiple players wearing the same
+ * item only fetch once.
+ */
+export function swapPart(root: THREE.Object3D, slot: keyof typeof SLOT_INFO, itemId: string | null | undefined) {
+  if (!isEquippedId(itemId)) return;
+  const info = SLOT_INFO[slot];
+  if (!info) return;
+  const target = root.getObjectByName(info.meshName) as THREE.SkinnedMesh | THREE.Mesh | null;
+  if (!target) return;
+  const url = `${AVATAR_CDN}/parts/${info.dir}/${itemId}${info.suffix}.glb`;
+
+  const apply = (sourceGeo: THREE.BufferGeometry, sourceSkeleton: THREE.Skeleton | null) => {
+    if ((target as any).isSkinnedMesh && sourceSkeleton) {
+      // Remap skinIndex from the source's bone order to our character's.
+      const geo = sourceGeo.clone();
+      const ourSkel = (target as THREE.SkinnedMesh).skeleton;
+      const nameToOursIdx = new Map<string, number>();
+      ourSkel.bones.forEach((b, i) => nameToOursIdx.set(b.name, i));
+      const remap = new Map<number, number>();
+      sourceSkeleton.bones.forEach((b, i) => {
+        const oi = nameToOursIdx.get(b.name);
+        if (oi !== undefined) remap.set(i, oi);
+      });
+      const si = geo.getAttribute("skinIndex");
+      if (si) {
+        const arr = si.array as any;
+        for (let i = 0; i < arr.length; i++) {
+          const m = remap.get(arr[i]);
+          if (m !== undefined) arr[i] = m;
+        }
+        si.needsUpdate = true;
+      }
+      target.geometry = geo;
+    } else {
+      target.geometry = sourceGeo;
+    }
+  };
+
+  const cached = _partGeometryCache.get(url);
+  if (cached) {
+    apply(cached, (target as any).isSkinnedMesh ? (target as THREE.SkinnedMesh).skeleton : null);
+    return;
+  }
+  new GLTFLoader().load(url, (gltf) => {
+    let source: THREE.Mesh | THREE.SkinnedMesh | null = null;
+    gltf.scene.traverse((c: any) => {
+      if (!source && (c.isSkinnedMesh || c.isMesh)) source = c;
+    });
+    if (!source) return;
+    _partGeometryCache.set(url, (source as any).geometry);
+    apply((source as any).geometry, (source as any).isSkinnedMesh ? (source as any).skeleton : null);
+  }, undefined, (err) => console.warn(`[Avatar] swapPart(${slot}) failed`, err));
+}
+
+/** Find the head bone in a Bloxity rig. */
+function findHeadBone(root: THREE.Object3D): THREE.Object3D | null {
+  let b: THREE.Object3D | null = null;
+  root.traverse((o) => { if (!b && (o.name === "Neck1" || o.name === "Neck1_leaf")) b = o; });
+  return b;
+}
+
+/** Find the spine/torso bone for back items. */
+function findSpineBone(root: THREE.Object3D): THREE.Object3D | null {
+  let b: THREE.Object3D | null = null;
+  root.traverse((o) => { if (!b && (o.name === "Spine2" || o.name === "Spine1")) b = o; });
+  return b;
+}
+
+/** Attach a hat OBJ from the Bloxity CDN to the head bone. Returns the
+ *  attached object so the caller can dispose / remove on next change. */
+export function loadHat(root: THREE.Object3D, hatId: string | null | undefined): Promise<THREE.Object3D | null> {
+  return new Promise((resolve) => {
+    if (!isEquippedId(hatId)) { resolve(null); return; }
+    const headBone = findHeadBone(root);
+    if (!headBone) { resolve(null); return; }
+    const url = `${AVATAR_CDN}/items/hats/${hatId}.obj`;
+    const tUrl = `${AVATAR_CDN}/textures/hats/${hatId}.png`;
+    new OBJLoader().load(url, (obj) => {
+      let tex = _hatTexCache.get(tUrl);
+      if (!tex) {
+        tex = new THREE.TextureLoader().load(tUrl, (t) => {
+          t.magFilter = THREE.NearestFilter;
+          t.minFilter = THREE.NearestFilter;
+          t.colorSpace = THREE.SRGBColorSpace;
+          t.needsUpdate = true;
+        });
+        _hatTexCache.set(tUrl, tex);
+      }
+      obj.traverse((c: any) => {
+        if (c.isMesh) c.material = new THREE.MeshLambertMaterial({ map: tex, transparent: true, alphaTest: 0.5 });
+      });
+      obj.position.set(0, 0.8, 0);
+      headBone.add(obj);
+      resolve(obj);
+    }, undefined, (err) => { console.warn("[Avatar] hat load failed", err); resolve(null); });
+  });
+}
+
+/** Same shape as loadHat for back items, attaches to the spine bone. */
+export function loadBack(root: THREE.Object3D, backId: string | null | undefined): Promise<THREE.Object3D | null> {
+  return new Promise((resolve) => {
+    if (!isEquippedId(backId)) { resolve(null); return; }
+    const spine = findSpineBone(root);
+    if (!spine) { resolve(null); return; }
+    const url = `${AVATAR_CDN}/items/back/${backId}.obj`;
+    const tUrl = `${AVATAR_CDN}/textures/back/${backId}.png`;
+    new OBJLoader().load(url, (obj) => {
+      let tex = _hatTexCache.get(tUrl);
+      if (!tex) {
+        tex = new THREE.TextureLoader().load(tUrl, (t) => {
+          t.magFilter = THREE.NearestFilter;
+          t.minFilter = THREE.NearestFilter;
+          t.colorSpace = THREE.SRGBColorSpace;
+          t.needsUpdate = true;
+        });
+        _hatTexCache.set(tUrl, tex);
+      }
+      obj.traverse((c: any) => {
+        if (c.isMesh) c.material = new THREE.MeshLambertMaterial({ map: tex, transparent: true, alphaTest: 0.5 });
+      });
+      obj.position.set(0, 0, 0);
+      spine.add(obj);
+      resolve(obj);
+    }, undefined, (err) => { console.warn("[Avatar] back load failed", err); resolve(null); });
+  });
+}
+
+/**
+ * Apply the full Bloxity equipped set to a character. Skin texture +
+ * each body-part swap + hat + back. Safe to call repeatedly; geometry
+ * cache keeps it cheap.
+ */
+export interface EquippedSet {
+  skinId?: string; hatId?: string; backId?: string;
+  headId?: string; armLId?: string; armRId?: string;
+  legLId?: string; legRId?: string; torsoId?: string;
+}
+
+export function applyEquippedSet(root: THREE.Object3D, eq: EquippedSet) {
+  applySkinToCharacter(root, eq.skinId);
+  if (isEquippedId(eq.headId))  swapPart(root, "head",  eq.headId);
+  if (isEquippedId(eq.armLId))  swapPart(root, "arm_L", eq.armLId);
+  if (isEquippedId(eq.armRId))  swapPart(root, "arm_R", eq.armRId);
+  if (isEquippedId(eq.legLId))  swapPart(root, "leg_L", eq.legLId);
+  if (isEquippedId(eq.legRId))  swapPart(root, "leg_R", eq.legRId);
+  if (isEquippedId(eq.torsoId)) swapPart(root, "torso", eq.torsoId);
+  // Detach existing hat / back, then attach new ones if equipped.
+  const oldHat = (root as any)._hatMesh as THREE.Object3D | undefined;
+  if (oldHat) { oldHat.parent?.remove(oldHat); }
+  loadHat(root, eq.hatId).then(h => { if (h) (root as any)._hatMesh = h; });
+  const oldBack = (root as any)._backMesh as THREE.Object3D | undefined;
+  if (oldBack) { oldBack.parent?.remove(oldBack); }
+  loadBack(root, eq.backId).then(b => { if (b) (root as any)._backMesh = b; });
 }
 
 /** Detach + dispose an item mesh previously created by attachHeldItem. */

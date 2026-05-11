@@ -12,7 +12,7 @@ import { TradeUI } from "./TradeUI";
 import { ServerFinder, listRooms } from "./ServerFinder";
 import { ItemDrops } from "./ItemDrops";
 import { MODES, ModeId, buildBedwars, buildParkour, buildOneBlock, pickOneBlockNext, buildBuildBattle, buildHideAndSeek } from "./Modes";
-import { preloadPlayerModel, buildFirstPersonArm, FirstPersonArm, applySkinToCharacter } from "./PlayerModel";
+import { preloadPlayerModel, buildFirstPersonArm, FirstPersonArm, applySkinToCharacter, swapPart } from "./PlayerModel";
 import { BreakHighlight, BreakParticles } from "./BreakEffects";
 import { Legion, LegionUser, LegionFriend, readInstantJoinIntent } from "./Legion";
 import { sound, blockSurface } from "./Sound";
@@ -768,6 +768,7 @@ document.addEventListener("mousedown", (e) => {
     }
   } else if (e.button === 2) {
     fpArm?.triggerSwing(0.65);
+    tryShootBow();
   }
 });
 document.addEventListener("mouseup", (e) => {
@@ -1073,6 +1074,68 @@ function tryAttackInFront(): boolean {
   return true;
 }
 
+// ── Bow firing ─────────────────────────────────────────────────────────────
+//
+// RMB with a bow held (item 102) + arrows (item 80) in inventory: consume
+// one arrow, raycast up to 30 m, damage the first mob/player on the line.
+// Hitscan rather than projectile for now — much simpler and reads instantly.
+// We do spawn a brief tracer line so the shot is visible.
+function tryShootBow(): boolean {
+  if (!player || !inv) return false;
+  const held = inv.getHeld();
+  if (!held || held.id !== 102) return false; // not holding a bow
+  // Find + consume one arrow (creative skips ammo check).
+  if (inv.gameMode !== "creative") {
+    if (inv.countOf(80) < 1) return false;
+    inv.remove(80, 1);
+    refreshHotbar();
+  }
+  sound.swing();
+  const origin = new THREE.Vector3(player.pos.x, player.pos.y + 1.62, player.pos.z);
+  const dir = new THREE.Vector3();
+  camera.getWorldDirection(dir);
+  // Find nearest mob OR player on the ray (cheap cylinder test like attack).
+  const maxDist = 30, radius = 0.6;
+  type Hit = { kind: "mob" | "player"; id: string; t: number };
+  let best: Hit | null = null;
+  const consider = (kind: "mob" | "player", id: string, mx: number, my: number, mz: number) => {
+    const toM = new THREE.Vector3(mx - origin.x, (my + 1.0) - origin.y, mz - origin.z);
+    const t = toM.dot(dir);
+    if (t <= 0 || t > maxDist) return;
+    const perp = toM.clone().sub(dir.clone().multiplyScalar(t));
+    if (perp.length() <= radius && (!best || t < best.t)) best = { kind, id, t };
+  };
+  if (mp?.isConnected()) {
+    for (const m of mp.getRemoteMobs())    consider("mob",    m.id, m.x, m.y, m.z);
+    for (const p of mp.getRemotePlayers()) consider("player", p.id, p.x, p.y, p.z);
+  }
+  // Visible tracer
+  spawnArrowTracer(origin, dir, best ? best.t : maxDist);
+  if (best && mp?.isConnected()) {
+    const dmg = 5;
+    if (best.kind === "mob") mp.sendAttackMob(best.id, dmg);
+    else                     mp.sendAttackPlayer(best.id, dmg);
+    sound.hit();
+  }
+  return true;
+}
+
+function spawnArrowTracer(origin: THREE.Vector3, dir: THREE.Vector3, dist: number) {
+  // Tiny stretched box that flies along the ray for a few frames.
+  const geo = new THREE.BoxGeometry(0.04, 0.04, Math.max(0.3, dist));
+  const mat = new THREE.MeshBasicMaterial({ color: 0xdadada });
+  const mesh = new THREE.Mesh(geo, mat);
+  // Place at midpoint of the shot
+  const mid = origin.clone().add(dir.clone().multiplyScalar(dist / 2));
+  mesh.position.copy(mid);
+  mesh.lookAt(origin.clone().add(dir));
+  scene.add(mesh);
+  setTimeout(() => {
+    scene.remove(mesh);
+    geo.dispose(); mat.dispose();
+  }, 160);
+}
+
 // ── Drop item (Q) ───────────────────────────────────────────────────────────
 //
 // Decrement the held stack by 1 and spawn a drop in the world a couple
@@ -1192,6 +1255,15 @@ async function startGame(serverAddr: string | null) {
       if (world) world.setBlock(x, y, z, type, { autoCreate: false });
     };
     mp.onLocalDamage = (d) => player?.takeDamage(d, "a monster");
+    // Snap remote mobs to actual terrain — server uses a dumb y=32 floor.
+    mp.groundLookup = (x, z) => {
+      if (!world) return null;
+      const ix = Math.floor(x), iz = Math.floor(z);
+      for (let y = 63; y >= 0; y--) {
+        if (world.isSolid(ix, y, iz)) return y + 1;
+      }
+      return null;
+    };
     mp.onLocalKnockback = (byX, _byY, byZ) => {
       if (player) player.lastDamageReason = "another player";
       if (!player) return;
@@ -1292,9 +1364,12 @@ async function startGame(serverAddr: string | null) {
   fpArm = buildFirstPersonArm();
   if (fpArm) {
     camera.add(fpArm.group);
-    // Apply the local Legion user's skin to our own arm (guest → skin 0).
+    // Apply the local user's skin texture + custom right-arm shape (per the
+    // user's note: FP only needs skin + right arm geometry — hat/back/etc.
+    // would be off-screen anyway).
     const avatar = Legion.getAvatar();
     applySkinToCharacter(fpArm.group, String(avatar?.skinId || "0"));
+    if (avatar?.armRId) swapPart(fpArm.group, "arm_R", avatar.armRId);
   }
 
   // Hooks
@@ -1670,7 +1745,10 @@ Legion.init().then(() => {
   renderLegionPanel(Legion.getUser());
 
   Legion.onAvatarChanged((avatar) => {
-    if (fpArm) applySkinToCharacter(fpArm.group, String(avatar?.skinId || "0"));
+    if (fpArm) {
+      applySkinToCharacter(fpArm.group, String(avatar?.skinId || "0"));
+      if (avatar?.armRId) swapPart(fpArm.group, "arm_R", avatar.armRId);
+    }
     if (mp?.isConnected()) {
       const u = Legion.getUser();
       mp.sendAvatarUpdate(avatar, {
