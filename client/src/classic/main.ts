@@ -291,6 +291,9 @@ function refreshHotbar() {
 function selectSlot(i: number) {
   inv.selectSlot(i);
   refreshHotbar();
+  // Reflect the held item visually + tell the server so everyone else
+  // sees the new tool/block in our hand.
+  syncHeldItem();
   const bn = document.getElementById("blockName")!;
   const id = inv.hotbar[i].id;
   if (id > 0) {
@@ -298,6 +301,17 @@ function selectSlot(i: number) {
     bn.style.opacity = "1";
     clearTimeout((bn as any)._t);
     (bn as any)._t = setTimeout(() => (bn.style.opacity = "0"), 1500);
+  }
+}
+
+let _lastSentHeldId = -1;
+function syncHeldItem() {
+  if (!inv) return;
+  const heldId = inv.hotbar[inv.selected]?.id ?? 0;
+  fpArm?.setHeldItem(heldId);
+  if (heldId !== _lastSentHeldId && mp?.isConnected()) {
+    mp.sendSetHeld(heldId);
+    _lastSentHeldId = heldId;
   }
 }
 
@@ -382,12 +396,12 @@ document.addEventListener("mousedown", (e) => {
   if (e.button === 0) {
     lmbHeld = true;
     fpArm?.triggerSwing(1);
-    // Attempt mob attack on LMB. If a mob is in front of us within reach,
-    // tell the server (and play the meatier hit sound). Otherwise the click
-    // flows through to block-mining and we play the lighter swing sound.
-    const hitMob = tryAttackMob();
-    if (hitMob) sound.hit();
-    else        sound.swing();
+    // LMB: try to hit a mob or remote player in front of us; either way the
+    // swing animation plays. If nothing was hit, the click flows through to
+    // block-mining (Player has its own LMB listener for that).
+    const hitSomething = tryAttackInFront();
+    if (hitSomething) sound.hit();
+    else              sound.swing();
   } else if (e.button === 2) {
     fpArm?.triggerSwing(0.65);
   }
@@ -570,44 +584,45 @@ function updateDebugOverlay(dt: number, fps: number) {
   `;
 }
 
-// ── Mob attack (LMB raycast) ───────────────────────────────────────────────
+// ── Combat LMB raycast ─────────────────────────────────────────────────────
 //
-// Real Three.js raycasting against the mob meshes would be ideal but
-// expensive. Mobs are small enough that a simple "is the mob inside a 0.7 m
-// cylinder along the camera-forward axis, within 4 m" test works fine.
-function tryAttackMob() {
+// One cheap cylinder-along-camera test, used for both mobs AND remote
+// players. We find the nearest hit of either kind and dispatch the
+// appropriate server message.
+function damageForHeld(): number {
+  const heldId = inv?.getHeld()?.id ?? 0;
+  switch (heldId) {
+    case 58: return 7;   // wood sword
+    case 61: return 9;   // stone sword
+    case 63: return 11;  // iron sword
+    case 64: return 13;  // diamond sword
+    default: return 4;   // fist
+  }
+}
+
+function tryAttackInFront(): boolean {
   if (!mp?.isConnected() || !player) return false;
-  const mobs = mp.getRemoteMobs();
-  if (mobs.length === 0) return false;
   const origin = new THREE.Vector3(player.pos.x, player.pos.y + 1.62, player.pos.z);
   const dir = new THREE.Vector3();
   camera.getWorldDirection(dir);
   const maxDist = 4.0;
   const radius = 0.7;
-  let bestT = Infinity, bestId: string | null = null;
-  for (const m of mobs) {
-    const toMob = new THREE.Vector3(m.x - origin.x, (m.y + 1.0) - origin.y, m.z - origin.z);
-    const t = toMob.dot(dir);
-    if (t <= 0 || t > maxDist) continue;
-    const along = dir.clone().multiplyScalar(t);
-    const perp = toMob.clone().sub(along);
-    if (perp.length() <= radius && t < bestT) {
-      bestT = t; bestId = m.id;
-    }
-  }
-  if (bestId) {
-    // Damage scales with held sword tier (default 5). Cheap shortcut: any
-    // sword item id 58/61/63/64 → 7/9/11/13 damage.
-    const heldId = inv?.getHeld()?.id ?? 0;
-    let dmg = 4;
-    if (heldId === 58) dmg = 7;        // wood
-    else if (heldId === 61) dmg = 9;   // stone
-    else if (heldId === 63) dmg = 11;  // iron
-    else if (heldId === 64) dmg = 13;  // diamond
-    mp.sendAttackMob(bestId, dmg);
-    return true;
-  }
-  return false;
+  type Hit = { kind: "mob" | "player"; id: string; t: number };
+  let best: Hit | null = null;
+  const consider = (kind: "mob" | "player", id: string, mx: number, my: number, mz: number) => {
+    const toM = new THREE.Vector3(mx - origin.x, (my + 1.0) - origin.y, mz - origin.z);
+    const t = toM.dot(dir);
+    if (t <= 0 || t > maxDist) return;
+    const perp = toM.clone().sub(dir.clone().multiplyScalar(t));
+    if (perp.length() <= radius && (!best || t < best.t)) best = { kind, id, t };
+  };
+  for (const m of mp.getRemoteMobs())    consider("mob",    m.id, m.x, m.y, m.z);
+  for (const p of mp.getRemotePlayers()) consider("player", p.id, p.x, p.y, p.z);
+  if (!best) return false;
+  const dmg = damageForHeld();
+  if (best.kind === "mob") mp.sendAttackMob(best.id, dmg);
+  else                     mp.sendAttackPlayer(best.id, dmg);
+  return true;
 }
 
 // ── Drop item (Q) ───────────────────────────────────────────────────────────
@@ -738,7 +753,7 @@ async function startGame(serverAddr: string | null) {
   drops.onPickup = () => sound.pickup();
   creativeInv = new CreativeInventory(inv);
   creativeInv.onClose = () => setTimeout(() => document.body.requestPointerLock(), 50);
-  creativeInv.onChange = () => refreshHotbar();
+  creativeInv.onChange = () => { refreshHotbar(); syncHeldItem(); };
   craftingUI = new CraftingUI(inv);
   craftingUI.onCraft = () => { refreshHotbar(); sound.craft(); };
   craftingUI.onClose = () => {
@@ -1037,7 +1052,8 @@ async function startGame(serverAddr: string | null) {
       mpSendTimer += dt;
       if (mpSendTimer >= 0.05) {
         mpSendTimer = 0;
-        mp.sendMove(player.pos.x, player.pos.y, player.pos.z, player.yaw, player.pitch);
+        const heldId = inv.hotbar[inv.selected]?.id ?? 0;
+        mp.sendMove(player.pos.x, player.pos.y, player.pos.z, player.yaw, player.pitch, heldId);
       }
       mp.update(dt, camera.position);
     }

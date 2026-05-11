@@ -8,7 +8,7 @@
  */
 import * as Colyseus from "colyseus.js";
 import * as THREE from "three";
-import { spawnPlayer, buildFallbackPlayer, makeNameTag, PlayerInstance } from "./PlayerModel";
+import { spawnPlayer, buildFallbackPlayer, makeNameTag, PlayerInstance, attachHeldItem, detachHeldItem } from "./PlayerModel";
 import { Legion } from "./Legion";
 
 export interface RemotePlayer {
@@ -28,6 +28,10 @@ export interface RemotePlayer {
   lastPos: THREE.Vector3;
   speed: number;
   nameTag: THREE.Sprite | null;
+  /** Currently-held item id (0 = empty hand). Synced from server state. */
+  heldId: number;
+  /** Held-item mesh attached to the right-hand bone. */
+  heldMesh: THREE.Object3D | null;
 }
 
 export interface RemoteMob {
@@ -226,9 +230,16 @@ export class Multiplayer {
   getRemotePlayers(): RemotePlayer[] { return [...this.remotePlayers.values()]; }
   getRemoteMobs(): RemoteMob[] { return [...this.remoteMobs.values()]; }
 
-  sendMove(x: number, y: number, z: number, rotY: number, rotX: number) {
+  sendMove(x: number, y: number, z: number, rotY: number, rotX: number, heldId = 0) {
     if (!this.room) return;
-    this.room.send("move", { x, y, z, rotY, rotX, onGround: true });
+    this.room.send("move", { x, y, z, rotY, rotX, onGround: true, heldId });
+  }
+
+  sendSetHeld(id: number) { this.room?.send("setHeld", { id }); }
+
+  /** PvP — server validates range/health and broadcasts playerHit/playerDied. */
+  sendAttackPlayer(targetId: string, damage = 4) {
+    this.room?.send("attackPlayer", { targetId, damage });
   }
 
   sendBlockUpdate(x: number, y: number, z: number, type: number) {
@@ -297,6 +308,8 @@ export class Multiplayer {
       lastPos: new THREE.Vector3(px, py, pz),
       speed: 0,
       nameTag: tag,
+      heldId: 0,
+      heldMesh: null,
     });
   }
 
@@ -419,6 +432,13 @@ export class Multiplayer {
           rp.displayName = newDisplay;
           rp.pfp = newPfp;
           this.refreshRemoteTag(rp);
+        }
+        // Held item: swap the mesh attached to the player's right hand.
+        const newHeld = (typeof p.heldId === "number") ? (p.heldId | 0) : 0;
+        if (newHeld !== rp.heldId) {
+          rp.heldId = newHeld;
+          if (rp.heldMesh) { detachHeldItem(rp.mesh, rp.heldMesh); rp.heldMesh = null; }
+          if (newHeld !== 0) rp.heldMesh = attachHeldItem(rp.mesh, newHeld);
         }
       });
       // Remove vanished players

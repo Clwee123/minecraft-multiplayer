@@ -18,6 +18,7 @@ export class PlayerState extends Schema {
   // Bloxity / Legion SDK avatar fields. Synced from the Legion API at join
   // time. All cosmetic / body-part IDs are 24-char ObjectIds (or "-1" for
   // unequipped). pfp is the full image URL.
+  @type("uint8")   heldId:      number = 0;
   @type("string")  legionId:    string = "";
   @type("string")  displayName: string = "";
   @type("string")  pfp:         string = "";
@@ -55,6 +56,8 @@ export class MobState extends Schema {
 
 export class GameState extends Schema {
   @type("string")             mode       = "survival";
+  /** World time in ticks (0..24000). Advances server-side every second. */
+  @type("uint32")             timeOfDay  = 6000;
   @type({ map: PlayerState }) players    = new MapSchema<PlayerState>();
   @type([BlockChange])        blockChanges = new ArraySchema<BlockChange>();
   @type({ map: MobState })    mobs       = new MapSchema<MobState>();
@@ -74,6 +77,7 @@ export class GameRoom extends Room<GameState> {
   maxClients = 64;
 
   private mobLoop: ReturnType<typeof setInterval> | null = null;
+  private timeLoop: ReturnType<typeof setInterval> | null = null;
   private mobTimers  = new Map<string, number>(); // AI state timers
   private mobVelY    = new Map<string, number>(); // vertical velocity per mob
 
@@ -97,6 +101,39 @@ export class GameRoom extends Room<GameState> {
       p.x = data.x; p.y = data.y; p.z = data.z;
       p.rotY = data.rotY; p.rotX = data.rotX; p.onGround = data.onGround;
       if (data.gameMode) p.gameMode = data.gameMode;
+      if (typeof data.heldId === "number") p.heldId = (data.heldId | 0) & 0xff;
+    });
+
+    this.onMessage("setHeld", (client, data: any) => {
+      const p = this.state.players.get(client.sessionId);
+      if (!p) return;
+      p.heldId = ((data?.id | 0) & 0xff);
+    });
+
+    // PvP: server is authoritative for damage. Creative players are immune.
+    this.onMessage("attackPlayer", (client, data: any) => {
+      const targetId = String(data?.targetId || "");
+      const attacker = this.state.players.get(client.sessionId);
+      const target = this.state.players.get(targetId);
+      if (!attacker || !target || target === attacker) return;
+      if (target.gameMode === "creative" || target.gameMode === "spectator") return;
+      // Range gate so a malicious client can't damage from across the map.
+      const d = Math.hypot(attacker.x - target.x, attacker.y - target.y, attacker.z - target.z);
+      if (d > 5.5) return;
+      const dmg = Math.max(1, Math.min(20, (Number(data?.damage) || 4) | 0));
+      target.health = Math.max(0, target.health - dmg) as any;
+      this.broadcast("playerHit", { id: targetId, by: client.sessionId, damage: dmg });
+      if (target.health <= 0) {
+        // Respawn after a moment
+        this.broadcast("playerDied", { id: targetId, by: client.sessionId, name: target.name });
+        setTimeout(() => {
+          if (this.state.players.get(targetId)) {
+            target.health = 40 as any;
+            target.x = (Math.random() - 0.5) * 6;
+            target.y = 42; target.z = (Math.random() - 0.5) * 6;
+          }
+        }, 1500);
+      }
     });
 
     this.onMessage("addBlock", (client, data: any) => {
@@ -201,6 +238,11 @@ export class GameRoom extends Room<GameState> {
     // ── Spawn initial mobs & start AI loop ───────────────────────────────────
     this.spawnInitialMobs();
     this.mobLoop = setInterval(() => { try { this.tickMobs(0.2); } catch(e) { console.error("[GameRoom] mob tick error:", e); } }, 200);
+    // Time of day: 20 ticks/sec × 1200 s = 24000-tick day = 20-minute cycle,
+    // matching the client's local fallback rate. Replicated through state.
+    this.timeLoop = setInterval(() => {
+      this.state.timeOfDay = (this.state.timeOfDay + 20) % 24000;
+    }, 1000);
   }
 
   // ── Player lifecycle ──────────────────────────────────────────────────────
@@ -270,7 +312,8 @@ export class GameRoom extends Room<GameState> {
   }
 
   onDispose() {
-    if (this.mobLoop) clearInterval(this.mobLoop);
+    if (this.mobLoop)  clearInterval(this.mobLoop);
+    if (this.timeLoop) clearInterval(this.timeLoop);
   }
 
   // ── Mob spawning ──────────────────────────────────────────────────────────

@@ -141,7 +141,7 @@ export const T_I_ARROW       = T(15, 5);
 export const BLOCKS: Record<number, BlockDef> = {
   1:  { faces: [T_GRASS_SIDE, T_GRASS_SIDE, T_GRASS_TOP, T_DIRT, T_GRASS_SIDE, T_GRASS_SIDE], hardness: 0.6, drop: 2, tool: "shovel" },
   2:  { faces: all6(T_DIRT),                 hardness: 0.5, tool: "shovel" },
-  3:  { faces: all6(T_STONE),                hardness: 1.5, drop: 10, tool: "pickaxe" },
+  3:  { faces: all6(T_STONE),                hardness: 1.5, drop: 9, tool: "pickaxe" },
   4:  { faces: all6(T_SAND),                 hardness: 0.5, tool: "shovel" },
   5:  { faces: [T_LOG_SIDE, T_LOG_SIDE, T_LOG_TOP, T_LOG_TOP, T_LOG_SIDE, T_LOG_SIDE], hardness: 2.0, tool: "axe" },
   6:  { faces: all6(T_LEAVES), isLeaf: true, hardness: 0.2, drop: 33, tool: "shears" }, // drops sapling

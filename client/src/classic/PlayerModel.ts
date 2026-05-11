@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { clone as skeletonClone } from "three/examples/jsm/utils/SkeletonUtils.js";
+import { tileUV, getItemTile, getAtlasTexture } from "./Textures";
 
 /**
  * Loader for the player GLB model. Loads once, then clones the scene
@@ -143,6 +144,8 @@ export interface FirstPersonArm {
   triggerMineSwing(): void;
   /** Advance animation. */
   update(dt: number): void;
+  /** Swap the item shown in the hand (0 = empty hand, no item mesh). */
+  setHeldItem(itemId: number): void;
 }
 
 export function buildFirstPersonArm(): FirstPersonArm | null {
@@ -200,6 +203,8 @@ export function buildFirstPersonArm(): FirstPersonArm | null {
   let swingStrength = 1;
   let miningSwingPhase = 0; // continuous angle for the chop loop
   let miningActive = false;
+  let heldMesh: THREE.Object3D | null = null;
+  let currentHeldId = 0;
 
   return {
     group,
@@ -221,14 +226,10 @@ export function buildFirstPersonArm(): FirstPersonArm | null {
         sh.rotation.z = baseRotZ + eased * ARM_TWIST * swingStrength;
         swingT = Math.max(0, swingT - dt * 4); // ~0.25s total
       } else if (miningActive) {
-        // Continuous chop: ~3 swings per second
         miningSwingPhase += dt * Math.PI * 3;
-        const v = (Math.sin(miningSwingPhase) + 1) * 0.5; // 0..1
+        const v = (Math.sin(miningSwingPhase) + 1) * 0.5;
         sh.rotation.x = baseRotX - ARM_SHOULDER_FORWARD + v * ARM_SWING_ARC * 0.8;
         sh.rotation.z = baseRotZ + v * ARM_TWIST * 0.7;
-        // Auto-stop if not called this frame: caller is expected to set
-        // miningActive=true every frame while LMB-mining. Reset here so
-        // it stops next frame unless re-triggered.
         miningActive = false;
       } else {
         sh.rotation.x = baseRotX - ARM_SHOULDER_FORWARD;
@@ -236,7 +237,93 @@ export function buildFirstPersonArm(): FirstPersonArm | null {
         miningSwingPhase = 0;
       }
     },
+    setHeldItem(itemId: number) {
+      if (itemId === currentHeldId) return;
+      currentHeldId = itemId;
+      // Tear down old
+      if (heldMesh) {
+        heldMesh.parent?.remove(heldMesh);
+        const m = (heldMesh as THREE.Mesh).material as THREE.Material | undefined;
+        m?.dispose?.();
+        ((heldMesh as THREE.Mesh).geometry as THREE.BufferGeometry | undefined)?.dispose?.();
+        heldMesh = null;
+      }
+      if (itemId === 0) return;
+      heldMesh = buildHeldItemModel(itemId, { firstPerson: true });
+      // Attach to the cloned root so it stays anchored at the hand position.
+      // The hand offset from the shoulder is ~0.6 m forward and 0.4 m down
+      // after our ARM_SHOULDER_FORWARD rotation; the offsets below were
+      // tuned visually.
+      heldMesh.position.set(0.05, -0.25, -0.45);
+      heldMesh.rotation.set(-0.3, -0.3, 0.5);
+      cloned.add(heldMesh);
+    },
   };
+}
+
+// ── Held-item models (shared between FP arm and remote players) ─────────────
+
+/**
+ * Build a flat sprite-style item icon usable as a held item. The tile UVs
+ * are baked into the geometry so we don't need a per-instance material set.
+ * In MC pre-1.13 held items rendered as thin slabs; we do a single quad.
+ */
+export function buildHeldItemModel(itemId: number, opts: { firstPerson?: boolean } = {}): THREE.Mesh {
+  const tile = getItemTile(itemId);
+  const [u0, v0, u1, v1] = tileUV(tile);
+  const geo = new THREE.PlaneGeometry(opts.firstPerson ? 0.45 : 0.35, opts.firstPerson ? 0.45 : 0.35);
+  // PlaneGeometry UV order: [tl, tr, bl, br] in (col, row) → indices 0..7
+  const uvAttr = geo.getAttribute("uv") as THREE.BufferAttribute;
+  const arr = uvAttr.array as Float32Array;
+  arr[0] = u0; arr[1] = v1;
+  arr[2] = u1; arr[3] = v1;
+  arr[4] = u0; arr[5] = v0;
+  arr[6] = u1; arr[7] = v0;
+  uvAttr.needsUpdate = true;
+  const mat = new THREE.MeshBasicMaterial({
+    map: getAtlasTexture(),
+    transparent: true, alphaTest: 0.5,
+    side: THREE.DoubleSide,
+    depthTest: !opts.firstPerson,
+    depthWrite: !opts.firstPerson,
+  });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.frustumCulled = false;
+  mesh.renderOrder = opts.firstPerson ? 1001 : 1;
+  return mesh;
+}
+
+/**
+ * Attach an item mesh to a remote player's right hand. Returns the mesh so
+ * the caller can detach it later.
+ */
+export function attachHeldItem(playerRoot: THREE.Object3D, itemId: number): THREE.Object3D {
+  // Find right-arm bone or fall back to a body offset.
+  let armR: THREE.Object3D | null = null;
+  playerRoot.traverse((o: any) => {
+    if (!armR && (o.name === "ArmR2" || /^arm.*r2$/i.test(o.name))) armR = o;
+  });
+  const mesh = buildHeldItemModel(itemId, { firstPerson: false });
+  if (armR) {
+    // Bone-relative offset: hand extends down the bone's local +Y by ~0.3 m
+    // in this rig. Tilt 45° so it reads as a held tool from any angle.
+    mesh.position.set(0, -0.35, 0);
+    mesh.rotation.set(0, 0, 0.7);
+    (armR as THREE.Object3D).add(mesh);
+  } else {
+    // Fallback: float it next to the player's right side.
+    mesh.position.set(0.4, 1.1, 0);
+    playerRoot.add(mesh);
+  }
+  return mesh;
+}
+
+/** Detach + dispose an item mesh previously created by attachHeldItem. */
+export function detachHeldItem(_playerRoot: THREE.Object3D, mesh: THREE.Object3D) {
+  mesh.parent?.remove(mesh);
+  const m = (mesh as THREE.Mesh).material as THREE.Material | undefined;
+  m?.dispose?.();
+  ((mesh as THREE.Mesh).geometry as THREE.BufferGeometry | undefined)?.dispose?.();
 }
 
 /** Build a fallback box-humanoid mesh when the GLB isn't available. */
