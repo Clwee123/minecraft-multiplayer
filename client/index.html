@@ -5,13 +5,21 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
   <title>Minecraft 1.8 — Web</title>
   <style>
+    /* ── Pixel-perfect Minecraft font ────────────────────────────── */
+    @font-face {
+      font-family: 'Minecraft';
+      src: url('/Minecraft.ttf') format('truetype');
+      font-display: block;
+    }
+
     * { box-sizing: border-box; }
     html, body {
       margin: 0; padding: 0; width: 100%; height: 100%;
       overflow: hidden; background: #87ceeb;
-      font-family: 'Segoe UI', sans-serif;
+      font-family: 'Minecraft', 'Segoe UI', sans-serif;
       user-select: none; -webkit-user-select: none;
       color: #fff;
+      letter-spacing: 0.4px;
     }
     canvas { display: block; }
 
@@ -32,7 +40,7 @@
     }
     #mainMenu h1 {
       position: relative;
-      font-family: 'Courier New', monospace;
+      font-family: 'Minecraft', 'Courier New', monospace;
       font-size: 3.5rem; font-weight: bold;
       letter-spacing: 5px; margin: 0 0 0.3rem 0;
       color: #ffffff;
@@ -40,7 +48,7 @@
     }
     #mainMenu .subtitle {
       position: relative;
-      font-family: 'Courier New', monospace;
+      font-family: 'Minecraft', 'Courier New', monospace;
       font-size: 1rem; color: #ffe66d;
       text-shadow: 2px 2px 0 #2a2a2a;
       margin-bottom: 2rem;
@@ -54,7 +62,7 @@
     }
     .menu-row { display: flex; gap: 8px; margin-bottom: 12px; }
     .menu-row label {
-      font-family: 'Courier New', monospace;
+      font-family: 'Minecraft', 'Courier New', monospace;
       font-size: 12px; color: #ddd;
       min-width: 65px; display: flex; align-items: center;
     }
@@ -63,7 +71,7 @@
       background: rgba(0,0,0,0.4);
       border: 1px solid rgba(255,255,255,0.3);
       color: #fff; padding: 6px 10px;
-      font-family: 'Courier New', monospace;
+      font-family: 'Minecraft', 'Courier New', monospace;
       font-size: 12px; border-radius: 2px;
     }
     .menu-row input:focus {
@@ -78,7 +86,7 @@
       background: linear-gradient(180deg, rgba(70,90,110,0.7), rgba(40,55,70,0.7));
       border: 2px solid rgba(255,255,255,0.25);
       color: #fff;
-      font-family: 'Courier New', monospace;
+      font-family: 'Minecraft', 'Courier New', monospace;
       font-size: 13px; cursor: pointer; transition: all 0.15s;
       border-radius: 2px; text-align: left;
       box-shadow: 0 3px 0 rgba(0,0,0,0.4);
@@ -115,7 +123,7 @@
     }
     .menu-footer {
       margin-top: 16px; text-align: center;
-      font-family: 'Courier New', monospace;
+      font-family: 'Minecraft', 'Courier New', monospace;
       font-size: 11px; color: rgba(255,255,255,0.5);
     }
 
@@ -140,11 +148,11 @@
       border: 2px solid #e94560; object-fit: cover;
     }
     #legionName {
-      font-family: 'Courier New', monospace;
+      font-family: 'Minecraft', 'Courier New', monospace;
       font-size: 14px; font-weight: bold; color: #fff;
     }
     #legionHandle {
-      font-family: 'Courier New', monospace;
+      font-family: 'Minecraft', 'Courier New', monospace;
       font-size: 11px; color: rgba(255,255,255,0.55);
     }
     .legion-btn {
@@ -153,7 +161,7 @@
       border: 1px solid rgba(255,255,255,0.25);
       background: linear-gradient(135deg, #e94560, #ff6b6b);
       color: #fff; font-weight: bold;
-      font-family: 'Courier New', monospace;
+      font-family: 'Minecraft', 'Courier New', monospace;
       font-size: 12px;
       cursor: pointer;
     }
@@ -173,7 +181,7 @@
       z-index: 40;
       display: none;
       overflow-y: auto;
-      font-family: 'Courier New', monospace;
+      font-family: 'Minecraft', 'Courier New', monospace;
     }
     #ingameFriends h3 {
       margin: 0 0 8px 0;
@@ -209,7 +217,7 @@
     #legionFriendsCard h3 {
       margin: 0 0 8px 0;
       color: #ffe66d;
-      font-family: 'Courier New', monospace;
+      font-family: 'Minecraft', 'Courier New', monospace;
       font-size: 12px; letter-spacing: 1px;
       display: flex; justify-content: space-between; align-items: center;
     }
@@ -231,12 +239,12 @@
     }
     .friend-meta { flex: 1; min-width: 0; }
     .friend-name {
-      font-family: 'Courier New', monospace;
+      font-family: 'Minecraft', 'Courier New', monospace;
       font-size: 12px; color: #fff;
       white-space: nowrap; text-overflow: ellipsis; overflow: hidden;
     }
     .friend-status {
-      font-family: 'Courier New', monospace;
+      font-family: 'Minecraft', 'Courier New', monospace;
       font-size: 10px;
     }
     .friend-status.online  { color: #5be17a; }
@@ -250,7 +258,7 @@
       font-size: 11px;
       border-radius: 4px;
       cursor: pointer;
-      font-family: 'Courier New', monospace;
+      font-family: 'Minecraft', 'Courier New', monospace;
     }
     .friend-invite-btn:hover { background: rgba(33,150,243,0.4); }
     .friend-invite-btn:disabled { opacity: 0.6; cursor: default; }
@@ -263,14 +271,14 @@
       flex-direction: column; z-index: 900;
     }
     #loadingScreen h2 {
-      font-family: 'Courier New', monospace;
+      font-family: 'Minecraft', 'Courier New', monospace;
       font-size: 2rem; color: #fff;
       text-shadow: 3px 3px 0 #2a2a2a;
       margin: 0 0 1rem 0;
     }
     #loadingStatus {
       color: #fff;
-      font-family: 'Courier New', monospace;
+      font-family: 'Minecraft', 'Courier New', monospace;
       font-size: 0.95rem;
       text-shadow: 1px 1px 0 #2a2a2a;
       margin-bottom: 1.2rem;
@@ -398,7 +406,7 @@
       border: 1px solid rgba(255,255,255,0.25);
       padding: 10px 16px; border-radius: 4px;
       color: #fff;
-      font-family: 'Courier New', monospace;
+      font-family: 'Minecraft', 'Courier New', monospace;
       font-size: 13px;
       z-index: 40;
       display: none;
@@ -449,7 +457,7 @@
       width: 540px; max-width: 92vw;
       max-height: 80vh;
       display: flex; flex-direction: column;
-      font-family: 'Courier New', monospace;
+      font-family: 'Minecraft', 'Courier New', monospace;
     }
     .recipe-book-header {
       display: flex; justify-content: space-between; align-items: center;
@@ -470,7 +478,7 @@
       background: rgba(0,0,0,0.4);
       border: 1px solid rgba(255,255,255,0.3);
       color: #fff;
-      font-family: 'Courier New', monospace;
+      font-family: 'Minecraft', 'Courier New', monospace;
       margin-bottom: 8px;
     }
     #recipeSearch:focus { outline: none; border-color: #7eb84c; }
@@ -512,7 +520,7 @@
       position: fixed; bottom: 80px; left: 50%;
       transform: translateX(-50%);
       color: #fff;
-      font-family: 'Courier New', monospace;
+      font-family: 'Minecraft', 'Courier New', monospace;
       font-size: 14px;
       text-shadow: 2px 2px 0 #000;
       opacity: 0; transition: opacity 0.3s;
@@ -522,7 +530,7 @@
     #helpHud {
       position: fixed; top: 10px; left: 12px;
       color: rgba(255,255,255,0.85);
-      font-family: 'Courier New', monospace;
+      font-family: 'Minecraft', 'Courier New', monospace;
       font-size: 12px;
       text-shadow: 1px 1px 0 #000;
       line-height: 1.5em;
@@ -534,7 +542,7 @@
       position: fixed; top: 10px; left: 50%;
       transform: translateX(-50%);
       color: #ffe66d;
-      font-family: 'Courier New', monospace;
+      font-family: 'Minecraft', 'Courier New', monospace;
       font-size: 13px;
       text-shadow: 2px 2px 0 #000;
       z-index: 30; pointer-events: none;
@@ -543,7 +551,7 @@
     #fps {
       position: fixed; top: 10px; right: 12px;
       color: rgba(255,255,255,0.85);
-      font-family: 'Courier New', monospace;
+      font-family: 'Minecraft', 'Courier New', monospace;
       font-size: 12px;
       text-shadow: 1px 1px 0 #000;
       z-index: 30; pointer-events: none;
@@ -555,7 +563,7 @@
       max-width: 360px;
       background: rgba(0,0,0,0.5);
       color: #fff;
-      font-family: 'Courier New', monospace;
+      font-family: 'Minecraft', 'Courier New', monospace;
       font-size: 12px;
       line-height: 1.4em;
       padding: 8px 12px;
@@ -581,7 +589,7 @@
       position: fixed; bottom: 100px; left: 12px;
       width: 360px; z-index: 25;
       pointer-events: none;
-      font-family: 'Courier New', monospace; font-size: 13px;
+      font-family: 'Minecraft', 'Courier New', monospace; font-size: 13px;
     }
     .chat-line {
       background: rgba(0,0,0,0.5);
@@ -599,7 +607,7 @@
       background: rgba(0,0,0,0.7);
       border: 1px solid rgba(255,255,255,0.4);
       color: #fff;
-      font-family: 'Courier New', monospace;
+      font-family: 'Minecraft', 'Courier New', monospace;
       font-size: 13px;
       z-index: 26; display: none;
     }
@@ -624,7 +632,7 @@
     }
     .inv-section h3 {
       margin: 0 0 6px 0;
-      font-family: 'Courier New', monospace;
+      font-family: 'Minecraft', 'Courier New', monospace;
       font-size: 13px;
       color: #fff;
       text-shadow: 1px 1px 0 #000;

@@ -1,7 +1,11 @@
 import * as THREE from "three";
 
-const ATLAS_SIZE = 256;
-const TILE_SIZE = 16;
+// Atlas: 16 columns × 16 rows of 32-px tiles → 512×512 image.
+// Source PNGs from minecraft-assets-master/data/1.9 are 16-px and upscaled
+// at atlas-build time. Rows 0..3 are block faces (T_*), rows 4..5 are item
+// icons (T_I_*).
+const ATLAS_SIZE = 512;
+const TILE_SIZE = 32;
 const COLS = ATLAS_SIZE / TILE_SIZE;
 
 let _atlasTex: THREE.Texture | null = null;
@@ -22,6 +26,8 @@ export interface BlockDef {
   /** Minimum tool tier needed for the block to drop. 1=wood, 2=stone, 3=iron, 4=diamond. Defaults to 1 when `tool` is set. */
   minToolTier?: number;
   emissive?: boolean;
+  /** Override the inventory icon tile (defaults to faces[0]). Useful for blocks like beds where the side texture isn't a great hotbar icon. */
+  iconTile?: number;
 }
 
 const T = (col: number, row: number) => col + row * COLS;
@@ -96,6 +102,41 @@ export const T_LAPIS_BLOCK = T(13, 3);
 export const T_LADDER      = T(14, 3);
 export const T_TORCH       = T(15, 3);
 
+// ── Item icons (rows 4-5 of the atlas) ────────────────────────────────────
+// IDs (column, row) match the order they're placed by build_mc_atlas.py.
+export const T_I_COAL        = T(0, 4);
+export const T_I_DIAMOND     = T(1, 4);
+export const T_I_IRON_INGOT  = T(2, 4);
+export const T_I_GOLD_INGOT  = T(3, 4);
+export const T_I_STICK       = T(4, 4);
+export const T_I_APPLE       = T(5, 4);
+export const T_I_BREAD       = T(6, 4);
+export const T_I_WOOD_PICK   = T(7, 4);
+export const T_I_STONE_PICK  = T(8, 4);
+export const T_I_IRON_PICK   = T(9, 4);
+export const T_I_DIAM_PICK   = T(10, 4);
+export const T_I_WOOD_AXE    = T(11, 4);
+export const T_I_STONE_AXE   = T(12, 4);
+export const T_I_IRON_AXE    = T(13, 4);
+export const T_I_DIAM_AXE    = T(14, 4);
+export const T_I_WOOD_SHOVEL = T(15, 4);
+export const T_I_STONE_SHOVEL= T(0, 5);
+export const T_I_IRON_SHOVEL = T(1, 5);
+export const T_I_DIAM_SHOVEL = T(2, 5);
+export const T_I_WOOD_SWORD  = T(3, 5);
+export const T_I_STONE_SWORD = T(4, 5);
+export const T_I_IRON_SWORD  = T(5, 5);
+export const T_I_DIAM_SWORD  = T(6, 5);
+export const T_I_BED         = T(7, 5);
+export const T_I_WHEAT       = T(8, 5);
+export const T_I_STRING      = T(9, 5);
+export const T_I_FEATHER     = T(10, 5);
+export const T_I_GUNPOWDER   = T(11, 5);
+export const T_I_LEATHER     = T(12, 5);
+export const T_I_BONE        = T(13, 5);
+export const T_I_EGG         = T(14, 5);
+export const T_I_ARROW       = T(15, 5);
+
 // ── Block definitions ─────────────────────────────────────────────────────────
 export const BLOCKS: Record<number, BlockDef> = {
   1:  { faces: [T_GRASS_SIDE, T_GRASS_SIDE, T_GRASS_TOP, T_DIRT, T_GRASS_SIDE, T_GRASS_SIDE], hardness: 0.6, drop: 2, tool: "shovel" },
@@ -141,29 +182,42 @@ export const BLOCKS: Record<number, BlockDef> = {
   41: { faces: all6(T_DIAM_BLOCK),           hardness: 5.0, tool: "pickaxe" },
   42: { faces: all6(T_TORCH), transparent: true, solid: false, crossShape: true, emissive: true, hardness: 0 },
   43: { faces: all6(T_LADDER), transparent: true, solid: false, hardness: 0.4 },
-  44: { faces: [T_WOOL_R, T_WOOL_R, T_WOOL_W, T_PLANKS, T_WOOL_R, T_WOOL_R], hardness: 0.2, drop: 44 },
+  44: { faces: [T_WOOL_R, T_WOOL_R, T_WOOL_W, T_PLANKS, T_WOOL_R, T_WOOL_R], hardness: 0.2, drop: 44, iconTile: T_I_BED },
 };
 
 // ── Items (id >= 50 = items, not placeable blocks) ────────────────────────────
 export const ITEMS: Record<number, { name: string; tile: number; tool?: "axe" | "pickaxe" | "shovel" | "sword" | "shears"; toolTier?: number; food?: number }> = {
-  50: { name: "Coal",           tile: T_COAL_ORE },
-  51: { name: "Diamond",        tile: T_DIAM_BLOCK },
-  52: { name: "Iron Ingot",     tile: T_IRON_BLOCK },
-  53: { name: "Gold Ingot",     tile: T_GOLD_BLOCK },
-  54: { name: "Stick",          tile: T_LOG_SIDE },
-  55: { name: "Wooden Pickaxe", tile: T_PLANKS, tool: "pickaxe", toolTier: 1 },
-  56: { name: "Wooden Axe",     tile: T_PLANKS, tool: "axe",     toolTier: 1 },
-  57: { name: "Wooden Shovel",  tile: T_PLANKS, tool: "shovel",  toolTier: 1 },
-  58: { name: "Wooden Sword",   tile: T_PLANKS, tool: "sword",   toolTier: 1 },
-  59: { name: "Stone Pickaxe",  tile: T_COBBLE, tool: "pickaxe", toolTier: 2 },
-  60: { name: "Stone Axe",      tile: T_COBBLE, tool: "axe",     toolTier: 2 },
-  61: { name: "Stone Sword",    tile: T_COBBLE, tool: "sword",   toolTier: 2 },
-  62: { name: "Iron Pickaxe",   tile: T_IRON_BLOCK, tool: "pickaxe", toolTier: 3 },
-  63: { name: "Iron Sword",     tile: T_IRON_BLOCK, tool: "sword",   toolTier: 3 },
-  64: { name: "Diamond Sword",  tile: T_DIAM_BLOCK, tool: "sword",   toolTier: 4 },
-  65: { name: "Apple",          tile: T_FLOWER_RED, food: 4 },
-  66: { name: "Bread",          tile: T_SAND,       food: 5 },
-  67: { name: "Stone Shovel",   tile: T_COBBLE, tool: "shovel",  toolTier: 2 },
+  50: { name: "Coal",           tile: T_I_COAL },
+  51: { name: "Diamond",        tile: T_I_DIAMOND },
+  52: { name: "Iron Ingot",     tile: T_I_IRON_INGOT },
+  53: { name: "Gold Ingot",     tile: T_I_GOLD_INGOT },
+  54: { name: "Stick",          tile: T_I_STICK },
+  55: { name: "Wooden Pickaxe", tile: T_I_WOOD_PICK,   tool: "pickaxe", toolTier: 1 },
+  56: { name: "Wooden Axe",     tile: T_I_WOOD_AXE,    tool: "axe",     toolTier: 1 },
+  57: { name: "Wooden Shovel",  tile: T_I_WOOD_SHOVEL, tool: "shovel",  toolTier: 1 },
+  58: { name: "Wooden Sword",   tile: T_I_WOOD_SWORD,  tool: "sword",   toolTier: 1 },
+  59: { name: "Stone Pickaxe",  tile: T_I_STONE_PICK,  tool: "pickaxe", toolTier: 2 },
+  60: { name: "Stone Axe",      tile: T_I_STONE_AXE,   tool: "axe",     toolTier: 2 },
+  61: { name: "Stone Sword",    tile: T_I_STONE_SWORD, tool: "sword",   toolTier: 2 },
+  62: { name: "Iron Pickaxe",   tile: T_I_IRON_PICK,   tool: "pickaxe", toolTier: 3 },
+  63: { name: "Iron Sword",     tile: T_I_IRON_SWORD,  tool: "sword",   toolTier: 3 },
+  64: { name: "Diamond Sword",  tile: T_I_DIAM_SWORD,  tool: "sword",   toolTier: 4 },
+  65: { name: "Apple",          tile: T_I_APPLE,                                food: 4 },
+  66: { name: "Bread",          tile: T_I_BREAD,                                food: 5 },
+  67: { name: "Stone Shovel",   tile: T_I_STONE_SHOVEL, tool: "shovel",  toolTier: 2 },
+  68: { name: "Iron Axe",       tile: T_I_IRON_AXE,    tool: "axe",     toolTier: 3 },
+  69: { name: "Iron Shovel",    tile: T_I_IRON_SHOVEL, tool: "shovel",  toolTier: 3 },
+  70: { name: "Diamond Pickaxe", tile: T_I_DIAM_PICK,  tool: "pickaxe", toolTier: 4 },
+  71: { name: "Diamond Axe",    tile: T_I_DIAM_AXE,    tool: "axe",     toolTier: 4 },
+  72: { name: "Diamond Shovel", tile: T_I_DIAM_SHOVEL, tool: "shovel",  toolTier: 4 },
+  73: { name: "Wheat",          tile: T_I_WHEAT },
+  74: { name: "String",         tile: T_I_STRING },
+  75: { name: "Feather",        tile: T_I_FEATHER },
+  76: { name: "Gunpowder",      tile: T_I_GUNPOWDER },
+  77: { name: "Leather",        tile: T_I_LEATHER },
+  78: { name: "Bone",           tile: T_I_BONE },
+  79: { name: "Egg",            tile: T_I_EGG },
+  80: { name: "Arrow",          tile: T_I_ARROW },
 };
 
 export const BLOCK_NAMES: Record<number, string> = {
@@ -186,7 +240,11 @@ export const CREATIVE_HOTBAR = [1, 3, 9, 8, 5, 36, 37, 22, 11];
 
 export function getItemTile(id: number): number {
   if (id === 0) return 0;
-  if (id < 50) return BLOCKS[id]?.faces[0] ?? 0;
+  if (id < 50) {
+    const def = BLOCKS[id];
+    if (!def) return 0;
+    return def.iconTile ?? def.faces[0] ?? 0;
+  }
   return ITEMS[id]?.tile ?? 0;
 }
 export function getItemName(id: number): string {
@@ -217,7 +275,10 @@ export async function preloadAtlas(): Promise<void> {
       _liveAtlasCanvas.width = _liveAtlasCanvas.height = ATLAS_SIZE;
       const ctx = _liveAtlasCanvas.getContext("2d")!;
       ctx.imageSmoothingEnabled = false;
-      ctx.drawImage(img, 0, 0);
+      // Draw the full atlas, scaling if needed (asset PNG might be either
+      // 256 or 512 depending on which build of build_mc_atlas.py was last
+      // run — the explicit size args make this robust).
+      ctx.drawImage(img, 0, 0, ATLAS_SIZE, ATLAS_SIZE);
       _liveAtlasTex = new THREE.CanvasTexture(_liveAtlasCanvas);
       _liveAtlasTex.magFilter = THREE.NearestFilter;
       _liveAtlasTex.minFilter = THREE.NearestFilter;
@@ -243,12 +304,12 @@ export function tickWater(elapsed: number) {
   const oy = Math.floor(T_WATER / COLS) * TILE_SIZE;
   const t = elapsed * 1.0;
   ctx.fillStyle = "#3a6bcc";
-  ctx.fillRect(ox, oy, 16, 16);
+  ctx.fillRect(ox, oy, TILE_SIZE, TILE_SIZE);
   for (let i = 0; i < 4; i++) {
-    const y = (t * (0.5 + i * 0.25) + i * 4.7) % 16;
+    const y = (t * (0.5 + i * 0.25) + i * 4.7) % TILE_SIZE;
     const alpha = 0.38 - i * 0.07;
     ctx.fillStyle = `rgba(140,200,250,${alpha})`;
-    ctx.fillRect(ox, oy + Math.floor(y), 16, 1);
+    ctx.fillRect(ox, oy + Math.floor(y), TILE_SIZE, 2);
   }
   _liveAtlasTex.needsUpdate = true;
 }

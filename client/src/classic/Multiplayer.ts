@@ -94,27 +94,35 @@ export class Multiplayer {
   async connect(
     serverUrl: string,
     mode: "survival" | "creative" | "bedwars" | "parkour" | "oneblock" = "survival",
+    /** Optional Bloxity room id (from `?roomId=...`) — when set we joinById
+     *  instead of joinOrCreate so friends actually land in the same room. */
+    targetRoomId: string | null = null,
   ): Promise<void> {
     const url = resolveServerUrl(serverUrl);
-    console.log("[MP] connecting to", url);
+    console.log("[MP] connecting to", url, targetRoomId ? `→ roomId=${targetRoomId}` : "");
     this.client = new Colyseus.Client(url);
 
-    // Bundle the Legion identity + avatar into the join options. The server
-    // populates PlayerState fields so other clients can render our pfp/name.
-    // `mode` is critical — it's used by Colyseus filterBy(['mode']) so that
-    // survival, bedwars, parkour, etc. each land in their own rooms.
     const legionPayload = Legion.buildJoinPayload();
     const joinOptions: any = {
       name: legionPayload?.name ?? this.playerName,
       gameMode: mode === "creative" ? "creative" : "survival",
-      mode, // ← matchmaking filter key, NOT just a UI hint
+      mode,
     };
     if (legionPayload?.legion) joinOptions.legion = legionPayload.legion;
 
     try {
-      this.room = await this.client.joinOrCreate("game_room", joinOptions);
+      if (targetRoomId) {
+        // Friend-invite path: join the exact room the portal directed us to.
+        try {
+          this.room = await this.client.joinById(targetRoomId, joinOptions);
+        } catch (e) {
+          console.warn(`[MP] joinById(${targetRoomId}) failed, falling back to joinOrCreate`, e);
+          this.room = await this.client.joinOrCreate("game_room", joinOptions);
+        }
+      } else {
+        this.room = await this.client.joinOrCreate("game_room", joinOptions);
+      }
       this.sessionId = this.room.sessionId;
-      // Tell the Bloxity portal which room we're in so friends can join us.
       Legion.updateRoom(this.room.roomId);
 
       // ── One-shot events ────────────────────────────────────────────────

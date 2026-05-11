@@ -10,7 +10,7 @@ import { ItemDrops } from "./ItemDrops";
 import { MODES, ModeId, buildBedwars, buildParkour, buildOneBlock, pickOneBlockNext } from "./Modes";
 import { preloadPlayerModel, buildFirstPersonArm, FirstPersonArm } from "./PlayerModel";
 import { BreakHighlight, BreakParticles } from "./BreakEffects";
-import { Legion, LegionUser, LegionFriend } from "./Legion";
+import { Legion, LegionUser, LegionFriend, readInstantJoinIntent } from "./Legion";
 
 // ── Renderer / scene ────────────────────────────────────────────────────────
 const renderer = new THREE.WebGLRenderer({ antialias: false });
@@ -49,6 +49,7 @@ let mode: ModeId = "creative_offline";
 let playerName = "Player";
 let oneBlockCenter: { x: number; y: number; z: number } | null = null;
 let debugOn = false;
+let pendingRoomId: string | null = null;
 let breakFx: BreakHighlight;
 let breakParticles: BreakParticles;
 let tabHeld = false;
@@ -742,7 +743,9 @@ async function startGame(serverAddr: string | null) {
   };
 
   if (cfg.isMultiplayer && serverAddr) {
-    (document.getElementById("loadingStatus") as HTMLElement).textContent = `Connecting to ${serverAddr}…`;
+    (document.getElementById("loadingStatus") as HTMLElement).textContent =
+      pendingRoomId ? `Joining room ${pendingRoomId}…` : `Connecting to ${serverAddr}…`;
+    Legion.loadingStep(pendingRoomId ? `Joining room ${pendingRoomId}` : "Connecting to server");
     mp = new Multiplayer(scene, playerName);
     mp.onConnected = () => addChatLine("", `Connected as ${playerName}`);
     mp.onDisconnected = () => addChatLine("", "Disconnected from server");
@@ -751,7 +754,15 @@ async function startGame(serverAddr: string | null) {
     mp.onBlockUpdate = (x, y, z, type) => world.setBlock(x, y, z, type);
     mp.onLocalDamage = (d) => player.takeDamage(d);
     try {
-      await mp.connect(serverAddr, cfg.isCreative ? "creative" : "survival");
+      // Pass the room id from `?roomId=…` if Bloxity launched us with one.
+      // The Multiplayer.connect path falls back to joinOrCreate on failure.
+      const modeKey = mode === "creative_mp" ? "creative"
+                    : mode === "bedwars_mp"  ? "bedwars"
+                    : mode === "parkour_mp"  ? "parkour"
+                    : mode === "oneblock"    ? "oneblock"
+                    : "survival";
+      await mp.connect(serverAddr, modeKey, pendingRoomId);
+      pendingRoomId = null;
     } catch (e) {
       addChatLine("", "Could not connect, playing offline");
       console.error(e);
@@ -889,7 +900,6 @@ Legion.init().then(() => {
   wireMenuButtons();
   renderLegionPanel(Legion.getUser());
 
-  // Push avatar changes to the server so other players see the new cosmetics.
   Legion.onAvatarChanged((avatar) => {
     if (mp?.isConnected()) {
       const u = Legion.getUser();
@@ -899,4 +909,34 @@ Legion.init().then(() => {
       });
     }
   });
+
+  // ── Instant-multiplayer auto-boot ────────────────────────────────────
+  // When Bloxity launches us with ?instantMultiplayer=true (optionally with
+  // ?roomId=…&mode=…) we skip the lobby entirely and join straight away.
+  // Per the Bloxity contract we keep reporting loadingStep() and DO NOT call
+  // loadingEnd() until we've actually joined the target room — the portal's
+  // loading screen stays up until that happens.
+  const intent = readInstantJoinIntent();
+  if (intent.instantMultiplayer) {
+    Legion.loadingStep("Preparing instant multiplayer…");
+    const u = Legion.getUser();
+    playerName = u?.username || u?.displayName || ("Player" + Math.floor(Math.random() * 1000));
+    localStorage.setItem("mc.playerName", playerName);
+
+    // Resolve the mode. Defaults to survival multiplayer.
+    const requested = (intent.mode || "survival_mp").toLowerCase();
+    const fallbackMap: Record<string, ModeId> = {
+      survival: "survival_mp", creative: "creative_mp",
+      bedwars: "bedwars_mp", parkour: "parkour_mp",
+      oneblock: "oneblock",
+    };
+    const resolved = (MODES[requested as ModeId] ? requested : fallbackMap[requested]) as ModeId;
+    mode = resolved || "survival_mp";
+    pendingRoomId = intent.roomId;
+
+    const isLocal = location.hostname === "localhost" || location.hostname === "127.0.0.1";
+    const server = isLocal ? "localhost:8471" : "159.223.140.36";
+    Legion.loadingStep(intent.roomId ? `Connecting to room ${intent.roomId}` : "Connecting to server");
+    startGame(server);
+  }
 });

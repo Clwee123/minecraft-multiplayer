@@ -56,6 +56,32 @@ export interface LegionFriend {
   };
 }
 
+// ── URL-driven instant multiplayer ────────────────────────────────────────
+// Bloxity's portal launches games with a deeplink like:
+//   https://bloxity.io/g/minecraft?instantMultiplayer=true&roomId=vbFvo0db6
+// When that's set, we skip the lobby and join the named room immediately.
+// `mode` lets the portal pick a game mode (survival_mp, creative_mp, ...).
+export interface InstantJoinIntent {
+  instantMultiplayer: boolean;
+  roomId: string | null;
+  mode: string | null;
+}
+
+export function readInstantJoinIntent(): InstantJoinIntent {
+  let im = false, roomId: string | null = null, mode: string | null = null;
+  try {
+    const qs = new URLSearchParams(window.location.search);
+    im = (qs.get("instantMultiplayer") || "").toLowerCase() === "true";
+    roomId = qs.get("roomId");
+    mode = qs.get("mode");
+  } catch { /* SSR / weird host — ignore */ }
+  // The SDK may also expose this server-side (window.Legion?.SDK?.game?.isInstantMultiplayer).
+  try {
+    if (!im && (window as any).Legion?.SDK?.game?.isInstantMultiplayer) im = true;
+  } catch { /* ignore */ }
+  return { instantMultiplayer: im, roomId, mode };
+}
+
 /** Resolves when window.Legion.SDK is available, or rejects on timeout. */
 function waitForSDK(): Promise<any> {
   return new Promise((resolve, reject) => {
