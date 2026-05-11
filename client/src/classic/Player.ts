@@ -5,12 +5,16 @@ import type { Inventory } from "./Inventory";
 
 const WALK_SPEED   = 4.317;
 const SPRINT_SPEED = 5.612;
+const CROUCH_SPEED = 1.5;
 const FLY_SPEED    = 10.0;
+const FLY_FAST     = 20.0;
 const JUMP_VEL     = 8.4;
 const GRAVITY      = 28;
 const PLAYER_W     = 0.6;
 const PLAYER_H     = 1.8;
+const CROUCH_H     = 1.4;
 const EYE          = 1.62;
+const CROUCH_EYE   = 1.25;
 const REACH        = 5.0;
 
 export type GameMode = "survival" | "creative";
@@ -24,6 +28,8 @@ export class Player {
   pitch = 0;
   onGround = false;
   flying = false;
+  sprinting = false;
+  crouching = false;
   gameMode: GameMode = "creative";
   health = 20;     // 10 hearts = 20 hp
   maxHealth = 20;
@@ -36,6 +42,9 @@ export class Player {
   private breakingAt: { x: number; y: number; z: number } | null = null;
   private breakProgress = 0; // 0..1
   private breakTime = 0.5;   // seconds total for current target
+
+  /** Currently-aimed block (for debug HUD). */
+  lastHit: { x: number; y: number; z: number; type: number } | null = null;
 
   camera: THREE.PerspectiveCamera;
   world: World;
@@ -195,9 +204,22 @@ export class Player {
     // ── Movement ──
     const forward = (this.keys["KeyW"] ? 1 : 0) - (this.keys["KeyS"] ? 1 : 0);
     const right   = (this.keys["KeyD"] ? 1 : 0) - (this.keys["KeyA"] ? 1 : 0);
-    const sprint  = this.keys["ControlLeft"] || this.keys["ControlRight"];
+    const sprint  = (this.keys["ShiftLeft"] || this.keys["ShiftRight"]) && !this.flying;
+    const crouch  = this.keys["KeyC"];
+    this.sprinting = sprint && forward > 0 && !crouch;
+    this.crouching = crouch && !this.flying;
 
-    const baseSpeed = this.flying ? FLY_SPEED : (sprint ? SPRINT_SPEED : WALK_SPEED);
+    let baseSpeed: number;
+    if (this.flying) {
+      // While flying, ShiftLeft = descend (handled below), so sprint = boost
+      baseSpeed = (this.keys["ShiftLeft"] || this.keys["ShiftRight"]) ? FLY_FAST : FLY_SPEED;
+    } else if (this.crouching) {
+      baseSpeed = CROUCH_SPEED;
+    } else if (this.sprinting) {
+      baseSpeed = SPRINT_SPEED;
+    } else {
+      baseSpeed = WALK_SPEED;
+    }
     const sin = Math.sin(this.yaw), cos = Math.cos(this.yaw);
     let vx = (-sin * forward + cos * right) * baseSpeed;
     let vz = (-cos * forward - sin * right) * baseSpeed;
@@ -254,10 +276,20 @@ export class Player {
     }
 
     // ── Camera follow ──
-    this.camera.position.set(this.pos.x, this.pos.y + EYE, this.pos.z);
+    const eye = this.crouching ? CROUCH_EYE : EYE;
+    this.camera.position.set(this.pos.x, this.pos.y + eye, this.pos.z);
     this.camera.rotation.order = "YXZ";
     this.camera.rotation.y = this.yaw;
     this.camera.rotation.x = this.pitch;
+
+    // Update debug last-hit (any frame, not just when mining)
+    const hit = this.raycast();
+    if (hit) {
+      const type = this.world.getBlock(hit.x, hit.y, hit.z);
+      this.lastHit = { x: hit.x, y: hit.y, z: hit.z, type };
+    } else {
+      this.lastHit = null;
+    }
   }
 
   private moveAxis(axis: "x" | "y" | "z", dist: number) {

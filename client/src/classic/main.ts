@@ -4,9 +4,11 @@ import { preloadAtlas, tickWater, BLOCKS, ITEMS, getItemTile, getItemName, isPla
 import { World } from "./World";
 import { Player } from "./Player";
 import { Multiplayer } from "./Multiplayer";
-import { Inventory, RECIPES, craft, getCraftable } from "./Inventory";
+import { Inventory } from "./Inventory";
+import { CraftingUI } from "./CraftingUI";
 import { ItemDrops } from "./ItemDrops";
 import { MODES, ModeId, buildBedwars, buildParkour, buildOneBlock, pickOneBlockNext } from "./Modes";
+import { preloadPlayerModel } from "./PlayerModel";
 
 // ── Renderer / scene ────────────────────────────────────────────────────────
 const renderer = new THREE.WebGLRenderer({ antialias: false });
@@ -36,23 +38,22 @@ scene.add(new THREE.HemisphereLight(0xb0d8ff, 0x5a7a3a, 0.35));
 let world: World;
 let player: Player;
 let inv: Inventory;
+let craftingUI: CraftingUI;
 let drops: ItemDrops;
 let mp: Multiplayer | null = null;
 let mode: ModeId = "creative_offline";
 let playerName = "Player";
 let oneBlockCenter: { x: number; y: number; z: number } | null = null;
+let debugOn = false;
 
 // ── Main menu ───────────────────────────────────────────────────────────────
 function wireMenuButtons() {
   const nameInput = document.getElementById("nameInput") as HTMLInputElement;
   const serverInput = document.getElementById("serverInput") as HTMLInputElement;
-
   const isLocal = location.hostname === "localhost" || location.hostname === "127.0.0.1";
   serverInput.value = isLocal ? "localhost:8471" : "159.223.140.36";
-
   const savedName = localStorage.getItem("mc.playerName");
   nameInput.value = savedName ?? ("Player" + Math.floor(Math.random() * 1000));
-
   document.querySelectorAll<HTMLElement>(".mode-card").forEach(card => {
     card.addEventListener("click", () => {
       const modeId = card.dataset.mode as ModeId;
@@ -73,7 +74,6 @@ function buildHotbar() {
   for (let i = 0; i < 9; i++) {
     const slot = document.createElement("div");
     slot.className = "hotbar-slot" + (i === inv.selected ? " active" : "");
-    slot.dataset.idx = String(i);
     const iconWrap = document.createElement("div");
     iconWrap.className = "slot-icon-wrap";
     slot.appendChild(iconWrap);
@@ -103,7 +103,7 @@ function refreshHotbar() {
       const tile = getItemTile(data.id);
       const col = tile % 16, row = Math.floor(tile / 16);
       wrap.innerHTML = `<div class="slot-icon" style="
-        background-image:url(/terrain_atlas.png?v=4);
+        background-image:url(/terrain_atlas.png?v=5);
         background-size:512px 512px;
         background-position:-${col * 32}px -${row * 32}px;
       "></div>`;
@@ -127,15 +127,29 @@ function selectSlot(i: number) {
 }
 
 window.addEventListener("keydown", (e) => {
-  if ((document.activeElement as HTMLElement)?.tagName === "INPUT") return;
+  const inField = (document.activeElement as HTMLElement)?.tagName === "INPUT";
+  if (inField) return;
+
   if (e.code.startsWith("Digit")) {
     const n = parseInt(e.code.slice(5)) - 1;
     if (n >= 0 && n < 9) selectSlot(n);
   }
   if (e.code === "KeyE") {
-    toggleInventory();
+    craftingUI.toggle(false);
+    if (craftingUI.open) document.exitPointerLock();
+    else document.body.requestPointerLock();
+  }
+  if (e.code === "KeyP") {
+    debugOn = !debugOn;
+    const el = document.getElementById("debugOverlay")!;
+    el.style.display = debugOn ? "block" : "none";
+  }
+  if (e.code === "Escape" && craftingUI.open) {
+    craftingUI.hide();
+    document.body.requestPointerLock();
   }
 });
+
 window.addEventListener("wheel", (e) => {
   if (!document.pointerLockElement) return;
   let n = inv.selected + (e.deltaY > 0 ? 1 : -1);
@@ -145,119 +159,24 @@ window.addEventListener("wheel", (e) => {
 });
 
 renderer.domElement.addEventListener("click", () => {
-  if (!document.pointerLockElement && !inventoryOpen) document.body.requestPointerLock();
+  if (!document.pointerLockElement && !craftingUI?.open) document.body.requestPointerLock();
 });
 
-// ── Inventory + crafting UI ─────────────────────────────────────────────────
-let inventoryOpen = false;
-function toggleInventory() {
-  inventoryOpen = !inventoryOpen;
-  const panel = document.getElementById("invPanel")!;
-  panel.style.display = inventoryOpen ? "flex" : "none";
-  if (inventoryOpen) {
-    document.exitPointerLock();
-    renderInventory();
-  } else {
-    document.body.requestPointerLock();
+// ── Right-click on crafting table → open 3x3 ─────────────────────────────────
+document.addEventListener("mousedown", (e) => {
+  if (!document.pointerLockElement) return;
+  if (e.button !== 2) return;
+  if (!player) return;
+  const hit = player.raycast();
+  if (!hit) return;
+  const block = world.getBlock(hit.x, hit.y, hit.z);
+  if (block === 36) {
+    // Crafting table → open 3x3 grid
+    craftingUI.show(true);
+    e.preventDefault();
+    e.stopPropagation();
   }
-}
-
-function renderInventory() {
-  const main = document.getElementById("invMain")!;
-  main.innerHTML = "";
-  for (let i = 0; i < 27; i++) {
-    const s = inv.main[i];
-    main.appendChild(makeInvSlotEl(s, false));
-  }
-  const hotbarRow = document.getElementById("invHotbar")!;
-  hotbarRow.innerHTML = "";
-  for (let i = 0; i < 9; i++) {
-    const s = inv.hotbar[i];
-    hotbarRow.appendChild(makeInvSlotEl(s, false));
-  }
-  // Crafting
-  const recipes = document.getElementById("invCrafting")!;
-  recipes.innerHTML = "";
-  // Determine if standing near a crafting table
-  const px = Math.floor(player.pos.x), pz = Math.floor(player.pos.z), py = Math.floor(player.pos.y);
-  let hasTable = false;
-  for (let dx = -2; dx <= 2 && !hasTable; dx++)
-    for (let dy = -1; dy <= 2 && !hasTable; dy++)
-      for (let dz = -2; dz <= 2 && !hasTable; dz++)
-        if (world.getBlock(px + dx, py + dy, pz + dz) === 36) hasTable = true;
-  const craftable = getCraftable(inv, hasTable);
-  const title = document.createElement("div");
-  title.style.cssText = "font-size:12px;color:#fff;margin-bottom:6px;font-family:monospace;";
-  title.textContent = hasTable ? "Crafting (full)" : "Crafting (2×2, stand near a table for more)";
-  recipes.appendChild(title);
-  if (craftable.length === 0) {
-    const none = document.createElement("div");
-    none.style.cssText = "font-size:11px;color:#bbb;font-family:monospace;font-style:italic;";
-    none.textContent = "Nothing to craft yet";
-    recipes.appendChild(none);
-  }
-  for (const r of craftable) {
-    const row = document.createElement("div");
-    row.className = "recipe-row";
-    row.title = r.ingredients.map(i => `${i.count}× ${getItemName(i.id)}`).join(" + ");
-    const tile = getItemTile(r.result);
-    const col = tile % 16, rrr = Math.floor(tile / 16);
-    row.innerHTML = `
-      <div class="recipe-icon" style="
-        background-image:url(/terrain_atlas.png?v=4);
-        background-size:512px 512px;
-        background-position:-${col * 32}px -${rrr * 32}px;"></div>
-      <div class="recipe-label">
-        <div class="recipe-name">${getItemName(r.result)} ×${r.count}</div>
-        <div class="recipe-ingredients">${r.ingredients.map(i => `${i.count}× ${getItemName(i.id)}`).join(" · ")}</div>
-      </div>
-    `;
-    row.addEventListener("click", () => {
-      if (craft(inv, r)) {
-        renderInventory();
-        refreshHotbar();
-      }
-    });
-    recipes.appendChild(row);
-  }
-}
-
-function makeInvSlotEl(s: { id: number; count: number }, _isHotbar: boolean): HTMLElement {
-  const el = document.createElement("div");
-  el.className = "inv-slot";
-  if (s.id === 0 || s.count === 0) {
-    el.innerHTML = "";
-  } else {
-    const tile = getItemTile(s.id);
-    const col = tile % 16, row = Math.floor(tile / 16);
-    el.innerHTML = `
-      <div class="slot-icon" style="
-        background-image:url(/terrain_atlas.png?v=4);
-        background-size:512px 512px;
-        background-position:-${col * 32}px -${row * 32}px;
-      "></div>
-      <span class="slot-count">${s.count > 1 && s.count < 999 ? s.count : ""}</span>
-    `;
-    el.title = getItemName(s.id);
-  }
-  return el;
-}
-
-// ── Health / hunger HUD ─────────────────────────────────────────────────────
-function renderHearts(hp: number) {
-  const el = document.getElementById("hearts")!;
-  el.innerHTML = "";
-  const total = 10;
-  for (let i = 0; i < total; i++) {
-    const heart = document.createElement("div");
-    heart.className = "heart";
-    const filled = hp >= (i + 1) * 2;
-    const half = !filled && hp >= i * 2 + 1;
-    heart.classList.toggle("full", filled);
-    heart.classList.toggle("half", half);
-    el.appendChild(heart);
-  }
-}
+});
 
 // ── Chat ────────────────────────────────────────────────────────────────────
 function addChatLine(sender: string, msg: string) {
@@ -282,7 +201,7 @@ window.addEventListener("keydown", (e) => {
     const msg = chatInput.value.trim();
     if (msg) {
       if (mp?.isConnected()) mp.sendChat(msg);
-      else addChatLine(playerName, msg);
+      addChatLine(playerName, msg);
     }
     chatInput.value = "";
     chatInput.style.display = "none";
@@ -292,10 +211,64 @@ window.addEventListener("keydown", (e) => {
     chatInput.value = "";
     chatInput.style.display = "none";
     chatInput.blur();
-  } else if (e.code === "Escape" && inventoryOpen) {
-    toggleInventory();
   }
 });
+
+// ── Hearts UI ───────────────────────────────────────────────────────────────
+function renderHearts(hp: number) {
+  const el = document.getElementById("hearts")!;
+  el.innerHTML = "";
+  for (let i = 0; i < 10; i++) {
+    const heart = document.createElement("div");
+    heart.className = "heart";
+    if (hp >= (i + 1) * 2) heart.classList.add("full");
+    else if (hp >= i * 2 + 1) heart.classList.add("half");
+    el.appendChild(heart);
+  }
+}
+
+// ── Debug overlay (P key) ───────────────────────────────────────────────────
+let _dbgTimer = 0;
+function updateDebugOverlay(dt: number, fps: number) {
+  _dbgTimer += dt;
+  if (_dbgTimer < 0.1) return;
+  _dbgTimer = 0;
+  const el = document.getElementById("debugOverlay")!;
+  const stats = world.getStats();
+  const hit = player.lastHit;
+  const cx = Math.floor(player.pos.x / 16);
+  const cz = Math.floor(player.pos.z / 16);
+  const facing = facingFromYaw(player.yaw);
+  const blockName = hit ? getItemName(hit.type) : "—";
+  el.innerHTML = `
+    <div class="dbg-title">Minecraft Web — Debug</div>
+    <div><b>FPS:</b> ${fps}</div>
+    <div><b>XYZ:</b> ${player.pos.x.toFixed(2)} / ${player.pos.y.toFixed(2)} / ${player.pos.z.toFixed(2)}</div>
+    <div><b>Block:</b> ${Math.floor(player.pos.x)} ${Math.floor(player.pos.y)} ${Math.floor(player.pos.z)}</div>
+    <div><b>Chunk:</b> ${cx}, ${cz}</div>
+    <div><b>Facing:</b> ${facing} (yaw ${(player.yaw * 180 / Math.PI).toFixed(1)}°, pitch ${(player.pitch * 180 / Math.PI).toFixed(1)}°)</div>
+    <div><b>Mode:</b> ${player.gameMode}${player.flying ? " · flying" : ""}${player.sprinting ? " · sprinting" : ""}${player.crouching ? " · crouching" : ""}</div>
+    <div><b>HP:</b> ${player.health}/${player.maxHealth}</div>
+    <div class="dbg-sep">— Targeted Block —</div>
+    ${hit ? `
+      <div><b>Block:</b> ${blockName} (id ${hit.type})</div>
+      <div><b>Pos:</b> ${hit.x}, ${hit.y}, ${hit.z}</div>
+    ` : `<div><i>(none)</i></div>`}
+    <div class="dbg-sep">— World —</div>
+    <div><b>Chunks:</b> ${stats.loaded} loaded · ${stats.meshed} meshed · ${stats.dirty} dirty</div>
+    <div><b>Mode:</b> ${mode}</div>
+    <div><b>Multiplayer:</b> ${mp?.isConnected() ? "connected" : "offline"}</div>
+  `;
+}
+
+function facingFromYaw(yaw: number): string {
+  // yaw 0 = -Z (north). +PI/2 = -X (west).
+  const deg = ((yaw * 180 / Math.PI) % 360 + 360) % 360;
+  if (deg >= 315 || deg < 45)   return "north (-Z)";
+  if (deg >= 45  && deg < 135)  return "west (-X)";
+  if (deg >= 135 && deg < 225)  return "south (+Z)";
+  return "east (+X)";
+}
 
 // ── Boot game ───────────────────────────────────────────────────────────────
 async function startGame(serverAddr: string | null) {
@@ -306,14 +279,14 @@ async function startGame(serverAddr: string | null) {
   (document.getElementById("loadingStatus") as HTMLElement).textContent = "Loading textures…";
 
   await preloadAtlas();
+  // Preload player model in parallel; failure is non-fatal (fallback box)
+  preloadPlayerModel().catch(() => {});
 
   (document.getElementById("loadingStatus") as HTMLElement).textContent = "Generating world…";
   await new Promise(r => setTimeout(r, 30));
   const seed = cfg.isMultiplayer ? 12345 : Math.floor(Math.random() * 100000);
-  // Infinite chunk streaming for survival/creative; static maps for the rest
   world = new World(scene, seed, { infinite: cfg.useDefaultWorld });
 
-  // Custom mode worlds
   let spawnX: number, spawnY: number, spawnZ: number;
   if (mode === "bedwars_mp") {
     const s = buildBedwars(world);
@@ -326,37 +299,36 @@ async function startGame(serverAddr: string | null) {
     spawnX = s.spawnX; spawnY = s.spawnY; spawnZ = s.spawnZ;
     oneBlockCenter = { x: 128, y: 40, z: 128 };
   } else {
-    // Survival/Creative: find a grass spawn near origin
     const s = world.findSpawn();
     spawnX = s[0]; spawnY = s[1]; spawnZ = s[2];
-    // Stream chunks around the spawn so the first frame isn't empty
     world.updateAroundPlayer(spawnX, spawnZ, 5);
   }
 
   (document.getElementById("loadingStatus") as HTMLElement).textContent = "Building meshes…";
   await new Promise(r => setTimeout(r, 30));
-  // Build all queued chunks now so the player doesn't spawn into emptiness
   world.buildAllDirtyNow();
 
-  // Inventory
   inv = new Inventory(cfg.isCreative ? "creative" : "survival");
   if (cfg.hotbar) {
     cfg.hotbar.forEach((id, i) => { inv.hotbar[i] = { id, count: cfg.isCreative ? 999 : 64 }; });
   }
 
-  // Player
   player = new Player(camera, world);
   player.inv = inv;
   player.setGameMode(cfg.isCreative ? "creative" : "survival");
   player.spawnAt(spawnX, spawnY, spawnZ);
 
-  // Drops
   drops = new ItemDrops(scene);
+  craftingUI = new CraftingUI(inv);
+  craftingUI.onCraft = () => refreshHotbar();
+  craftingUI.onClose = () => {
+    refreshHotbar();
+    setTimeout(() => document.body.requestPointerLock(), 50);
+  };
 
   // Hooks
   player.onBreak = (x, y, z, prevType) => {
     const def = BLOCKS[prevType];
-    // Drop item for survival
     if (!cfg.isCreative && def && def.drop !== 0) {
       const dropId = def.drop ?? prevType;
       const dropCount = def.dropCount ?? 1;
@@ -366,9 +338,12 @@ async function startGame(serverAddr: string | null) {
     // OneBlock respawn
     if (mode === "oneblock" && oneBlockCenter && x === oneBlockCenter.x && y === oneBlockCenter.y && z === oneBlockCenter.z) {
       const next = pickOneBlockNext();
-      setTimeout(() => {
-        world.setBlock(x, y, z, next);
-      }, 200);
+      setTimeout(() => world.setBlock(x, y, z, next), 200);
+    }
+    // Water flow into the broken cell
+    const filled = world.propagateWater(x, y, z);
+    if (filled.length > 0 && mp?.isConnected()) {
+      for (const c of filled) mp.sendBlockUpdate(c.x, c.y, c.z, 7);
     }
   };
   player.onPlace = (x, y, z, type) => {
@@ -386,11 +361,10 @@ async function startGame(serverAddr: string | null) {
     }
   };
 
-  // Multiplayer
   if (cfg.isMultiplayer && serverAddr) {
     (document.getElementById("loadingStatus") as HTMLElement).textContent = `Connecting to ${serverAddr}…`;
     mp = new Multiplayer(scene, playerName);
-    mp.onConnected = () => addChatLine("", `✔ Connected as ${playerName}`);
+    mp.onConnected = () => addChatLine("", `Connected as ${playerName}`);
     mp.onDisconnected = () => addChatLine("", "Disconnected from server");
     mp.onError = (err) => addChatLine("", "Connect error: " + err);
     mp.onChat = (sender, msg) => addChatLine(sender, msg);
@@ -404,7 +378,6 @@ async function startGame(serverAddr: string | null) {
     }
   }
 
-  // UI setup
   buildHotbar();
   selectSlot(0);
   renderHearts(cfg.isCreative ? 20 : player.health);
@@ -421,8 +394,9 @@ async function startGame(serverAddr: string | null) {
   let mpSendTimer = 0;
   let frames = 0;
   let fpsTimer = 0;
+  let lastFps = 60;
   let streamTimer = 0;
-  const RENDER_DIST = 5; // chunks (= 80 blocks)
+  const RENDER_DIST = 5;
 
   function loop() {
     const now = performance.now();
@@ -432,6 +406,7 @@ async function startGame(serverAddr: string | null) {
     frames++;
     fpsTimer += dt;
     if (fpsTimer >= 1) {
+      lastFps = frames;
       const fpsEl = document.getElementById("fps");
       const stats = world.getStats();
       if (fpsEl) fpsEl.textContent = `${frames} fps · ${stats.meshed} chunks`;
@@ -441,20 +416,19 @@ async function startGame(serverAddr: string | null) {
 
     player.update(dt);
 
-    // Stream chunks around player (infinite worlds only). Throttle to 4x/sec.
     streamTimer += dt;
     if (streamTimer >= 0.25) {
       streamTimer = 0;
       world.updateAroundPlayer(player.pos.x, player.pos.z, RENDER_DIST);
     }
-    // Mesh up to 2 dirty chunks per frame, nearest-first
     world.rebuildDirty(2, player.pos.x, player.pos.z);
 
     if (!cfg.isCreative) drops.update(dt, player.pos, inv, (x, y, z) => world.isSolid(x, y, z));
     refreshHotbar();
     tickWater(waterT);
 
-    // Void fall guard
+    if (debugOn) updateDebugOverlay(dt, lastFps);
+
     if (player.pos.y < -10) {
       if (cfg.isCreative) {
         player.spawnAt(spawnX, spawnY, spawnZ);
@@ -479,7 +453,6 @@ async function startGame(serverAddr: string | null) {
   loop();
 }
 
-// Build stamp + wire menu
 const bs = document.getElementById("buildStamp");
 if (bs) bs.textContent = `build: ${__BUILD_TIME__}`;
 wireMenuButtons();

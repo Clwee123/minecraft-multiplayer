@@ -39,7 +39,13 @@ interface ChunkMeshes {
   opaque: THREE.Mesh | null;
   leaves: THREE.Mesh | null;
   water: THREE.Mesh | null;
+  sprites: THREE.Mesh | null; // X-shape sprites (flowers, sapling, tallgrass)
 }
+
+// Tile indices that get a biome green tint baked into vertex color at mesh time.
+// Not strictly required since the atlas was tinted at build time, but it lets
+// us re-tint or vary per-biome later without rebuilding the atlas.
+const BIOME_TINT_TILES: Set<number> = new Set();
 
 class Chunk {
   blocks: Uint8Array;
@@ -74,6 +80,7 @@ export class World {
   private opaqueMat: THREE.Material | null = null;
   private leavesMat: THREE.Material | null = null;
   private waterMat: THREE.Material | null = null;
+  private spriteMat: THREE.Material | null = null;
 
   // Noise
   private nH1: (x: number, z: number) => number;
@@ -108,6 +115,13 @@ export class World {
     this.waterMat = new THREE.MeshLambertMaterial({
       map: atlas, side: THREE.DoubleSide, vertexColors: true,
       transparent: true, opacity: 0.78, depthWrite: false, color: 0x4477ff,
+    });
+    // Sprite material for cross-shape blocks (flowers, sapling, tallgrass).
+    // MeshBasicMaterial = unlit, so the sprite is always at full brightness
+    // regardless of normal direction. DoubleSide so both sides of each quad show.
+    this.spriteMat = new THREE.MeshBasicMaterial({
+      map: atlas, side: THREE.DoubleSide,
+      transparent: true, alphaTest: 0.5,
     });
   }
 
@@ -321,11 +335,12 @@ export class World {
   // ── Meshing ────────────────────────────────────────────────────────────────
   private buildChunkMesh(cx: number, cz: number): ChunkMeshes {
     const chunk = this.chunks.get(`${cx},${cz}`);
-    if (!chunk) return { opaque: null, leaves: null, water: null };
+    if (!chunk) return { opaque: null, leaves: null, water: null, sprites: null };
 
     const opaqueData = newMeshData();
     const leavesData = newMeshData();
     const waterData = newMeshData();
+    const spritesData = newMeshData();
 
     const x0 = cx * CHUNK_W, z0 = cz * CHUNK_W;
 
@@ -343,7 +358,7 @@ export class World {
           if (def.crossShape) {
             const tileIdx = def.faces[0];
             const [u0, v0, u1, v1] = tileUV(tileIdx);
-            addCrossShape(opaqueData, wx, ly, wz, u0, v0, u1, v1);
+            addCrossShape(spritesData, wx, ly, wz, u0, v0, u1, v1);
             continue;
           }
 
@@ -375,24 +390,28 @@ export class World {
     }
 
     return {
-      opaque: makeMesh(opaqueData, this.opaqueMat!),
-      leaves: makeMesh(leavesData, this.leavesMat!),
-      water:  makeMesh(waterData,  this.waterMat!),
+      opaque:  makeMesh(opaqueData, this.opaqueMat!),
+      leaves:  makeMesh(leavesData, this.leavesMat!),
+      water:   makeMesh(waterData,  this.waterMat!),
+      sprites: makeSpriteMesh(spritesData, this.spriteMat!),
     };
   }
 
   private replaceChunkMesh(key: string, newMeshes: ChunkMeshes) {
     const old = this.chunkMeshes.get(key);
     if (old) {
-      if (old.opaque) { this.scene.remove(old.opaque); old.opaque.geometry.dispose(); }
-      if (old.leaves) { this.scene.remove(old.leaves); old.leaves.geometry.dispose(); }
-      if (old.water)  { this.scene.remove(old.water);  old.water.geometry.dispose(); }
+      if (old.opaque)  { this.scene.remove(old.opaque);  old.opaque.geometry.dispose(); }
+      if (old.leaves)  { this.scene.remove(old.leaves);  old.leaves.geometry.dispose(); }
+      if (old.water)   { this.scene.remove(old.water);   old.water.geometry.dispose(); }
+      if (old.sprites) { this.scene.remove(old.sprites); old.sprites.geometry.dispose(); }
     }
-    if (newMeshes.leaves) newMeshes.leaves.renderOrder = 1;
-    if (newMeshes.water)  newMeshes.water.renderOrder  = 2;
-    if (newMeshes.opaque) this.scene.add(newMeshes.opaque);
-    if (newMeshes.leaves) this.scene.add(newMeshes.leaves);
-    if (newMeshes.water)  this.scene.add(newMeshes.water);
+    if (newMeshes.leaves)  newMeshes.leaves.renderOrder  = 1;
+    if (newMeshes.sprites) newMeshes.sprites.renderOrder = 1;
+    if (newMeshes.water)   newMeshes.water.renderOrder   = 2;
+    if (newMeshes.opaque)  this.scene.add(newMeshes.opaque);
+    if (newMeshes.leaves)  this.scene.add(newMeshes.leaves);
+    if (newMeshes.sprites) this.scene.add(newMeshes.sprites);
+    if (newMeshes.water)   this.scene.add(newMeshes.water);
     this.chunkMeshes.set(key, newMeshes);
   }
 
@@ -480,7 +499,9 @@ export class World {
         const b = this.getBlock(x, y, z);
         if (b !== 0) {
           const def = BLOCKS[b];
-          if (def && !def.isWater && def.solid !== false) {
+          // Hit anything except water — non-solid sprites (flowers, sapling)
+          // are still targetable so they can be broken.
+          if (def && !def.isWater) {
             return { x, y, z, nx, ny, nz };
           }
         }
@@ -504,6 +525,64 @@ export class World {
       dirty: this.dirtyChunks.size,
     };
   }
+
+  /**
+   * Simple water flow: after a block is broken, water from neighbours flows
+   * in. BFS from the broken cell up to MAX_FLOW cells. Water flows down
+   * (1 priority) then sideways (Manhattan-radius increases with distance).
+   * Returns the list of cells that became water so the caller can sync
+   * them to multiplayer if needed.
+   */
+  propagateWater(x: number, y: number, z: number): Array<{ x: number; y: number; z: number }> {
+    const MAX_FLOW = 64;          // hard cap on cells filled per event
+    const MAX_SIDE_DIST = 5;      // sideways spread limit (MC = 7)
+    const filled: Array<{ x: number; y: number; z: number }> = [];
+
+    interface Cell { x: number; y: number; z: number; dist: number; }
+    const queue: Cell[] = [{ x, y, z, dist: 0 }];
+    const visited = new Set<string>();
+
+    // Is there any water touching this cell?
+    const hasWaterNeighbour = (cx: number, cy: number, cz: number): boolean => {
+      const dirs: Array<[number, number, number]> = [
+        [0, 1, 0],  // above (waterfall)
+        [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1],
+      ];
+      for (const [dx, dy, dz] of dirs) {
+        if (this.getBlock(cx + dx, cy + dy, cz + dz) === 7) return true;
+      }
+      return false;
+    };
+
+    while (queue.length > 0 && filled.length < MAX_FLOW) {
+      const cur = queue.shift()!;
+      const key = `${cur.x},${cur.y},${cur.z}`;
+      if (visited.has(key)) continue;
+      visited.add(key);
+
+      if (cur.dist > MAX_SIDE_DIST) continue;
+      // Only fill empty cells
+      if (this.getBlock(cur.x, cur.y, cur.z) !== 0) continue;
+      if (!hasWaterNeighbour(cur.x, cur.y, cur.z)) continue;
+
+      this.setBlock(cur.x, cur.y, cur.z, 7);
+      filled.push({ x: cur.x, y: cur.y, z: cur.z });
+
+      // Spread: prioritise downward, then sideways
+      const below = this.getBlock(cur.x, cur.y - 1, cur.z);
+      if (below === 0 && cur.y - 1 >= 0) {
+        queue.unshift({ x: cur.x, y: cur.y - 1, z: cur.z, dist: cur.dist }); // downwards doesn't add to dist
+      }
+      for (const [dx, dz] of [[1,0],[-1,0],[0,1],[0,-1]] as Array<[number, number]>) {
+        const nx = cur.x + dx, nz = cur.z + dz;
+        if (this.getBlock(nx, cur.y, nz) === 0) {
+          queue.push({ x: nx, y: cur.y, z: nz, dist: cur.dist + 1 });
+        }
+      }
+    }
+
+    return filled;
+  }
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -525,6 +604,9 @@ function makeMesh(data: MeshData, mat: THREE.Material): THREE.Mesh | null {
 
 function addCrossShape(data: MeshData, x: number, y: number, z: number, u0: number, v0: number, u1: number, v1: number) {
   const off = 0.1;
+  // Two diagonal quads forming an X. We emit ONE winding only and rely on
+  // DoubleSide rendering so both sides show. Vertex colors stay white because
+  // the sprite material is MeshBasicMaterial (unlit).
   const quads = [
     [[x+off, y, z+off],     [x+1-off, y, z+1-off], [x+1-off, y+1, z+1-off], [x+off, y+1, z+off]],
     [[x+off, y, z+1-off],   [x+1-off, y, z+off],   [x+1-off, y+1, z+off],   [x+off, y+1, z+1-off]],
@@ -539,8 +621,19 @@ function addCrossShape(data: MeshData, x: number, y: number, z: number, u0: numb
       data.uv.push(u, v);
     }
     data.idx.push(startIdx, startIdx + 1, startIdx + 2, startIdx, startIdx + 2, startIdx + 3);
-    data.idx.push(startIdx, startIdx + 2, startIdx + 1, startIdx, startIdx + 3, startIdx + 2);
   }
+}
+
+/** Mesh builder for the sprite layer: no normals (basic material is unlit). */
+function makeSpriteMesh(data: MeshData, mat: THREE.Material): THREE.Mesh | null {
+  if (data.pos.length === 0) return null;
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.Float32BufferAttribute(data.pos, 3));
+  geo.setAttribute("uv",       new THREE.Float32BufferAttribute(data.uv, 2));
+  geo.setIndex(data.idx);
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.frustumCulled = true;
+  return mesh;
 }
 
 function mulberry32(seed: number): () => number {

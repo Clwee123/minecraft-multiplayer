@@ -4,6 +4,7 @@
  */
 import * as Colyseus from "colyseus.js";
 import * as THREE from "three";
+import { spawnPlayer, buildFallbackPlayer, PlayerInstance } from "./PlayerModel";
 
 export interface RemotePlayer {
   id: string;
@@ -13,6 +14,11 @@ export interface RemotePlayer {
   mesh: THREE.Group;
   targetX: number; targetY: number; targetZ: number;
   targetRotY: number;
+  /** Animation mixer/actions, if the GLB model is loaded. */
+  anim: PlayerInstance | null;
+  lastPos: THREE.Vector3;
+  /** Smoothed movement speed (for animation blending). */
+  speed: number;
 }
 
 type BlockUpdateHandler = (x: number, y: number, z: number, type: number) => void;
@@ -88,7 +94,12 @@ export class Multiplayer {
         }
       });
       this.room.onMessage("chat", (msg: any) => {
-        if (msg && this.onChat) this.onChat(msg.sender || "?", msg.message || "");
+        if (!msg || !this.onChat) return;
+        // Server may send different field names; try them all
+        const sender =
+          msg.sender ?? msg.playerName ?? msg.name ?? msg.from ?? "Player";
+        const text = msg.message ?? msg.text ?? msg.msg ?? "";
+        if (text) this.onChat(String(sender), String(text));
       });
 
       try {
@@ -135,20 +146,18 @@ export class Multiplayer {
 
   sendChat(message: string) {
     if (!this.room) return;
-    this.room.send("chat", { message });
+    // Send sender too — server may or may not enrich, we want a fallback either way.
+    this.room.send("chat", { message, sender: this.playerName });
   }
 
   private addRemotePlayer(sessionId: string, player: any) {
-    const group = new THREE.Group();
-    const headGeo = new THREE.BoxGeometry(0.5, 0.5, 0.5);
-    const head = new THREE.Mesh(headGeo, new THREE.MeshLambertMaterial({ color: 0xf5cba7 }));
-    head.position.y = 1.5; group.add(head);
-    const body = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.9, 0.3), new THREE.MeshLambertMaterial({ color: 0x4a7cff }));
-    body.position.y = 0.8; group.add(body);
-    const legL = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.85, 0.25), new THREE.MeshLambertMaterial({ color: 0x2a4a8a }));
-    legL.position.set(-0.15, 0.35, 0); group.add(legL);
-    const legR = legL.clone(); legR.position.x = 0.15; group.add(legR);
-
+    let group: THREE.Group;
+    let anim: PlayerInstance | null = spawnPlayer();
+    if (anim) {
+      group = anim.root;
+    } else {
+      group = buildFallbackPlayer();
+    }
     group.position.set(player.x ?? 0, player.y ?? 50, player.z ?? 0);
     this.scene.add(group);
 
@@ -160,6 +169,9 @@ export class Multiplayer {
       targetX: player.x, targetY: player.y, targetZ: player.z,
       targetRotY: player.rotY,
       mesh: group,
+      anim,
+      lastPos: new THREE.Vector3(player.x, player.y, player.z),
+      speed: 0,
     });
   }
 
@@ -188,8 +200,29 @@ export class Multiplayer {
       rp.y += (rp.targetY - rp.y) * k;
       rp.z += (rp.targetZ - rp.z) * k;
       rp.rotY += (rp.targetRotY - rp.rotY) * k;
+
+      // Measure horizontal speed for animation blend
+      const dx = rp.x - rp.lastPos.x;
+      const dz = rp.z - rp.lastPos.z;
+      const instSpeed = dt > 0 ? Math.sqrt(dx * dx + dz * dz) / dt : 0;
+      rp.speed = rp.speed * 0.85 + instSpeed * 0.15;
+      rp.lastPos.set(rp.x, rp.y, rp.z);
+
       rp.mesh.position.set(rp.x, rp.y, rp.z);
-      rp.mesh.rotation.y = rp.rotY;
+      rp.mesh.rotation.y = rp.rotY + Math.PI; // model usually faces -Z
+
+      // Drive animation weights from speed (only if mixer + walk action exist)
+      if (rp.anim) {
+        rp.anim.mixer?.update(dt);
+        const moving = rp.speed > 0.5;
+        if (rp.anim.walkAction && rp.anim.idleAction) {
+          const tw = moving ? 1 : 0;
+          const ti = moving ? 0 : 1;
+          // Smooth-blend
+          rp.anim.walkAction.weight += (tw - rp.anim.walkAction.weight) * Math.min(1, dt * 8);
+          rp.anim.idleAction.weight += (ti - rp.anim.idleAction.weight) * Math.min(1, dt * 8);
+        }
+      }
     }
   }
 }

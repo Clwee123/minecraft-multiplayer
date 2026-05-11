@@ -21,12 +21,11 @@
       background: linear-gradient(160deg, #2c4a6a 0%, #1a2a3f 100%);
       display: flex; flex-direction: column;
       align-items: center; justify-content: center;
-      z-index: 1000; padding: 20px;
-      overflow-y: auto;
+      z-index: 1000; padding: 20px; overflow-y: auto;
     }
     #mainMenu::before {
       content: ""; position: fixed; inset: 0;
-      background: url(/terrain_atlas.png?v=4) repeat;
+      background: url(/terrain_atlas.png?v=5) repeat;
       background-size: 80px 80px;
       image-rendering: pixelated;
       opacity: 0.08; pointer-events: none;
@@ -53,9 +52,7 @@
       border-radius: 4px; min-width: 520px; max-width: 95vw;
       box-shadow: 0 8px 30px rgba(0,0,0,0.5);
     }
-    .menu-row {
-      display: flex; gap: 8px; margin-bottom: 12px;
-    }
+    .menu-row { display: flex; gap: 8px; margin-bottom: 12px; }
     .menu-row label {
       font-family: 'Courier New', monospace;
       font-size: 12px; color: #ddd;
@@ -70,15 +67,11 @@
       font-size: 12px; border-radius: 2px;
     }
     .menu-row input:focus {
-      outline: none;
-      border-color: #7eb84c;
+      outline: none; border-color: #7eb84c;
       background: rgba(0,0,0,0.6);
     }
     .mode-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 8px;
-      margin-top: 16px;
+      display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 16px;
     }
     .mode-card {
       padding: 14px 16px;
@@ -86,17 +79,13 @@
       border: 2px solid rgba(255,255,255,0.25);
       color: #fff;
       font-family: 'Courier New', monospace;
-      font-size: 13px;
-      cursor: pointer;
-      transition: all 0.15s;
-      border-radius: 2px;
-      text-align: left;
+      font-size: 13px; cursor: pointer; transition: all 0.15s;
+      border-radius: 2px; text-align: left;
       box-shadow: 0 3px 0 rgba(0,0,0,0.4);
     }
     .mode-card:hover {
       background: linear-gradient(180deg, rgba(126,184,76,0.45), rgba(70,120,40,0.45));
-      border-color: #7eb84c;
-      transform: translateY(-1px);
+      border-color: #7eb84c; transform: translateY(-1px);
       box-shadow: 0 4px 0 rgba(0,0,0,0.4), 0 6px 12px rgba(126,184,76,0.3);
     }
     .mode-card:active {
@@ -104,22 +93,17 @@
       box-shadow: 0 1px 0 rgba(0,0,0,0.4);
     }
     .mode-card .mc-title {
-      font-size: 14px; font-weight: bold;
-      margin-bottom: 4px;
+      font-size: 14px; font-weight: bold; margin-bottom: 4px;
       display: flex; align-items: center; gap: 8px;
     }
     .mode-card .mc-tag {
       font-size: 10px; padding: 1px 6px;
       background: rgba(255,255,255,0.15);
-      border-radius: 8px;
-      color: #cfc;
+      border-radius: 8px; color: #cfc;
     }
     .mode-card .mc-tag.mp { background: rgba(126,184,76,0.4); color: #fff; }
     .mode-card .mc-tag.offline { background: rgba(80,80,80,0.4); color: #ddd; }
-    .mode-card .mc-desc {
-      font-size: 11px; color: #ccc;
-      font-style: italic;
-    }
+    .mode-card .mc-desc { font-size: 11px; color: #ccc; font-style: italic; }
     .mode-card.featured {
       grid-column: 1 / -1;
       background: linear-gradient(180deg, rgba(180,60,60,0.7), rgba(120,30,30,0.7));
@@ -239,26 +223,24 @@
       pointer-events: none; font-weight: bold;
     }
 
-    /* ── Hearts ─────────────────────────────────────────────────── */
+    /* ── Hearts (proper non-overlapping shape via SVG) ──────────── */
     #hearts {
       position: fixed; bottom: 62px; left: 50%;
-      transform: translateX(calc(-50% - 90px));
+      transform: translateX(calc(-50% - 100px));
       display: none; gap: 1px;
       z-index: 20;
     }
     .heart {
-      width: 9px; height: 9px;
-      background: rgba(50,30,30,0.6);
-      mask-image: radial-gradient(circle at 30% 30%, #000 50%, transparent 50%),
-                  radial-gradient(circle at 70% 30%, #000 50%, transparent 50%),
-                  linear-gradient(to bottom, #000 50%, transparent 50%);
+      width: 14px; height: 14px;
+      background-repeat: no-repeat;
+      background-size: contain;
+      background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 9 9' shape-rendering='crispEdges'><path d='M0 1h2v1h1V1h3v1h1V1h2v3h-1v1h-1v1h-1v1h-1v1H4v-1H3v-1H2v-1H1V4H0Z' fill='%23333' stroke='%23000' stroke-width='1'/></svg>");
     }
     .heart.full {
-      background: #d33;
-      box-shadow: inset 1px 1px 0 #f66;
+      background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 9 9' shape-rendering='crispEdges'><path d='M0 1h2v1h1V1h3v1h1V1h2v3h-1v1h-1v1h-1v1h-1v1H4v-1H3v-1H2v-1H1V4H0Z' fill='%23dd2020'/><path d='M1 2h1v1h1v1h1V3h1v1h1V3h1v1H6v1H5v1H4V5H3V4H2V3H1Z' fill='%23ff5050'/></svg>");
     }
     .heart.half {
-      background: linear-gradient(to right, #d33 50%, rgba(50,30,30,0.6) 50%);
+      background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 9 9' shape-rendering='crispEdges'><path d='M0 1h2v1h1V1h3v1h1V1h2v3h-1v1h-1v1h-1v1h-1v1H4v-1H3v-1H2v-1H1V4H0Z' fill='%23333'/><path d='M0 1h2v1h1V1h1v6H4v-1H3v-1H2v-1H1V4H0Z' fill='%23dd2020'/></svg>");
     }
 
     #blockName {
@@ -302,6 +284,34 @@
       z-index: 30; pointer-events: none;
     }
 
+    /* ── Debug overlay (P key, F3-style) ────────────────────────── */
+    #debugOverlay {
+      position: fixed; top: 38px; left: 12px;
+      max-width: 360px;
+      background: rgba(0,0,0,0.5);
+      color: #fff;
+      font-family: 'Courier New', monospace;
+      font-size: 12px;
+      line-height: 1.4em;
+      padding: 8px 12px;
+      border-left: 3px solid #7eb84c;
+      text-shadow: 1px 1px 0 #000;
+      z-index: 35; pointer-events: none;
+      display: none;
+    }
+    #debugOverlay b { color: #ffe66d; }
+    #debugOverlay .dbg-title {
+      font-weight: bold;
+      color: #7eb84c;
+      margin-bottom: 4px;
+    }
+    #debugOverlay .dbg-sep {
+      margin-top: 6px;
+      color: #888;
+      font-style: italic;
+      font-size: 11px;
+    }
+
     #chatLog {
       position: fixed; bottom: 100px; left: 12px;
       width: 360px; z-index: 25;
@@ -330,7 +340,7 @@
     }
     #chatInput:focus { outline: none; }
 
-    /* ── Inventory panel ────────────────────────────────────────── */
+    /* ── Inventory + Crafting panel ─────────────────────────────── */
     #invPanel {
       position: fixed; inset: 0;
       background: rgba(0,0,0,0.55);
@@ -338,70 +348,88 @@
       z-index: 100;
     }
     .inv-window {
-      background: rgba(40, 40, 50, 0.95);
-      border: 3px solid #222;
-      padding: 16px;
+      background: rgba(30, 30, 40, 0.96);
+      border: 3px solid #1a1a1a;
+      padding: 18px 22px;
       border-radius: 2px;
       display: flex;
-      gap: 16px;
-      max-height: 92vh;
+      gap: 24px;
       max-width: 92vw;
+      box-shadow: 0 8px 40px rgba(0,0,0,0.6);
     }
     .inv-section h3 {
-      margin: 0 0 8px 0;
+      margin: 0 0 6px 0;
       font-family: 'Courier New', monospace;
-      font-size: 14px;
+      font-size: 13px;
       color: #fff;
       text-shadow: 1px 1px 0 #000;
+      letter-spacing: 1px;
     }
     .inv-grid {
       display: grid;
       gap: 2px;
       padding: 4px;
-      background: rgba(0,0,0,0.4);
+      background: rgba(0,0,0,0.5);
       border: 1px solid rgba(255,255,255,0.15);
     }
-    #invMain { grid-template-columns: repeat(9, 40px); }
-    #invHotbar { grid-template-columns: repeat(9, 40px); margin-top: 6px; }
+    #invMain    { grid-template-columns: repeat(9, 40px); }
+    #invHotbar  { grid-template-columns: repeat(9, 40px); margin-top: 8px; }
+    #invCraftGrid {
+      gap: 3px;
+      padding: 6px;
+      background: rgba(0,0,0,0.5);
+      border: 1px solid rgba(255,255,255,0.15);
+    }
     .inv-slot {
       position: relative;
       width: 40px; height: 40px;
       background: rgba(255,255,255,0.08);
-      border: 1px solid rgba(255,255,255,0.15);
+      border: 1px solid rgba(255,255,255,0.18);
+      cursor: pointer;
       display: flex; align-items: center; justify-content: center;
     }
-    #invCrafting {
-      width: 280px;
-      max-height: 380px;
-      overflow-y: auto;
-      padding: 10px;
-      background: rgba(0,0,0,0.4);
-      border: 1px solid rgba(255,255,255,0.15);
+    .inv-slot:hover {
+      background: rgba(255,255,255,0.16);
+      border-color: rgba(255,255,255,0.4);
     }
-    .recipe-row {
-      display: flex; align-items: center; gap: 10px;
-      padding: 4px;
-      cursor: pointer;
-      border: 1px solid transparent;
+    .craft-row {
+      display: flex; align-items: center; gap: 12px;
+      margin-top: 8px;
     }
-    .recipe-row:hover {
-      background: rgba(126,184,76,0.2);
-      border-color: rgba(126,184,76,0.5);
-    }
-    .recipe-icon {
-      width: 32px; height: 32px;
-      image-rendering: pixelated;
-      flex-shrink: 0;
-    }
-    .recipe-name {
-      font-family: 'Courier New', monospace;
-      font-size: 12px;
-      color: #fff;
-    }
-    .recipe-ingredients {
-      font-family: 'Courier New', monospace;
-      font-size: 10px;
+    .craft-arrow {
+      font-size: 24px;
       color: #aaa;
+    }
+    #invOutput {
+      width: 44px; height: 44px;
+      background: rgba(80,80,80,0.5);
+      border: 2px solid rgba(255,255,255,0.3);
+      position: relative;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer;
+    }
+    #invOutput:hover {
+      background: rgba(126,184,76,0.3);
+      border-color: #7eb84c;
+    }
+
+    /* Cursor (held item while dragging) */
+    #invCursor {
+      position: fixed;
+      pointer-events: none;
+      transform: translate(-50%, -50%);
+      z-index: 110;
+      display: none;
+      width: 40px; height: 40px;
+    }
+    #invCursor .slot-icon {
+      width: 32px; height: 32px;
+    }
+    #invCursor .slot-count {
+      position: absolute; bottom: -2px; right: 2px;
+      font-size: 11px; font-family: monospace;
+      color: #fff; text-shadow: 1px 1px 0 #000;
+      font-weight: bold;
     }
   </style>
 </head>
@@ -471,26 +499,41 @@
     <div id="blockName"></div>
     <div id="modeLabel"></div>
     <div id="helpHud">
-      <div><b>WASD</b> move · <b>Space</b> jump · <b>Ctrl</b> sprint</div>
-      <div><b>Mouse</b> look · <b>LMB</b> break (hold) · <b>RMB</b> place</div>
-      <div><b>1-9</b> / <b>scroll</b> select · <b>E</b> inv · <b>T</b> chat</div>
+      <div><b>WASD</b> move · <b>Shift</b> sprint · <b>C</b> crouch · <b>Space</b> jump · <b>2×Space</b> fly</div>
+      <div><b>Mouse</b> look · <b>LMB</b> break (hold) · <b>RMB</b> place / open crafting table</div>
+      <div><b>1-9</b> / <b>scroll</b> select · <b>E</b> inventory · <b>P</b> debug · <b>T</b> chat</div>
     </div>
     <div id="fps">— fps</div>
+    <div id="debugOverlay"></div>
     <div id="chatLog"></div>
     <input id="chatInput" type="text" maxlength="200" placeholder="Type a message…" />
 
-    <!-- Inventory panel -->
+    <!-- Inventory + Crafting panel -->
     <div id="invPanel">
       <div class="inv-window">
         <div class="inv-section">
           <h3>Inventory</h3>
           <div id="invMain" class="inv-grid"></div>
-          <div style="height:6px"></div>
+          <div style="height:8px"></div>
           <h3>Hotbar</h3>
           <div id="invHotbar" class="inv-grid"></div>
         </div>
-        <div class="inv-section" id="invCrafting"></div>
+        <div class="inv-section">
+          <h3>Crafting</h3>
+          <div class="craft-row">
+            <div id="invCraftGrid" class="inv-grid"></div>
+            <span class="craft-arrow">→</span>
+            <div id="invOutput" class="inv-slot"></div>
+          </div>
+          <div style="margin-top:14px;font-size:11px;color:#bbb;font-family:monospace;max-width:200px;">
+            Click an item to pick it up.<br>
+            Right-click to grab half.<br>
+            Click the output to craft.<br><br>
+            Stand near a crafting table and right-click it for 3×3 recipes.
+          </div>
+        </div>
       </div>
+      <div id="invCursor"></div>
     </div>
   </div>
 
