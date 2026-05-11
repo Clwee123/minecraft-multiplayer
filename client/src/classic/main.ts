@@ -310,7 +310,8 @@ async function startGame(serverAddr: string | null) {
   (document.getElementById("loadingStatus") as HTMLElement).textContent = "Generating world…";
   await new Promise(r => setTimeout(r, 30));
   const seed = cfg.isMultiplayer ? 12345 : Math.floor(Math.random() * 100000);
-  world = new World(scene, seed);
+  // Infinite chunk streaming for survival/creative; static maps for the rest
+  world = new World(scene, seed, { infinite: cfg.useDefaultWorld });
 
   // Custom mode worlds
   let spawnX: number, spawnY: number, spawnZ: number;
@@ -325,13 +326,17 @@ async function startGame(serverAddr: string | null) {
     spawnX = s.spawnX; spawnY = s.spawnY; spawnZ = s.spawnZ;
     oneBlockCenter = { x: 128, y: 40, z: 128 };
   } else {
+    // Survival/Creative: find a grass spawn near origin
     const s = world.findSpawn();
     spawnX = s[0]; spawnY = s[1]; spawnZ = s[2];
+    // Stream chunks around the spawn so the first frame isn't empty
+    world.updateAroundPlayer(spawnX, spawnZ, 5);
   }
 
   (document.getElementById("loadingStatus") as HTMLElement).textContent = "Building meshes…";
   await new Promise(r => setTimeout(r, 30));
-  world.buildAllChunks();
+  // Build all queued chunks now so the player doesn't spawn into emptiness
+  world.buildAllDirtyNow();
 
   // Inventory
   inv = new Inventory(cfg.isCreative ? "creative" : "survival");
@@ -416,6 +421,8 @@ async function startGame(serverAddr: string | null) {
   let mpSendTimer = 0;
   let frames = 0;
   let fpsTimer = 0;
+  let streamTimer = 0;
+  const RENDER_DIST = 5; // chunks (= 80 blocks)
 
   function loop() {
     const now = performance.now();
@@ -426,13 +433,23 @@ async function startGame(serverAddr: string | null) {
     fpsTimer += dt;
     if (fpsTimer >= 1) {
       const fpsEl = document.getElementById("fps");
-      if (fpsEl) fpsEl.textContent = `${frames} fps`;
+      const stats = world.getStats();
+      if (fpsEl) fpsEl.textContent = `${frames} fps · ${stats.meshed} chunks`;
       frames = 0;
       fpsTimer = 0;
     }
 
     player.update(dt);
-    world.rebuildDirty(4);
+
+    // Stream chunks around player (infinite worlds only). Throttle to 4x/sec.
+    streamTimer += dt;
+    if (streamTimer >= 0.25) {
+      streamTimer = 0;
+      world.updateAroundPlayer(player.pos.x, player.pos.z, RENDER_DIST);
+    }
+    // Mesh up to 2 dirty chunks per frame, nearest-first
+    world.rebuildDirty(2, player.pos.x, player.pos.z);
+
     if (!cfg.isCreative) drops.update(dt, player.pos, inv, (x, y, z) => world.isSolid(x, y, z));
     refreshHotbar();
     tickWater(waterT);
