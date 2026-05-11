@@ -3,99 +3,207 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
-  <title>Minecraft Classic</title>
+  <title>Minecraft 1.8 — Web</title>
   <style>
     * { box-sizing: border-box; }
     html, body {
-      margin: 0;
-      padding: 0;
-      width: 100%;
-      height: 100%;
+      margin: 0; padding: 0;
+      width: 100%; height: 100%;
       overflow: hidden;
       background: #87ceeb;
       font-family: 'Segoe UI', sans-serif;
-      user-select: none;
-      -webkit-user-select: none;
+      user-select: none; -webkit-user-select: none;
+      color: #fff;
     }
     canvas { display: block; }
 
-    /* ── Loading screen ─────────────────────────────────────────── */
-    #loadingScreen {
-      position: fixed;
-      inset: 0;
-      background: linear-gradient(180deg, #87ceeb 0%, #b0e0f8 100%);
+    /* ── Main menu ──────────────────────────────────────────────── */
+    #mainMenu {
+      position: fixed; inset: 0;
+      background:
+        linear-gradient(rgba(0,0,0,0.45), rgba(0,0,0,0.55)),
+        url(/terrain_atlas.png?v=2) repeat;
+      background-size: 80px 80px, 64px 64px;
+      image-rendering: pixelated;
       display: flex;
+      flex-direction: column;
       align-items: center;
       justify-content: center;
-      flex-direction: column;
       z-index: 1000;
-      color: #ffffff;
     }
-    #loadingScreen h1 {
-      font-size: 3rem;
-      margin: 0 0 0.5rem 0;
-      text-shadow: 3px 3px 0 #2a2a2a;
+    #mainMenu h1 {
       font-family: 'Courier New', monospace;
+      font-size: 4rem;
       font-weight: bold;
-      letter-spacing: 2px;
-    }
-    #loadingScreen .subtitle {
+      letter-spacing: 4px;
+      margin: 0 0 0.2rem 0;
       color: #ffffff;
-      font-size: 1rem;
-      text-shadow: 1px 1px 0 #2a2a2a;
-      margin-bottom: 2rem;
+      text-shadow: 4px 4px 0 #2a2a2a, 8px 8px 12px rgba(0,0,0,0.5);
     }
-    #loadingScreen .spinner {
-      width: 40px;
-      height: 40px;
+    #mainMenu .subtitle {
+      font-family: 'Courier New', monospace;
+      font-size: 1.1rem;
+      color: #ffe66d;
+      text-shadow: 2px 2px 0 #2a2a2a;
+      margin-bottom: 3rem;
+    }
+    #mainMenu .menu-panel {
+      background: rgba(0, 0, 0, 0.55);
+      padding: 24px;
+      border: 2px solid rgba(255,255,255,0.2);
+      border-radius: 4px;
+      min-width: 400px;
+      box-shadow: 0 8px 30px rgba(0,0,0,0.5);
+    }
+    .menu-row {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 14px;
+    }
+    .menu-row label {
+      font-family: 'Courier New', monospace;
+      font-size: 13px;
+      color: #ddd;
+      min-width: 70px;
+      display: flex;
+      align-items: center;
+    }
+    .menu-row input {
+      flex: 1;
+      background: rgba(0,0,0,0.4);
+      border: 1px solid rgba(255,255,255,0.3);
+      color: #fff;
+      padding: 6px 10px;
+      font-family: 'Courier New', monospace;
+      font-size: 13px;
+      border-radius: 2px;
+    }
+    .menu-row input:focus {
+      outline: none;
+      border-color: #7eb84c;
+      background: rgba(0,0,0,0.6);
+    }
+    .mode-btns {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+    .mode-btn {
+      flex: 1;
+      padding: 10px;
+      background: rgba(0, 0, 0, 0.35);
+      border: 2px solid rgba(255,255,255,0.25);
+      color: #ccc;
+      font-family: 'Courier New', monospace;
+      font-size: 14px;
+      cursor: pointer;
+      transition: all 0.15s;
+      border-radius: 2px;
+    }
+    .mode-btn:hover {
+      background: rgba(126, 184, 76, 0.18);
+      color: #fff;
+    }
+    .mode-btn.selected {
+      background: rgba(126, 184, 76, 0.35);
+      border-color: #7eb84c;
+      color: #fff;
+      box-shadow: inset 0 0 12px rgba(126, 184, 76, 0.4);
+    }
+    .play-btn {
+      width: 100%;
+      padding: 14px;
+      background: linear-gradient(180deg, #5fa83a, #3e7723);
+      border: 2px solid #2a5018;
+      color: #fff;
+      font-family: 'Courier New', monospace;
+      font-size: 16px;
+      font-weight: bold;
+      cursor: pointer;
+      border-radius: 2px;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      box-shadow: 0 4px 0 #2a5018, 0 6px 12px rgba(0,0,0,0.4);
+      transition: all 0.1s;
+    }
+    .play-btn:hover {
+      background: linear-gradient(180deg, #6fc445, #4e8a2b);
+      transform: translateY(-1px);
+      box-shadow: 0 5px 0 #2a5018, 0 8px 14px rgba(0,0,0,0.5);
+    }
+    .play-btn:active {
+      transform: translateY(3px);
+      box-shadow: 0 1px 0 #2a5018;
+    }
+    .menu-footer {
+      margin-top: 14px;
+      text-align: center;
+      font-family: 'Courier New', monospace;
+      font-size: 11px;
+      color: rgba(255,255,255,0.5);
+    }
+
+    /* ── Loading ────────────────────────────────────────────────── */
+    #loadingScreen {
+      position: fixed; inset: 0;
+      background: linear-gradient(180deg, #87ceeb 0%, #b0e0f8 100%);
+      display: none;
+      align-items: center; justify-content: center;
+      flex-direction: column;
+      z-index: 900;
+    }
+    #loadingScreen h2 {
+      font-family: 'Courier New', monospace;
+      font-size: 2rem;
+      color: #fff;
+      text-shadow: 3px 3px 0 #2a2a2a;
+      margin: 0 0 1rem 0;
+    }
+    #loadingStatus {
+      color: #fff;
+      font-family: 'Courier New', monospace;
+      font-size: 0.95rem;
+      text-shadow: 1px 1px 0 #2a2a2a;
+      margin-bottom: 1.2rem;
+    }
+    .spinner {
+      width: 40px; height: 40px;
       border: 4px solid rgba(255,255,255,0.3);
-      border-top-color: #ffffff;
+      border-top-color: #fff;
       border-radius: 50%;
       animation: spin 0.8s linear infinite;
     }
     @keyframes spin { to { transform: rotate(360deg); } }
 
     #buildStamp {
-      position: fixed;
-      bottom: 6px;
-      left: 8px;
-      font-size: 11px;
-      color: rgba(255,255,255,0.6);
+      position: fixed; bottom: 6px; left: 8px;
+      font-size: 11px; color: rgba(255,255,255,0.6);
       font-family: monospace;
-      text-shadow: 1px 1px 0 rgba(0,0,0,0.4);
-      z-index: 50;
-      pointer-events: none;
+      text-shadow: 1px 1px 0 rgba(0,0,0,0.5);
+      z-index: 50; pointer-events: none;
     }
 
-    /* ── Crosshair ──────────────────────────────────────────────── */
+    /* ── In-game HUD ────────────────────────────────────────────── */
+    #ingameUI { display: none; }
+
     #crosshair {
-      position: fixed;
-      top: 50%;
-      left: 50%;
-      width: 20px;
-      height: 20px;
+      position: fixed; top: 50%; left: 50%;
+      width: 20px; height: 20px;
       transform: translate(-50%, -50%);
-      pointer-events: none;
-      z-index: 10;
+      pointer-events: none; z-index: 10;
     }
     #crosshair::before, #crosshair::after {
-      content: "";
-      position: absolute;
-      background: #ffffff;
+      content: ""; position: absolute;
+      background: #fff;
       mix-blend-mode: difference;
     }
     #crosshair::before { left: 9px; top: 0; width: 2px; height: 20px; }
     #crosshair::after  { top: 9px; left: 0; height: 2px; width: 20px; }
 
-    /* ── Hotbar ─────────────────────────────────────────────────── */
     #hotbar {
-      position: fixed;
-      bottom: 16px;
-      left: 50%;
+      position: fixed; bottom: 16px; left: 50%;
       transform: translateX(-50%);
-      display: flex;
-      gap: 2px;
-      padding: 3px;
+      display: flex; gap: 2px; padding: 3px;
       background: rgba(0,0,0,0.55);
       border: 2px solid rgba(0,0,0,0.7);
       border-radius: 2px;
@@ -103,84 +211,133 @@
     }
     .hotbar-slot {
       position: relative;
-      width: 40px;
-      height: 40px;
+      width: 40px; height: 40px;
       background: rgba(255,255,255,0.08);
       border: 2px solid rgba(255,255,255,0.15);
       cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: center;
+      display: flex; align-items: center; justify-content: center;
     }
     .hotbar-slot.active {
-      border-color: #ffffff;
+      border-color: #fff;
       box-shadow: 0 0 0 1px rgba(255,255,255,0.5);
     }
-    .hotbar-slot .slot-icon {
-      pointer-events: none;
-    }
     .hotbar-slot .slot-num {
-      position: absolute;
-      bottom: -1px;
-      right: 2px;
-      font-size: 10px;
-      font-family: monospace;
-      color: #ffffff;
-      text-shadow: 1px 1px 0 #000;
+      position: absolute; bottom: -1px; right: 2px;
+      font-size: 10px; font-family: monospace;
+      color: #fff; text-shadow: 1px 1px 0 #000;
       pointer-events: none;
     }
 
-    /* ── Block name (selected hotbar slot) ──────────────────────── */
     #blockName {
-      position: fixed;
-      bottom: 72px;
-      left: 50%;
+      position: fixed; bottom: 72px; left: 50%;
       transform: translateX(-50%);
-      color: #ffffff;
+      color: #fff;
       font-family: 'Courier New', monospace;
       font-size: 14px;
       text-shadow: 2px 2px 0 #000;
-      opacity: 0;
-      transition: opacity 0.3s;
-      pointer-events: none;
-      z-index: 15;
+      opacity: 0; transition: opacity 0.3s;
+      pointer-events: none; z-index: 15;
     }
 
-    /* ── Controls help (top-left, fades out) ────────────────────── */
     #helpHud {
-      position: fixed;
-      top: 10px;
-      left: 12px;
+      position: fixed; top: 10px; left: 12px;
       color: rgba(255,255,255,0.85);
       font-family: 'Courier New', monospace;
       font-size: 12px;
       text-shadow: 1px 1px 0 #000;
       line-height: 1.5em;
-      z-index: 30;
-      pointer-events: none;
+      z-index: 30; pointer-events: none;
     }
     #helpHud b { color: #ffe66d; }
+
+    #fps {
+      position: fixed; top: 10px; right: 12px;
+      color: rgba(255,255,255,0.85);
+      font-family: 'Courier New', monospace;
+      font-size: 12px;
+      text-shadow: 1px 1px 0 #000;
+      z-index: 30; pointer-events: none;
+    }
+
+    #chatLog {
+      position: fixed; bottom: 80px; left: 12px;
+      width: 360px;
+      z-index: 25; pointer-events: none;
+      font-family: 'Courier New', monospace;
+      font-size: 13px;
+    }
+    .chat-line {
+      background: rgba(0,0,0,0.5);
+      padding: 3px 6px;
+      margin-bottom: 2px;
+      color: #fff;
+      text-shadow: 1px 1px 0 #000;
+      transition: opacity 1.5s;
+    }
+    .chat-line.fade { opacity: 0; }
+    .chat-sender { color: #ffe66d; font-weight: bold; }
+
+    #chatInput {
+      position: fixed; bottom: 70px; left: 12px;
+      width: 360px;
+      padding: 6px 10px;
+      background: rgba(0,0,0,0.7);
+      border: 1px solid rgba(255,255,255,0.4);
+      color: #fff;
+      font-family: 'Courier New', monospace;
+      font-size: 13px;
+      z-index: 26;
+      display: none;
+    }
+    #chatInput:focus { outline: none; }
   </style>
 </head>
 <body>
-  <!-- Loading screen -->
-  <div id="loadingScreen">
+  <!-- ── Main menu ──────────────────────────────────────────────── -->
+  <div id="mainMenu">
     <h1>MINECRAFT</h1>
-    <div class="subtitle">Classic Edition</div>
-    <div class="spinner"></div>
-    <p style="color:#fff;margin-top:1rem;font-size:0.85rem;text-shadow:1px 1px 0 #2a2a2a;">Generating world…</p>
+    <div class="subtitle">— Web Edition (1.8 style) —</div>
+    <div class="menu-panel">
+      <div class="mode-btns">
+        <button class="mode-btn selected" id="btnSingleplayer">Singleplayer</button>
+        <button class="mode-btn" id="btnMultiplayer">Multiplayer</button>
+      </div>
+      <div class="menu-row">
+        <label>Name:</label>
+        <input id="nameInput" type="text" maxlength="20" placeholder="Player" />
+      </div>
+      <div class="menu-row" id="serverRow" style="display:none">
+        <label>Server:</label>
+        <input id="serverInput" type="text" placeholder="159.223.140.36" />
+      </div>
+      <button class="play-btn" id="btnPlay">Play</button>
+      <div class="menu-footer">
+        <span id="buildStamp">build: …</span>
+      </div>
+    </div>
   </div>
 
-  <!-- HUD -->
-  <div id="crosshair"></div>
-  <div id="hotbar"></div>
-  <div id="blockName"></div>
-  <div id="helpHud">
-    <div><b>WASD</b> move · <b>Space</b> jump · <b>2×Space</b> fly</div>
-    <div><b>Mouse</b> look · <b>LMB</b> break · <b>RMB</b> place</div>
-    <div><b>1-9</b> / <b>scroll</b> select block</div>
+  <!-- ── Loading ────────────────────────────────────────────────── -->
+  <div id="loadingScreen">
+    <h2>Loading…</h2>
+    <div id="loadingStatus">Preparing…</div>
+    <div class="spinner"></div>
   </div>
-  <div id="buildStamp">build: ...</div>
+
+  <!-- ── In-game HUD ────────────────────────────────────────────── -->
+  <div id="ingameUI">
+    <div id="crosshair"></div>
+    <div id="hotbar"></div>
+    <div id="blockName"></div>
+    <div id="helpHud">
+      <div><b>WASD</b> move &middot; <b>Space</b> jump &middot; <b>2×Space</b> fly</div>
+      <div><b>Mouse</b> look &middot; <b>LMB</b> break &middot; <b>RMB</b> place</div>
+      <div><b>1-9</b> / <b>scroll</b> select &middot; <b>T</b> chat</div>
+    </div>
+    <div id="fps">— fps</div>
+    <div id="chatLog"></div>
+    <input id="chatInput" type="text" maxlength="200" placeholder="Type a message…" />
+  </div>
 
   <script type="module" src="/src/classic/main.ts"></script>
 </body>

@@ -1,14 +1,15 @@
 declare const __BUILD_TIME__: string;
 import * as THREE from "three";
-import { preloadAtlas, buildLiveAtlas, updateLiveWater, HOTBAR_BLOCKS, BLOCK_NAMES, BLOCKS, tileUV } from "./Textures";
-import { World, SIZE_X, SIZE_Y, SIZE_Z, SEA_LEVEL } from "./World";
+import { preloadAtlas, tickWater, HOTBAR_BLOCKS, BLOCK_NAMES, BLOCKS } from "./Textures";
+import { World, SIZE_Y } from "./World";
 import { Player } from "./Player";
+import { Multiplayer } from "./Multiplayer";
 
 // ── Renderer ────────────────────────────────────────────────────────────────
 const renderer = new THREE.WebGLRenderer({ antialias: false });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
 renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.setClearColor(0x87ceeb);
+renderer.setClearColor(0x9bd2ff);
 document.body.appendChild(renderer.domElement);
 
 window.addEventListener("resize", () => {
@@ -19,31 +20,85 @@ window.addEventListener("resize", () => {
 
 // ── Scene ───────────────────────────────────────────────────────────────────
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x87ceeb);
-scene.fog = new THREE.Fog(0x87ceeb, 50, 110);
+scene.background = new THREE.Color(0x9bd2ff);
+scene.fog = new THREE.Fog(0x9bd2ff, 60, 180);
 
-const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 500);
+const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 1000);
 
-// Lights — fixed daytime sky lighting, no day/night cycle
-const ambient = new THREE.AmbientLight(0xffffff, 0.65);
-scene.add(ambient);
-const sun = new THREE.DirectionalLight(0xfff4dd, 0.9);
-sun.position.set(50, 100, 30);
+// Lights — fixed daytime
+scene.add(new THREE.AmbientLight(0xffffff, 0.7));
+const sun = new THREE.DirectionalLight(0xfff8e8, 0.85);
+sun.position.set(60, 100, 35);
 scene.add(sun);
-const hemi = new THREE.HemisphereLight(0xb0d8ff, 0x5a7a3a, 0.35);
-scene.add(hemi);
+scene.add(new THREE.HemisphereLight(0xb0d8ff, 0x5a7a3a, 0.35));
 
 // ── Game state ──────────────────────────────────────────────────────────────
 let world: World;
 let player: Player;
-let liveAtlas: THREE.CanvasTexture;
+let mp: Multiplayer | null = null;
 let selectedSlot = 0;
+let isMultiplayer = false;
+let playerName = "Player";
 
 function getHeldBlock(): number {
   return HOTBAR_BLOCKS[selectedSlot];
 }
 
-// ── Hotbar UI ───────────────────────────────────────────────────────────────
+// ── Main menu ───────────────────────────────────────────────────────────────
+function showMainMenu() {
+  const menu = document.getElementById("mainMenu")!;
+  menu.style.display = "flex";
+  document.getElementById("ingameUI")!.style.display = "none";
+}
+
+function hideMainMenu() {
+  const menu = document.getElementById("mainMenu")!;
+  menu.style.display = "none";
+  document.getElementById("ingameUI")!.style.display = "block";
+}
+
+function wireMenuButtons() {
+  const btnSP = document.getElementById("btnSingleplayer")!;
+  const btnMP = document.getElementById("btnMultiplayer")!;
+  const serverRow = document.getElementById("serverRow")!;
+  const btnPlay = document.getElementById("btnPlay")!;
+  const nameInput = document.getElementById("nameInput") as HTMLInputElement;
+  const serverInput = document.getElementById("serverInput") as HTMLInputElement;
+
+  let mode: "sp" | "mp" = "sp";
+  btnSP.addEventListener("click", () => {
+    mode = "sp";
+    btnSP.classList.add("selected"); btnMP.classList.remove("selected");
+    serverRow.style.display = "none";
+  });
+  btnMP.addEventListener("click", () => {
+    mode = "mp";
+    btnMP.classList.add("selected"); btnSP.classList.remove("selected");
+    serverRow.style.display = "flex";
+  });
+
+  // Default server: based on hostname
+  const isLocal = location.hostname === "localhost" || location.hostname === "127.0.0.1";
+  serverInput.value = isLocal ? "localhost:8471" : "159.223.140.36";
+
+  // Pre-fill name
+  const savedName = localStorage.getItem("mc.playerName");
+  if (savedName) nameInput.value = savedName;
+  else nameInput.value = "Player" + Math.floor(Math.random() * 1000);
+
+  btnPlay.addEventListener("click", () => {
+    playerName = nameInput.value.trim() || "Player";
+    localStorage.setItem("mc.playerName", playerName);
+    isMultiplayer = mode === "mp";
+    if (isMultiplayer) {
+      startGame(serverInput.value.trim());
+    } else {
+      startGame(null);
+    }
+  });
+}
+
+// ── Hotbar ──────────────────────────────────────────────────────────────────
 function buildHotbar() {
   const hb = document.getElementById("hotbar")!;
   hb.innerHTML = "";
@@ -51,23 +106,19 @@ function buildHotbar() {
     const slot = document.createElement("div");
     slot.className = "hotbar-slot" + (i === selectedSlot ? " active" : "");
 
-    // Block icon — render the +X face tile from the atlas as a small image
     const def = BLOCKS[blockId];
     if (def) {
-      // Use the side face for the icon
       const tileIdx = def.faces[0];
       const col = tileIdx % 16;
       const row = Math.floor(tileIdx / 16);
-      // Background-position trick: 256px atlas, 16px tiles, scaled to 32px display = 2x scale -> 512px bg-size
       const icon = document.createElement("div");
       icon.className = "slot-icon";
       icon.style.cssText = `
         width:32px;height:32px;
-        background-image:url(/terrain_atlas.png);
+        background-image:url(/terrain_atlas.png?v=2);
         background-size:512px 512px;
-        background-position: -${col * 32}px -${row * 32}px;
+        background-position:-${col * 32}px -${row * 32}px;
         image-rendering:pixelated;
-        image-rendering:-moz-crisp-edges;
       `;
       slot.appendChild(icon);
     }
@@ -93,13 +144,11 @@ function selectSlot(i: number) {
 }
 
 window.addEventListener("keydown", (e) => {
-  // 1-9 hotbar
   if (e.code.startsWith("Digit")) {
     const n = parseInt(e.code.slice(5)) - 1;
     if (n >= 0 && n < HOTBAR_BLOCKS.length) selectSlot(n);
   }
 });
-
 window.addEventListener("wheel", (e) => {
   if (!document.pointerLockElement) return;
   const dir = e.deltaY > 0 ? 1 : -1;
@@ -109,25 +158,67 @@ window.addEventListener("wheel", (e) => {
   selectSlot(n);
 });
 
-// Click anywhere to lock pointer
-document.addEventListener("click", () => {
+renderer.domElement.addEventListener("click", () => {
   if (!document.pointerLockElement) document.body.requestPointerLock();
 });
 
+// ── Chat ────────────────────────────────────────────────────────────────────
+function addChatLine(sender: string, msg: string) {
+  const chat = document.getElementById("chatLog")!;
+  const line = document.createElement("div");
+  line.className = "chat-line";
+  line.innerHTML = `<span class="chat-sender">${escapeHtml(sender)}:</span> ${escapeHtml(msg)}`;
+  chat.appendChild(line);
+  while (chat.children.length > 8) chat.removeChild(chat.firstChild!);
+  setTimeout(() => line.classList.add("fade"), 5000);
+  setTimeout(() => { if (line.parentNode) line.parentNode.removeChild(line); }, 8000);
+}
+function escapeHtml(s: string) { return s.replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"} as any)[c]); }
+
+const chatInput = document.getElementById("chatInput") as HTMLInputElement;
+window.addEventListener("keydown", (e) => {
+  if (e.code === "KeyT" && !chatInput.matches(":focus") && document.pointerLockElement) {
+    document.exitPointerLock();
+    chatInput.style.display = "block";
+    chatInput.focus();
+    e.preventDefault();
+  } else if (e.code === "Enter" && chatInput.matches(":focus")) {
+    const msg = chatInput.value.trim();
+    if (msg) {
+      if (mp?.isConnected()) mp.sendChat(msg);
+      else addChatLine(playerName, msg);
+    }
+    chatInput.value = "";
+    chatInput.style.display = "none";
+    chatInput.blur();
+    e.preventDefault();
+  } else if (e.code === "Escape" && chatInput.matches(":focus")) {
+    chatInput.value = "";
+    chatInput.style.display = "none";
+    chatInput.blur();
+  }
+});
+
 // ── Boot ────────────────────────────────────────────────────────────────────
-async function main() {
-  // Set build stamp
-  const bs = document.getElementById("buildStamp");
-  if (bs) bs.textContent = `build: ${__BUILD_TIME__}`;
+async function startGame(serverAddr: string | null) {
+  const menu = document.getElementById("mainMenu")!;
+  menu.style.display = "none";
+  document.getElementById("loadingScreen")!.style.display = "flex";
+  (document.getElementById("loadingStatus") as HTMLElement).textContent = "Loading textures…";
 
   // Load atlas
   await preloadAtlas();
-  liveAtlas = buildLiveAtlas(); // mutable atlas for water animation
 
   // Build world
-  const seed = Math.floor(Math.random() * 100000);
+  (document.getElementById("loadingStatus") as HTMLElement).textContent = "Generating world…";
+  await new Promise(r => setTimeout(r, 30)); // let UI update
+  const seed = isMultiplayer ? 12345 : Math.floor(Math.random() * 100000);
   world = new World(scene, seed);
-  world.buildMesh();
+
+  // Build all chunks (this is the expensive part)
+  (document.getElementById("loadingStatus") as HTMLElement).textContent = "Building meshes…";
+  await new Promise(r => setTimeout(r, 30));
+  world.buildAllChunks();
 
   // Create player
   player = new Player(camera, world);
@@ -135,33 +226,83 @@ async function main() {
   player.spawnAt(sx, sy, sz);
   player.getHeldBlock = getHeldBlock;
 
-  // UI
+  // Wire player events
+  player.onBreak = (x, y, z) => {
+    if (mp?.isConnected()) mp.sendBlockUpdate(x, y, z, 0);
+  };
+  player.onPlace = (x, y, z, type) => {
+    if (mp?.isConnected()) mp.sendBlockUpdate(x, y, z, type);
+  };
+
+  // Multiplayer
+  if (isMultiplayer && serverAddr) {
+    (document.getElementById("loadingStatus") as HTMLElement).textContent = "Connecting to server…";
+    const proto = location.protocol === "https:" ? "wss" : "ws";
+    const url = serverAddr.includes("://") ? serverAddr : `${proto}://${serverAddr}`;
+    mp = new Multiplayer(scene, playerName);
+    mp.onConnected = () => addChatLine("", `Connected as ${playerName}`);
+    mp.onDisconnected = () => addChatLine("", "Disconnected from server");
+    mp.onChat = (sender, msg) => addChatLine(sender, msg);
+    mp.onBlockUpdate = (x, y, z, type) => {
+      // Skip our own updates (they're already applied locally)
+      world.setBlock(x, y, z, type);
+    };
+    try {
+      await mp.connect(url);
+    } catch (e) {
+      addChatLine("", "Could not connect, playing offline");
+      mp = null;
+    }
+  }
+
   buildHotbar();
   selectSlot(0);
 
-  // Hide loading
-  const loader = document.getElementById("loadingScreen");
-  if (loader) loader.style.display = "none";
+  document.getElementById("loadingScreen")!.style.display = "none";
+  document.getElementById("ingameUI")!.style.display = "block";
 
   // Game loop
   let last = performance.now();
   let waterT = 0;
+  let mpSendTimer = 0;
+  let frames = 0;
+  let fpsTimer = 0;
+
   function loop() {
     const now = performance.now();
     const dt = Math.min(0.05, (now - last) / 1000);
     last = now;
     waterT += dt;
+    frames++;
+    fpsTimer += dt;
+    if (fpsTimer >= 1) {
+      const fpsEl = document.getElementById("fps");
+      if (fpsEl) fpsEl.textContent = `${frames} fps`;
+      frames = 0;
+      fpsTimer = 0;
+    }
 
     player.update(dt);
-    updateLiveWater(liveAtlas, waterT);
+    world.rebuildDirty(4);
+    tickWater(waterT);
+
+    // MP sync at 20 Hz
+    if (mp?.isConnected()) {
+      mpSendTimer += dt;
+      if (mpSendTimer >= 0.05) {
+        mpSendTimer = 0;
+        mp.sendMove(player.pos.x, player.pos.y, player.pos.z, player.yaw, player.pitch);
+      }
+      mp.update(dt);
+    }
+
     renderer.render(scene, camera);
     requestAnimationFrame(loop);
   }
   loop();
 }
 
-main().catch((err) => {
-  console.error(err);
-  const loader = document.getElementById("loadingScreen");
-  if (loader) loader.innerHTML = `<div style="color:#f88;font-family:monospace;">Error: ${err.message}</div>`;
-});
+// Set build stamp + entry
+const bs = document.getElementById("buildStamp");
+if (bs) bs.textContent = `build: ${__BUILD_TIME__}`;
+wireMenuButtons();
