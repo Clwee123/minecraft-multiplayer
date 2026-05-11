@@ -56,15 +56,23 @@ export class MobState extends Schema {
 
 export class GameState extends Schema {
   @type("string")             mode       = "survival";
-  /** World time in ticks (0..24000). Advances server-side every second. */
   @type("uint32")             timeOfDay  = 6000;
-  /** World generation seed. Picked once when the room is created so every
-   *  client in the room sees the same terrain. */
   @type("uint32")             seed       = 0;
+  /** Mode-specific phase index (0..255). Meaning depends on `mode`. */
+  @type("uint8")              modePhase  = 0;
+  /** Server timestamp (seconds since epoch) when the current phase ends.
+   *  Clients compute remaining time as `phaseEndsAt * 1000 - Date.now()`. */
+  @type("uint32")             phaseEndsAt = 0;
   @type({ map: PlayerState }) players    = new MapSchema<PlayerState>();
   @type([BlockChange])        blockChanges = new ArraySchema<BlockChange>();
   @type({ map: MobState })    mobs       = new MapSchema<MobState>();
 }
+
+/** Phase durations in seconds. Length of the array also defines the cycle. */
+const MODE_PHASES: Record<string, number[]> = {
+  buildbattle: [30, 300, 90, 30],  // waiting → build → voting → results
+  hideandseek: [30, 30, 180, 15],  // waiting → hide → seek → round over
+};
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -83,6 +91,7 @@ export class GameRoom extends Room<GameState> {
 
   private mobLoop: ReturnType<typeof setInterval> | null = null;
   private timeLoop: ReturnType<typeof setInterval> | null = null;
+  private phaseLoop: ReturnType<typeof setInterval> | null = null;
   private mobTimers  = new Map<string, number>(); // AI state timers
   private mobVelY    = new Map<string, number>(); // vertical velocity per mob
 
@@ -253,6 +262,26 @@ export class GameRoom extends Room<GameState> {
     this.timeLoop = setInterval(() => {
       this.state.timeOfDay = (this.state.timeOfDay + 14) % 24000;
     }, 100);
+
+    // ── Mode phase state machine (BuildBattle / HideAndSeek) ────────────
+    //
+    // Gunblox-style unified time: one `phaseEndsAt` field (uint32 seconds
+    // since epoch) plus the current `modePhase` index. Every client just
+    // computes `phaseEndsAt - Date.now()/1000` to know how long is left —
+    // no local timers, perfect sync across clients.
+    const phases = MODE_PHASES[this.state.mode];
+    if (phases) {
+      this.state.modePhase = 0;
+      this.state.phaseEndsAt = Math.floor(Date.now() / 1000) + phases[0];
+      this.phaseLoop = setInterval(() => {
+        const nowSec = Math.floor(Date.now() / 1000);
+        if (nowSec >= this.state.phaseEndsAt) {
+          this.state.modePhase = (this.state.modePhase + 1) % phases.length;
+          this.state.phaseEndsAt = nowSec + phases[this.state.modePhase];
+          console.log(`[GameRoom ${this.roomId}] mode=${this.state.mode} → phase=${this.state.modePhase} (ends in ${phases[this.state.modePhase]}s)`);
+        }
+      }, 500);
+    }
   }
 
   // ── Player lifecycle ──────────────────────────────────────────────────────
@@ -322,8 +351,9 @@ export class GameRoom extends Room<GameState> {
   }
 
   onDispose() {
-    if (this.mobLoop)  clearInterval(this.mobLoop);
-    if (this.timeLoop) clearInterval(this.timeLoop);
+    if (this.mobLoop)   clearInterval(this.mobLoop);
+    if (this.timeLoop)  clearInterval(this.timeLoop);
+    if (this.phaseLoop) clearInterval(this.phaseLoop);
   }
 
   // ── Mob spawning ──────────────────────────────────────────────────────────

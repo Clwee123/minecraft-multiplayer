@@ -36,6 +36,10 @@ export interface RemotePlayer {
   skinId: string;
   /** Bone whose world position drives the nametag (Neck1_leaf in our rig). */
   headBone: THREE.Object3D | null;
+  /** Bind-pose .rotation.x for each animated limb, captured once on spawn so
+   *  we can OFFSET swings from the rest pose instead of overriding it (which
+   *  was flipping arms above the head and legs into the torso). */
+  limbBaseRot: Record<string, number>;
 }
 
 export interface RemoteMob {
@@ -82,6 +86,10 @@ export class Multiplayer {
   public playerName: string;
   /** Server-reported world time in ticks (0..24000). Mirrors state.timeOfDay if present. */
   public timeOfDay = 6000;
+  /** Server-driven mode-phase state (BuildBattle / HideAndSeek). */
+  public modePhase = 0;
+  /** Server timestamp (ms) when the current phase ends. 0 = no phase set. */
+  public phaseEndsAtMs = 0;
 
   onBlockUpdate?: BlockUpdateHandler;
   /** Optional ground-snap callback set by main.ts so mob meshes sit on the
@@ -375,6 +383,16 @@ export class Multiplayer {
       torsoId: player?.torsoId,
     });
 
+    // Snapshot the bind-pose .rotation.x for each animated limb so the
+    // walking animation can ADD a swing on top of the rest pose instead of
+    // overwriting it (which sent arms up over the head and legs into the
+    // torso — the GLB's bind matrix isn't identity).
+    const limbBaseRot: Record<string, number> = {};
+    for (const name of ["ArmR1", "ArmL1", "LegR1", "LegL1"]) {
+      const bone = group.getObjectByName(name);
+      if (bone) limbBaseRot[name] = bone.rotation.x;
+    }
+
     this.remotePlayers.set(sessionId, {
       id: sessionId,
       name: userName,
@@ -394,6 +412,7 @@ export class Multiplayer {
       heldMesh: null,
       skinId: initialSkin,
       headBone,
+      limbBaseRot,
     });
   }
 
@@ -479,17 +498,20 @@ export class Multiplayer {
     const moving = rp.speed > 0.5;
     let phase = this._limbPhase.get(rp) ?? 0;
     if (moving) phase += Math.min(rp.speed, 6) * dt * 1.4;
-    else        phase *= 0.92; // ease out so legs return to neutral
+    else        phase *= 0.92;
     this._limbPhase.set(rp, phase);
     const swing = Math.sin(phase) * (moving ? 0.55 : 0);
+    const base = rp.limbBaseRot;
     const armR = rp.mesh.getObjectByName("ArmR1");
     const armL = rp.mesh.getObjectByName("ArmL1");
     const legR = rp.mesh.getObjectByName("LegR1");
     const legL = rp.mesh.getObjectByName("LegL1");
-    if (armR) armR.rotation.x = -swing;
-    if (armL) armL.rotation.x =  swing;
-    if (legR) legR.rotation.x =  swing;
-    if (legL) legL.rotation.x = -swing;
+    // Offset from the captured bind pose so idle reverts to T-pose / rest,
+    // not identity (which would flip the limbs).
+    if (armR) armR.rotation.x = (base.ArmR1 ?? 0) - swing;
+    if (armL) armL.rotation.x = (base.ArmL1 ?? 0) + swing;
+    if (legR) legR.rotation.x = (base.LegR1 ?? 0) + swing;
+    if (legL) legL.rotation.x = (base.LegL1 ?? 0) - swing;
   }
 
   private reconcileFromState() {
@@ -500,6 +522,10 @@ export class Multiplayer {
     if (typeof state.timeOfDay === "number")      this.timeOfDay = state.timeOfDay;
     else if (typeof state.time === "number")      this.timeOfDay = state.time;
     else if (typeof state.dayTime === "number")   this.timeOfDay = state.dayTime;
+
+    // Mode phase (BuildBattle / HideAndSeek) — Gunblox-style unified time.
+    if (typeof state.modePhase === "number")   this.modePhase = state.modePhase;
+    if (typeof state.phaseEndsAt === "number") this.phaseEndsAtMs = state.phaseEndsAt * 1000;
 
     // Own-health reconcile. Server tickMobs damages state.players[sid].health
     // directly; we observe that and surface it as a local damage event so the

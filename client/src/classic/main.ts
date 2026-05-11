@@ -68,27 +68,29 @@ let _modePhaseIdx = 0;
 let _modePhaseEnd = 0;
 
 function startModeStates(modeId: ModeId) {
+  // Phase NAMES + help text live on the client; the actual phase index +
+  // end timestamp come from server state (state.modePhase + state.phaseEndsAt).
+  // Switching to server-driven sync was the whole point of this rewrite —
+  // every client now sees the same countdown to the millisecond.
   if (modeId === "buildbattle_mp") {
     _modePhases = [
-      { name: "Waiting for players", help: "Hop on a plot — round starts in 30s", durationSec: 30 },
-      { name: "Build Phase",         help: "Build something cool on your plot!",  durationSec: 300 },
-      { name: "Voting",              help: "Walk around the plots — best build wins", durationSec: 90 },
-      { name: "Results!",            help: "Next round starting…",                 durationSec: 20 },
+      { name: "Waiting for players", help: "Round starts soon — pick a plot",            durationSec: 30 },
+      { name: "Build Phase",         help: "Build something cool on your plot!",         durationSec: 300 },
+      { name: "Voting",              help: "Walk around — votes coming in next update",  durationSec: 90 },
+      { name: "Results",             help: "Resetting for next round…",                  durationSec: 30 },
     ];
   } else if (modeId === "hideandseek_mp") {
     _modePhases = [
-      { name: "Waiting for players", help: "Round starts in 30s",                          durationSec: 30 },
-      { name: "Hide!",               help: "Find a spot — seeker is frozen",              durationSec: 30 },
-      { name: "Seek!",               help: "Track down everyone before time runs out",    durationSec: 180 },
-      { name: "Round over",          help: "Resetting…",                                   durationSec: 15 },
+      { name: "Waiting for players", help: "Round starts soon",                    durationSec: 30 },
+      { name: "Hide!",               help: "Find a spot — seeker is frozen",       durationSec: 30 },
+      { name: "Seek!",               help: "Track down everyone before time's up", durationSec: 180 },
+      { name: "Round over",          help: "Resetting…",                            durationSec: 15 },
     ];
   } else {
     _modePhases = [];
     setModeStateBanner(null);
     return;
   }
-  _modePhaseIdx = 0;
-  _modePhaseEnd = performance.now() + _modePhases[0].durationSec * 1000;
   paintModePhase();
 }
 
@@ -109,17 +111,24 @@ function setModeStateBanner(phase: string | null, help = "") {
 
 function tickModeState() {
   if (_modePhases.length === 0) return;
-  const remainingMs = Math.max(0, _modePhaseEnd - performance.now());
+  // Drive from server state (mp.modePhase + mp.phaseEndsAtMs). Falls back
+  // to the local clock if MP isn't connected (offline mode shouldn't really
+  // hit these mode types, but be defensive).
+  let phaseIdx = _modePhaseIdx;
+  let remainingMs = Math.max(0, _modePhaseEnd - performance.now());
+  if (mp?.isConnected() && mp.phaseEndsAtMs > 0) {
+    phaseIdx = Math.min(mp.modePhase, _modePhases.length - 1);
+    remainingMs = Math.max(0, mp.phaseEndsAtMs - Date.now());
+  }
+  if (phaseIdx !== _modePhaseIdx) {
+    _modePhaseIdx = phaseIdx;
+    paintModePhase();
+  }
   const secs = Math.ceil(remainingMs / 1000);
   const m = Math.floor(secs / 60), s = secs % 60;
   const el = document.getElementById("modeStateBanner");
   const t = el?.querySelector(".timer") as HTMLElement | null;
   if (t) t.textContent = `· ${m}:${String(s).padStart(2, "0")}`;
-  if (remainingMs <= 0) {
-    _modePhaseIdx = (_modePhaseIdx + 1) % _modePhases.length;
-    _modePhaseEnd = performance.now() + _modePhases[_modePhaseIdx].durationSec * 1000;
-    paintModePhase();
-  }
 }
 let mp: Multiplayer | null = null;
 let mode: ModeId = "creative_offline";
