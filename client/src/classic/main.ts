@@ -17,6 +17,7 @@ import { BreakHighlight, BreakParticles } from "./BreakEffects";
 import { Legion, LegionUser, LegionFriend, readInstantJoinIntent } from "./Legion";
 import { sound, blockSurface } from "./Sound";
 import { blockIconCache, shouldRenderAsBlock } from "./BlockIconCache";
+import { KEY_BIND } from "./Player";
 
 // ── Renderer / scene ────────────────────────────────────────────────────────
 const renderer = new THREE.WebGLRenderer({ antialias: false });
@@ -53,6 +54,8 @@ let creativeInv: CreativeInventory;
 let tradeUI: TradeUI;
 let serverFinder: ServerFinder | null = null;
 let drops: ItemDrops;
+/** Chunk render distance — adjustable from the Options modal. */
+let _renderDist = 5;
 let mp: Multiplayer | null = null;
 let mode: ModeId = "creative_offline";
 let playerName = "Player";
@@ -229,22 +232,209 @@ function renderFriendRows() {
   });
 }
 
-function toggleIngameFriends(forceOpen?: boolean) {
-  const panel = document.getElementById("ingameFriends");
+// ── Pause menu (ESC) ───────────────────────────────────────────────────────
+//
+// Browser ESC unconditionally exits pointer lock — we can't override that.
+// Instead we listen for pointerlockchange and treat "pointer was locked but
+// just got unlocked while in-game" as "open the pause menu". Resume relocks.
+let pauseSuppressed = false;        // suppress next unlock event (e.g. when opening a modal we manage)
+let pauseGameStarted = false;       // true once startGame has actually finished
+
+function showPauseMenu() {
+  const panel = document.getElementById("pauseMenu");
   if (!panel) return;
-  const opening = forceOpen ?? (panel.style.display !== "block");
-  if (opening) {
-    panel.style.display = "block";
-    // Release pointer lock so the user can actually click the friend list.
-    document.exitPointerLock();
-    refreshIngameFriends();
-  } else {
-    panel.style.display = "none";
-    document.body.requestPointerLock();
-  }
+  panel.style.display = "flex";
+  // Reuse the friend list, which lives inside #pauseMenu now.
+  const friends = document.getElementById("ingameFriends");
+  if (friends) friends.style.display = "block";
+  refreshIngameFriends();
 }
 
-document.getElementById("ingameFriendsClose")?.addEventListener("click", () => toggleIngameFriends(false));
+function hidePauseMenu() {
+  const panel = document.getElementById("pauseMenu");
+  if (panel) panel.style.display = "none";
+}
+
+document.addEventListener("pointerlockchange", () => {
+  if (!pauseGameStarted) return;
+  if (document.pointerLockElement) {
+    hidePauseMenu();
+    return;
+  }
+  if (pauseSuppressed) { pauseSuppressed = false; return; }
+  const blockingModals = [
+    "invPanel", "creativeInv", "recipeBook", "tradeUI",
+    "optionsModal", "keybindsModal", "controllerModal", "deathScreen",
+  ];
+  for (const id of blockingModals) {
+    const el = document.getElementById(id);
+    if (el && el.style.display && el.style.display !== "none") return;
+  }
+  showPauseMenu();
+});
+
+// ── Pause menu button wiring (set up once at boot) ─────────────────────────
+function wirePauseButtons() {
+  document.getElementById("pauseResumeBtn")?.addEventListener("click", () => {
+    hidePauseMenu();
+    document.body.requestPointerLock();
+  });
+  document.getElementById("pauseOptionsBtn")?.addEventListener("click",    () => openModal("optionsModal"));
+  document.getElementById("pauseKeybindsBtn")?.addEventListener("click",   () => { openModal("keybindsModal"); renderKeybinds(); });
+  document.getElementById("pauseControllerBtn")?.addEventListener("click", () => openModal("controllerModal"));
+  document.getElementById("pauseFeedbackBtn")?.addEventListener("click",   () => {
+    window.open("https://github.com/anthropics/claude-code/issues", "_blank");
+  });
+  document.getElementById("pauseLeaveBtn")?.addEventListener("click", () => {
+    // Drop back to the title screen with a clean state.
+    window.location.href = window.location.pathname;
+  });
+  // Modal closes
+  document.getElementById("optionsClose")?.addEventListener("click",    () => closeModal("optionsModal"));
+  document.getElementById("keybindsClose")?.addEventListener("click",   () => closeModal("keybindsModal"));
+  document.getElementById("controllerClose")?.addEventListener("click", () => closeModal("controllerModal"));
+  // Options sliders
+  wireOption("optVolume", "optVolumeVal", v => { sound.setVolume(v / 100); }, x => String(x));
+  wireOption("optRender", "optRenderVal", v => { _renderDist = v; }, x => String(x));
+  wireOption("optMouse",  "optMouseVal",  v => { if (player) player.mouseSensitivity = 0.001 * v; }, v => (v / 10).toFixed(1));
+  wireOption("optFov",    "optFovVal",    v => { camera.fov = v; camera.updateProjectionMatrix(); }, x => String(x));
+}
+
+function openModal(id: string)  { const el = document.getElementById(id); if (el) el.style.display = "flex"; }
+function closeModal(id: string) { const el = document.getElementById(id); if (el) el.style.display = "none"; }
+
+function wireOption(inputId: string, valueId: string, apply: (v: number) => void, fmt: (v: number) => string) {
+  const input = document.getElementById(inputId) as HTMLInputElement | null;
+  const valueEl = document.getElementById(valueId);
+  if (!input || !valueEl) return;
+  const handler = () => {
+    const v = parseFloat(input.value);
+    valueEl.textContent = fmt(v);
+    apply(v);
+  };
+  input.addEventListener("input", handler);
+  handler(); // apply current value
+}
+
+// ── Keybinds modal: lists each action with a click-to-rebind chip ──────────
+let _keybindCapture: { action: string; el: HTMLElement } | null = null;
+function renderKeybinds() {
+  const list = document.getElementById("keybindsList");
+  if (!list) return;
+  list.innerHTML = "";
+  const labels: Record<string, string> = {
+    forward: "Move Forward", back: "Move Backward",
+    left: "Strafe Left", right: "Strafe Right",
+    jump: "Jump / Swim Up", sprint: "Sprint / Swim Down",
+    crouch: "Crouch", drop: "Drop Item",
+    inventory: "Open Inventory", chat: "Open Chat", debug: "Debug HUD",
+  };
+  for (const action of Object.keys(KEY_BIND)) {
+    const row = document.createElement("div");
+    row.className = "gm-row";
+    const label = document.createElement("label");
+    label.textContent = labels[action] || action;
+    const btn = document.createElement("button");
+    btn.className = "gm-key";
+    btn.textContent = displayKey(KEY_BIND[action]);
+    btn.addEventListener("click", () => {
+      if (_keybindCapture) {
+        _keybindCapture.el.classList.remove("binding");
+        _keybindCapture.el.textContent = displayKey(KEY_BIND[_keybindCapture.action]);
+      }
+      _keybindCapture = { action, el: btn };
+      btn.classList.add("binding");
+      btn.textContent = "Press a key…";
+    });
+    row.appendChild(label);
+    row.appendChild(btn);
+    list.appendChild(row);
+  }
+}
+function displayKey(code: string): string {
+  return code.replace(/^Key/, "").replace(/^Digit/, "").replace(/Left|Right/g, "");
+}
+window.addEventListener("keydown", (e) => {
+  if (!_keybindCapture) return;
+  if (e.code === "Escape") {
+    _keybindCapture.el.classList.remove("binding");
+    _keybindCapture.el.textContent = displayKey(KEY_BIND[_keybindCapture.action]);
+    _keybindCapture = null;
+    return;
+  }
+  KEY_BIND[_keybindCapture.action] = e.code;
+  _keybindCapture.el.classList.remove("binding");
+  _keybindCapture.el.textContent = displayKey(e.code);
+  _keybindCapture = null;
+  e.preventDefault();
+}, true);
+
+// ── Gamepad polling ────────────────────────────────────────────────────────
+//
+// Browsers expose all connected gamepads via navigator.getGamepads(). We poll
+// the first one each frame and translate its sticks/buttons into either the
+// player.keys dictionary (for movement) or direct camera/yaw mutations.
+const _gpPrev: boolean[] = [];
+function pollGamepad(dt: number) {
+  if (!player) return;
+  const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+  const gp = pads[0];
+  const gpStatusEl = document.getElementById("gpStatus");
+  if (!gp) {
+    if (gpStatusEl) { gpStatusEl.textContent = "No controller detected. Plug one in and press any button."; gpStatusEl.className = "gp-status"; }
+    return;
+  }
+  if (gpStatusEl) {
+    gpStatusEl.textContent = `Connected: ${gp.id}`;
+    gpStatusEl.className = "gp-status connected";
+  }
+  // Sticks (dead-zone 0.2)
+  const dz = (v: number) => Math.abs(v) < 0.2 ? 0 : v;
+  const lx = dz(gp.axes[0] ?? 0);
+  const ly = dz(gp.axes[1] ?? 0);
+  const rx = dz(gp.axes[2] ?? 0);
+  const ry = dz(gp.axes[3] ?? 0);
+
+  // Movement: translate left stick into the bound movement keys so all the
+  // sprint / sneak / water logic in Player just works.
+  player.keys[KEY_BIND.forward] = ly < -0.2;
+  player.keys[KEY_BIND.back]    = ly >  0.2;
+  player.keys[KEY_BIND.left]    = lx < -0.2;
+  player.keys[KEY_BIND.right]   = lx >  0.2;
+
+  // Look (right stick → yaw/pitch)
+  if (rx || ry) {
+    player.yaw   -= rx * dt * 3.0;
+    player.pitch -= ry * dt * 2.2;
+    const limit = Math.PI / 2 - 0.001;
+    if (player.pitch >  limit) player.pitch =  limit;
+    if (player.pitch < -limit) player.pitch = -limit;
+  }
+
+  // Buttons. Standard mapping (Xbox numbering): 0=A, 1=B, 2=X, 3=Y, 4=LB,
+  // 5=RB, 6=LT, 7=RT, 9=Start.
+  const btn = (i: number) => !!gp.buttons[i]?.pressed;
+  const wasPressed = (i: number) => btn(i) && !_gpPrev[i];
+
+  // Hold-style: jump, crouch, attack while RT down (continuous)
+  player.keys[KEY_BIND.jump]   = btn(0);
+  player.keys[KEY_BIND.crouch] = btn(1);
+
+  // Edge-triggered single actions
+  if (wasPressed(2)) dropOneFromHotbar();              // X / Square → drop
+  if (wasPressed(3)) {                                  // Y / Triangle → inventory toggle
+    if (player.gameMode === "creative") creativeInv?.toggle();
+    else                                 craftingUI?.toggle(false);
+  }
+  if (wasPressed(4)) selectSlot((inv.selected + 8) % 9); // LB → prev slot
+  if (wasPressed(5)) selectSlot((inv.selected + 1) % 9); // RB → next slot
+  if (wasPressed(9)) {                                   // Start → pause
+    document.exitPointerLock();
+  }
+
+  // Save current state for edge detection next frame
+  for (let i = 0; i < gp.buttons.length; i++) _gpPrev[i] = btn(i);
+}
 
 function renderFriendRow(f: LegionFriend): string {
   const pfp = f.pfp || "https://static.bloxity.io/img/pfps/0.png?width=128&quality=85";
@@ -407,10 +597,7 @@ window.addEventListener("keydown", (e) => {
       renderPlayerList();
     }
   }
-  if (e.code === "KeyL") {
-    e.preventDefault();
-    toggleIngameFriends();
-  }
+  // L key is now unbound (friends moved into the pause menu — see ESC flow).
   if (e.code === "KeyQ" && document.pointerLockElement) {
     e.preventDefault();
     dropOneFromHotbar();
@@ -684,10 +871,14 @@ function renderPlayerList() {
   const el = document.getElementById("playerListBody");
   if (!el) return;
   const rows: string[] = [];
-  rows.push(`<tr><td>${escapeHtml(playerName)} (you)</td><td>${player?.health ?? 20}</td></tr>`);
+  const guestPfp = "https://static.bloxity.io/img/pfps/0.png?width=128&quality=85";
+  const localUser = Legion.getUser();
+  const localPfp = localUser?.pfp || guestPfp;
+  rows.push(`<tr><td><img class="tab-pfp" src="${escapeHtml(localPfp)}" alt="" />${escapeHtml(playerName)} (you)</td><td>${player?.health ?? 20}</td></tr>`);
   if (mp?.isConnected()) {
     for (const rp of mp.getRemotePlayers()) {
-      rows.push(`<tr><td>${escapeHtml(rp.name)}</td><td>${rp.health ?? "?"}</td></tr>`);
+      const pfp = rp.pfp || guestPfp;
+      rows.push(`<tr><td><img class="tab-pfp" src="${escapeHtml(pfp)}" alt="" />${escapeHtml(rp.displayName || rp.name)}</td><td>${rp.health ?? "?"}</td></tr>`);
     }
   }
   el.innerHTML = rows.join("");
@@ -1109,6 +1300,8 @@ async function startGame(serverAddr: string | null) {
 
   Legion.loadingEnd();
   Legion.gameplayStart();
+  // Now that the world is up, ESC → pause is meaningful.
+  pauseGameStarted = true;
 
   // Game loop
   let last = performance.now();
@@ -1128,7 +1321,6 @@ async function startGame(serverAddr: string | null) {
   let lastSentBreakKey: string | null = null;
   let lastSentBreakProgress = -1;
   let breakSendTimer = 0;
-  const RENDER_DIST = 5;
 
   function loop() {
     const now = performance.now();
@@ -1158,8 +1350,9 @@ async function startGame(serverAddr: string | null) {
     streamTimer += dt;
     if (streamTimer >= 0.25) {
       streamTimer = 0;
-      world.updateAroundPlayer(player.pos.x, player.pos.z, RENDER_DIST);
+      world.updateAroundPlayer(player.pos.x, player.pos.z, _renderDist);
     }
+    pollGamepad(dt);
     world.rebuildDirty(2, player.pos.x, player.pos.z);
 
     if (!cfg.isCreative) {
@@ -1304,6 +1497,10 @@ if (bs) bs.textContent = `build: ${__BUILD_TIME__}`;
 // Arm the audio engine — the first user click/keypress will create + resume
 // the AudioContext. Done at boot so menu UI clicks also tick.
 sound.arm();
+
+// Pause-menu / modal button wiring (safe to do once at boot — elements are
+// in the DOM already).
+wirePauseButtons();
 
 // Boot Legion SDK first so the menu can offer login before the user picks a mode.
 Legion.init().then(() => {

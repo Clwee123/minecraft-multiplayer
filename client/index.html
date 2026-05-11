@@ -322,6 +322,116 @@
       cursor: pointer; border-radius: 2px; font-family: inherit;
     }
 
+    /* ── Pause menu (ESC) ───────────────────────────────────────── */
+    #pauseMenu {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.55);
+      display: none;
+      align-items: center; justify-content: center;
+      gap: 30px;
+      z-index: 250;
+      flex-direction: row;
+    }
+    .pause-main {
+      display: flex; flex-direction: column;
+      gap: 6px;
+      width: 320px;
+      align-items: center;
+    }
+    .pause-title {
+      color: #fff;
+      font-family: 'Minecraft', 'Courier New', monospace;
+      font-size: 22px;
+      margin-bottom: 12px;
+      text-shadow: 2px 2px 0 #2a2a2a;
+    }
+    .pause-btn {
+      background: #6e6e6e;
+      border: 2px solid #1a1a1a;
+      box-shadow: inset -2px -2px 0 #4a4a4a, inset 2px 2px 0 #8a8a8a;
+      color: #fff;
+      font-family: 'Minecraft', 'Courier New', monospace;
+      font-size: 14px;
+      padding: 8px 16px;
+      cursor: pointer;
+      letter-spacing: 1px;
+      width: 100%;
+      transition: background 0.08s;
+    }
+    .pause-btn:hover {
+      background: #7e8e6e;
+      border-color: #1a3a1a;
+      box-shadow: inset -2px -2px 0 #5a6a4a, inset 2px 2px 0 #9eba8a;
+    }
+    .pause-btn.danger { background: #7e3e3e; }
+    .pause-btn.danger:hover { background: #8e4e4e; }
+    .pause-row { display: flex; gap: 6px; width: 100%; }
+    .pause-row .pause-btn { flex: 1; }
+
+    /* ── Generic modal frame used by Options / Keybinds / Controller ── */
+    .gm-modal {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.7);
+      display: none;
+      align-items: center; justify-content: center;
+      z-index: 270;
+    }
+    .gm-window {
+      background: rgba(30,30,40,0.96);
+      border: 3px solid #1a1a1a;
+      padding: 20px 24px;
+      min-width: 420px; max-width: 92vw;
+      font-family: 'Minecraft', 'Courier New', monospace;
+    }
+    .gm-window h2 {
+      margin: 0 0 14px 0;
+      color: #ffe66d;
+      letter-spacing: 2px;
+      font-size: 16px;
+    }
+    .gm-row {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 8px 0;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+      gap: 16px;
+    }
+    .gm-row label { color: #ddd; font-size: 12px; min-width: 150px; }
+    .gm-row input[type="range"] { flex: 1; }
+    .gm-row .gm-value { color: #ffe66d; min-width: 40px; text-align: right; font-size: 12px; }
+    .gm-close {
+      margin-top: 16px;
+      background: #6e6e6e;
+      border: 2px solid #1a1a1a;
+      color: #fff;
+      font-family: inherit;
+      padding: 6px 14px;
+      cursor: pointer;
+    }
+    .gm-key {
+      background: rgba(0,0,0,0.35);
+      border: 1px solid rgba(255,255,255,0.2);
+      color: #ffe66d;
+      padding: 2px 10px;
+      font-family: inherit;
+      font-size: 12px;
+    }
+    .gm-key.binding { color: #ff6b6b; border-color: #ff6b6b; }
+    .gp-status {
+      color: rgba(255,255,255,0.7);
+      font-size: 12px;
+      padding: 6px 10px;
+      background: rgba(0,0,0,0.3);
+      border-radius: 4px;
+    }
+    .gp-status.connected { color: #5be17a; border: 1px solid rgba(91,225,122,0.4); }
+    .tab-pfp {
+      width: 16px; height: 16px;
+      border-radius: 50%;
+      vertical-align: middle;
+      margin-right: 6px;
+      object-fit: cover;
+    }
+
     /* ── Creative inventory ─────────────────────────────────────── */
     #creativeInv {
       position: fixed; inset: 0;
@@ -399,15 +509,13 @@
       max-height: 14px; overflow: hidden;
     }
 
-    /* In-game friends panel (L key) */
+    /* In-game friends panel (rendered as a sidebar inside the pause menu) */
     #ingameFriends {
-      position: fixed; right: 12px; top: 60px;
-      width: 320px; max-height: calc(100vh - 100px);
+      width: 320px; max-height: 70vh;
       background: rgba(20, 22, 32, 0.92);
       border: 1px solid rgba(233, 69, 96, 0.6);
       border-radius: 8px;
       padding: 12px;
-      z-index: 40;
       display: none;
       overflow-y: auto;
       font-family: 'Minecraft', 'Courier New', monospace;
@@ -1157,10 +1265,84 @@
       </div>
     </div>
 
-    <!-- In-game friends panel (L key) -->
-    <div id="ingameFriends">
-      <h3>👥 Friends <button id="ingameFriendsClose" style="background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);color:#fff;padding:2px 8px;border-radius:4px;font-size:10px;cursor:pointer;">✕</button></h3>
-      <div id="ingameFriendsList"></div>
+    <!-- Pause menu (ESC) — main buttons + friends sidebar -->
+    <div id="pauseMenu">
+      <div class="pause-main">
+        <div class="pause-title">Game Menu</div>
+        <button class="pause-btn" id="pauseResumeBtn">Back to Game</button>
+        <div class="pause-row">
+          <button class="pause-btn" id="pauseOptionsBtn">Options…</button>
+          <button class="pause-btn" id="pauseKeybindsBtn">Keybinds</button>
+        </div>
+        <div class="pause-row">
+          <button class="pause-btn" id="pauseControllerBtn">Controller</button>
+          <button class="pause-btn" id="pauseFeedbackBtn">Give Feedback</button>
+        </div>
+        <button class="pause-btn danger" id="pauseLeaveBtn">Leave Game</button>
+      </div>
+      <div id="ingameFriends">
+        <h3>👥 Friends</h3>
+        <div id="ingameFriendsList"></div>
+      </div>
+    </div>
+
+    <!-- Options modal -->
+    <div id="optionsModal" class="gm-modal">
+      <div class="gm-window">
+        <h2>OPTIONS</h2>
+        <div class="gm-row">
+          <label>Master volume</label>
+          <input type="range" id="optVolume" min="0" max="100" value="35" />
+          <span class="gm-value" id="optVolumeVal">35</span>
+        </div>
+        <div class="gm-row">
+          <label>Render distance (chunks)</label>
+          <input type="range" id="optRender" min="2" max="10" step="1" value="5" />
+          <span class="gm-value" id="optRenderVal">5</span>
+        </div>
+        <div class="gm-row">
+          <label>Mouse sensitivity</label>
+          <input type="range" id="optMouse" min="5" max="50" step="1" value="25" />
+          <span class="gm-value" id="optMouseVal">2.5</span>
+        </div>
+        <div class="gm-row">
+          <label>FOV</label>
+          <input type="range" id="optFov" min="50" max="110" step="1" value="70" />
+          <span class="gm-value" id="optFovVal">70</span>
+        </div>
+        <button class="gm-close" id="optionsClose">Done</button>
+      </div>
+    </div>
+
+    <!-- Keybinds modal -->
+    <div id="keybindsModal" class="gm-modal">
+      <div class="gm-window" style="min-width:480px;">
+        <h2>KEYBINDS</h2>
+        <div id="keybindsList"></div>
+        <button class="gm-close" id="keybindsClose">Done</button>
+      </div>
+    </div>
+
+    <!-- Controller modal -->
+    <div id="controllerModal" class="gm-modal">
+      <div class="gm-window">
+        <h2>CONTROLLER</h2>
+        <div class="gp-status" id="gpStatus">No controller detected. Plug one in and press any button.</div>
+        <div style="margin-top:14px;font-size:12px;color:#bbb;line-height:1.6;">
+          <div><b>Left stick:</b> Move (WASD)</div>
+          <div><b>Right stick:</b> Look around</div>
+          <div><b>A / Cross:</b> Jump</div>
+          <div><b>B / Circle:</b> Crouch</div>
+          <div><b>X / Square:</b> Drop item</div>
+          <div><b>Y / Triangle:</b> Inventory</div>
+          <div><b>RT / R2:</b> Break / Attack</div>
+          <div><b>LT / L2:</b> Place / Use</div>
+          <div><b>LB / L1:</b> Previous hotbar slot</div>
+          <div><b>RB / R1:</b> Next hotbar slot</div>
+          <div><b>Start:</b> Pause menu</div>
+        </div>
+        <button class="gm-close" id="controllerClose">Done</button>
+      </div>
     </div>
 
     <div id="fps">— fps</div>

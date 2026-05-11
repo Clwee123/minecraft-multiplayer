@@ -20,6 +20,24 @@ const CROUCH_H     = 1.4;
 const EYE          = 1.62;
 const CROUCH_EYE   = 1.25;
 const REACH        = 5.0;
+
+/**
+ * Action → keyboard code map. Mutable so the Keybinds modal can remap on
+ * the fly. Player reads through this rather than hardcoded "KeyW" etc.
+ */
+export const KEY_BIND: Record<string, string> = {
+  forward: "KeyW",
+  back:    "KeyS",
+  left:    "KeyA",
+  right:   "KeyD",
+  jump:    "Space",
+  sprint:  "ShiftLeft",
+  crouch:  "KeyC",
+  drop:    "KeyQ",
+  inventory: "KeyE",
+  chat:    "KeyT",
+  debug:   "KeyP",
+};
 const MAX_AIR      = 20;       // 10 bubbles like real MC
 const AIR_DRAIN_PER_SEC = 1;   // 20 air → 20 s underwater before damage
 const DROWN_DPS    = 2;        // 1 heart per second once out of air
@@ -63,7 +81,9 @@ export class Player {
   maxAir = MAX_AIR;
   private drownTimer = 0;
 
-  private keys: Record<string, boolean> = {};
+  keys: Record<string, boolean> = {};
+  /** Mouse look sensitivity (rad per pixel). Adjustable from Options. */
+  mouseSensitivity = 0.0025;
   private lastSpace = 0;
   private mouseDown = false;
   /** Block currently being mined (public so main.ts can sync the animation to other clients). */
@@ -160,8 +180,8 @@ export class Player {
 
     document.addEventListener("mousemove", (e) => {
       if (document.pointerLockElement) {
-        this.yaw   -= e.movementX * 0.0025;
-        this.pitch -= e.movementY * 0.0025;
+        this.yaw   -= e.movementX * this.mouseSensitivity;
+        this.pitch -= e.movementY * this.mouseSensitivity;
         const limit = Math.PI / 2 - 0.001;
         if (this.pitch > limit) this.pitch = limit;
         if (this.pitch < -limit) this.pitch = -limit;
@@ -315,10 +335,10 @@ export class Player {
     if (this.airSupply !== prevAir) this.onAirChange?.(this.airSupply, this.maxAir);
 
     // ── Movement ──
-    const forward = (this.keys["KeyW"] ? 1 : 0) - (this.keys["KeyS"] ? 1 : 0);
-    const right   = (this.keys["KeyD"] ? 1 : 0) - (this.keys["KeyA"] ? 1 : 0);
-    const sprint  = (this.keys["ShiftLeft"] || this.keys["ShiftRight"]) && !this.flying;
-    const crouch  = this.keys["KeyC"];
+    const forward = (this.keys[KEY_BIND.forward] ? 1 : 0) - (this.keys[KEY_BIND.back] ? 1 : 0);
+    const right   = (this.keys[KEY_BIND.right]   ? 1 : 0) - (this.keys[KEY_BIND.left] ? 1 : 0);
+    const sprint  = (this.keys[KEY_BIND.sprint] || this.keys["ShiftRight"]) && !this.flying;
+    const crouch  = this.keys[KEY_BIND.crouch];
     this.sprinting = sprint && forward > 0 && !crouch && !this.inWater;
     this.crouching = crouch && !this.flying;
 
@@ -346,16 +366,14 @@ export class Player {
       if (this.keys["ShiftLeft"] || this.keys["ShiftRight"]) vy -= FLY_SPEED;
       this.vel.y = vy;
     } else if (this.inWater) {
-      // Buoyant: weak gravity, capped sink rate. Space → swim up,
-      // ShiftLeft → dive faster.
       this.vel.y -= WATER_GRAVITY * dt;
       if (this.vel.y < WATER_TERMINAL) this.vel.y = WATER_TERMINAL;
-      if (this.keys["Space"]) this.vel.y = SWIM_UP_VEL;
-      if (this.keys["ShiftLeft"]) this.vel.y -= 2 * dt;
+      if (this.keys[KEY_BIND.jump]) this.vel.y = SWIM_UP_VEL;
+      if (this.keys[KEY_BIND.sprint]) this.vel.y -= 2 * dt;
     } else {
       this.vel.y -= GRAVITY * dt;
       if (this.vel.y < -50) this.vel.y = -50;
-      if (this.keys["Space"] && this.onGround) {
+      if (this.keys[KEY_BIND.jump] && this.onGround) {
         this.vel.y = JUMP_VEL;
         this.onGround = false;
         this.onJump?.();
