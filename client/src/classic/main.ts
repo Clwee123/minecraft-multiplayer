@@ -86,12 +86,10 @@ function wireMenuButtons() {
   // ── Bloxity / Legion auth ──
   const loginBtn  = document.getElementById("legionLoginBtn") as HTMLButtonElement | null;
   const logoutBtn = document.getElementById("legionLogoutBtn") as HTMLButtonElement | null;
-  const refreshFriendsBtn = document.getElementById("legionRefreshFriends") as HTMLButtonElement | null;
   loginBtn?.addEventListener("click", async () => {
     await Legion.showAuthPopup();
   });
   logoutBtn?.addEventListener("click", () => Legion.logout());
-  refreshFriendsBtn?.addEventListener("click", () => refreshFriendsList());
 
   // When Legion user state changes, update name input + login banner
   Legion.onUserChanged((u) => {
@@ -100,7 +98,6 @@ function wireMenuButtons() {
       const display = u.displayName || u.username;
       nameInput.value = display;
       localStorage.setItem("mc.playerName", display);
-      refreshFriendsList();
     }
   });
 }
@@ -113,7 +110,6 @@ function renderLegionPanel(user: LegionUser | null) {
   const pfpEl   = document.getElementById("legionPfp") as HTMLImageElement | null;
   const nameEl  = document.getElementById("legionName");
   const handleEl = document.getElementById("legionHandle");
-  const friendsCard = document.getElementById("legionFriendsCard");
   if (!banner) return;
   if (user) {
     banner.classList.add("logged-in");
@@ -123,27 +119,38 @@ function renderLegionPanel(user: LegionUser | null) {
     if (pfpEl)   pfpEl.src = user.pfp || "https://static.bloxity.io/img/pfps/0.png?width=128&quality=85";
     if (nameEl)  nameEl.textContent = user.displayName || user.username;
     if (handleEl) handleEl.textContent = "@" + user.username;
-    if (friendsCard) friendsCard.style.display = "block";
   } else {
     banner.classList.remove("logged-in");
     if (loginBtn)  loginBtn.style.display = "inline-flex";
     if (logoutBtn) logoutBtn.style.display = "none";
     if (userBox) userBox.style.display = "none";
-    if (friendsCard) friendsCard.style.display = "none";
   }
 }
 
-async function refreshFriendsList() {
-  const list = document.getElementById("legionFriendsList");
+// ── In-game friends panel (L key) ───────────────────────────────────────────
+//
+// Only available while connected to a multiplayer room — inviting a friend
+// needs a roomId to make sense. We refresh on toggle-open so it stays current.
+async function refreshIngameFriends() {
+  const list = document.getElementById("ingameFriendsList");
   if (!list) return;
   if (!Legion.isLoggedIn()) {
-    list.innerHTML = `<div style="opacity:.6;font-size:12px;padding:8px;">Log in to see your Bloxity friends.</div>`;
+    list.innerHTML = `
+      <div class="login-prompt">
+        <div>Log in with Bloxity to see your friends.</div>
+        <button id="ingameFriendsLogin">Login with Bloxity</button>
+      </div>`;
+    document.getElementById("ingameFriendsLogin")?.addEventListener("click", () => Legion.showAuthPopup());
     return;
   }
-  list.innerHTML = `<div style="opacity:.6;font-size:12px;padding:8px;">Loading friends…</div>`;
+  if (!mp?.isConnected()) {
+    list.innerHTML = `<div class="login-prompt">Not in a multiplayer room — friends can't join you yet.</div>`;
+    return;
+  }
+  list.innerHTML = `<div class="login-prompt">Loading friends…</div>`;
   const friends = await Legion.getFriends();
   if (friends.length === 0) {
-    list.innerHTML = `<div style="opacity:.6;font-size:12px;padding:8px;">No friends yet. Add some on bloxity.io.</div>`;
+    list.innerHTML = `<div class="login-prompt">No friends yet. Add some on bloxity.io.</div>`;
     return;
   }
   list.innerHTML = friends.map(renderFriendRow).join("");
@@ -151,7 +158,6 @@ async function refreshFriendsList() {
     btn.addEventListener("click", async () => {
       const userId = btn.dataset.userid!;
       const username = btn.dataset.username!;
-      // Make sure the portal knows our current room before inviting.
       if (mp?.isConnected()) Legion.updateRoom(mp.getRoomId() || "");
       btn.disabled = true;
       btn.textContent = "Inviting…";
@@ -162,6 +168,20 @@ async function refreshFriendsList() {
     });
   });
 }
+
+function toggleIngameFriends(forceOpen?: boolean) {
+  const panel = document.getElementById("ingameFriends");
+  if (!panel) return;
+  const opening = forceOpen ?? (panel.style.display !== "block");
+  if (opening) {
+    panel.style.display = "block";
+    refreshIngameFriends();
+  } else {
+    panel.style.display = "none";
+  }
+}
+
+document.getElementById("ingameFriendsClose")?.addEventListener("click", () => toggleIngameFriends(false));
 
 function renderFriendRow(f: LegionFriend): string {
   const pfp = f.pfp || "https://static.bloxity.io/img/pfps/0.png?width=128&quality=85";
@@ -268,6 +288,14 @@ window.addEventListener("keydown", (e) => {
       el.style.display = "block";
       renderPlayerList();
     }
+  }
+  if (e.code === "KeyL") {
+    e.preventDefault();
+    toggleIngameFriends();
+  }
+  if (e.code === "KeyQ" && document.pointerLockElement) {
+    e.preventDefault();
+    dropOneFromHotbar();
   }
   if (e.code === "Escape" && craftingUI?.open) {
     craftingUI.hide();
@@ -458,6 +486,31 @@ function updateDebugOverlay(dt: number, fps: number) {
     <div><b>Mode:</b> ${mode}</div>
     <div><b>Multiplayer:</b> ${mp?.isConnected() ? "connected" : "offline"}</div>
   `;
+}
+
+// ── Drop item (Q) ───────────────────────────────────────────────────────────
+//
+// Decrement the held stack by 1 and spawn a drop in the world a couple
+// blocks in front of the player with a small forward toss. We re-use the
+// existing ItemDrops so the local pickup logic just works (after a short
+// grace period defined inside ItemDrops).
+function dropOneFromHotbar() {
+  if (!inv || !player || !drops) return;
+  const slot = inv.getHeld();
+  if (!slot || slot.id === 0 || slot.count === 0) return;
+  const droppedId = slot.id;
+  if (inv.gameMode !== "creative") {
+    slot.count -= 1;
+    if (slot.count <= 0) { slot.id = 0; slot.count = 0; }
+  }
+  // Spawn ~1.2 blocks in front of the player, eye-height. ItemDrops gives
+  // a short pickup grace so we don't immediately re-collect it.
+  const sin = Math.sin(player.yaw), cos = Math.cos(player.yaw);
+  const sx = player.pos.x + -sin * 1.2;
+  const sy = player.pos.y + 1.4;
+  const sz = player.pos.z + -cos * 1.2;
+  drops.spawn(droppedId, 1, sx, sy, sz);
+  refreshHotbar();
 }
 
 function timeOfPhase() {

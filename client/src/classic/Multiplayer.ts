@@ -97,10 +97,13 @@ export class Multiplayer {
 
     // Bundle the Legion identity + avatar into the join options. The server
     // populates PlayerState fields so other clients can render our pfp/name.
+    // `mode` is critical — it's used by Colyseus filterBy(['mode']) so that
+    // survival, bedwars, parkour, etc. each land in their own rooms.
     const legionPayload = Legion.buildJoinPayload();
     const joinOptions: any = {
       name: legionPayload?.name ?? this.playerName,
       gameMode: mode === "creative" ? "creative" : "survival",
+      mode, // ← matchmaking filter key, NOT just a UI hint
     };
     if (legionPayload?.legion) joinOptions.legion = legionPayload.legion;
 
@@ -333,12 +336,17 @@ export class Multiplayer {
     else if (typeof state.time === "number")      this.timeOfDay = state.time;
     else if (typeof state.dayTime === "number")   this.timeOfDay = state.dayTime;
 
-    // Players
+    // Players. MapSchema.forEach is (value, key) — same shape as JS Map.
+    // Bug we hit: had the args reversed, so every remote player saw the
+    // sessionId as their "player object" and never received position updates.
     if (state.players) {
       const seen = new Set<string>();
-      const iterate = (cb: (k: string, v: any) => void) => {
-        if (typeof state.players.forEach === "function") state.players.forEach(cb);
-        else for (const k in state.players) cb(k, state.players[k]);
+      const iterate = (cb: (sid: string, v: any) => void) => {
+        if (typeof state.players.forEach === "function") {
+          state.players.forEach((v: any, k: string) => cb(k, v));
+        } else {
+          for (const k in state.players) cb(k, state.players[k]);
+        }
       };
       iterate((sid: string, p: any) => {
         if (sid === this.sessionId) return;
@@ -367,12 +375,15 @@ export class Multiplayer {
       }
     }
 
-    // Mobs
+    // Mobs (same arg-order story as players above)
     if (state.mobs) {
       const seen = new Set<string>();
-      const iterate = (cb: (k: string, v: any) => void) => {
-        if (typeof state.mobs.forEach === "function") state.mobs.forEach(cb);
-        else for (const k in state.mobs) cb(k, state.mobs[k]);
+      const iterate = (cb: (mid: string, v: any) => void) => {
+        if (typeof state.mobs.forEach === "function") {
+          state.mobs.forEach((v: any, k: string) => cb(k, v));
+        } else {
+          for (const k in state.mobs) cb(k, state.mobs[k]);
+        }
       };
       iterate((mid: string, m: any) => {
         if (!m) return;

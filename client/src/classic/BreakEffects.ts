@@ -12,17 +12,68 @@ import * as THREE from "three";
 import { BLOCKS, tileUV, getAtlasTexture } from "./Textures";
 
 // ── Crack outline ─────────────────────────────────────────────────────────────
+//
+// Real Minecraft uses 10 crack-overlay textures (destroy_stage_0..9). We
+// generate them once on the client by drawing random spider-web cracks into
+// a canvas at progressively-greater density, then swap the destination tile
+// of `cracks.material.map` to match the current break progress.
+
+const CRACK_STAGES = 10;
+
+function generateCrackTextures(): THREE.Texture[] {
+  const out: THREE.Texture[] = [];
+  for (let stage = 0; stage < CRACK_STAGES; stage++) {
+    const canvas = document.createElement("canvas");
+    canvas.width = canvas.height = 32;
+    const ctx = canvas.getContext("2d")!;
+    // Background is transparent — only the crack lines are drawn.
+    ctx.clearRect(0, 0, 32, 32);
+    ctx.strokeStyle = "rgba(0,0,0,0.85)";
+    ctx.lineWidth = 1;
+    // Density ramps up with stage. Stage 0 is essentially invisible.
+    const lineCount = 2 + stage * 3;
+    for (let i = 0; i < lineCount; i++) {
+      const x0 = Math.random() * 32;
+      const y0 = Math.random() * 32;
+      const segs = 2 + Math.floor(Math.random() * 3);
+      ctx.beginPath();
+      ctx.moveTo(x0, y0);
+      let x = x0, y = y0;
+      for (let s = 0; s < segs; s++) {
+        x += (Math.random() - 0.5) * 14;
+        y += (Math.random() - 0.5) * 14;
+        ctx.lineTo(Math.round(x), Math.round(y));
+      }
+      ctx.stroke();
+    }
+    // A few isolated speckle pixels to look gritty
+    ctx.fillStyle = "rgba(0,0,0,0.6)";
+    for (let i = 0; i < 4 + stage * 2; i++) {
+      const px = Math.floor(Math.random() * 32);
+      const py = Math.floor(Math.random() * 32);
+      ctx.fillRect(px, py, 1, 1);
+    }
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.magFilter = THREE.NearestFilter;
+    tex.minFilter = THREE.NearestFilter;
+    tex.generateMipmaps = false;
+    out.push(tex);
+  }
+  return out;
+}
+
 export class BreakHighlight {
   scene: THREE.Scene;
   mesh: THREE.LineSegments;
   cracks: THREE.Mesh;
   private mat: THREE.LineBasicMaterial;
   private crackMat: THREE.MeshBasicMaterial;
+  private crackTextures: THREE.Texture[];
   private target: { x: number; y: number; z: number } | null = null;
+  private currentStage = -1;
 
   constructor(scene: THREE.Scene) {
     this.scene = scene;
-    // Wire-frame outline (always shown when a block is targeted)
     const geom = new THREE.BoxGeometry(1.002, 1.002, 1.002);
     const edges = new THREE.EdgesGeometry(geom);
     this.mat = new THREE.LineBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.5 });
@@ -31,11 +82,11 @@ export class BreakHighlight {
     this.mesh.renderOrder = 998;
     scene.add(this.mesh);
 
-    // Crack overlay (shown only while breaking, grows in opacity)
+    this.crackTextures = generateCrackTextures();
     this.crackMat = new THREE.MeshBasicMaterial({
-      color: 0x000000,
+      map: this.crackTextures[0],
       transparent: true,
-      opacity: 0,
+      opacity: 1,
       depthWrite: false,
       polygonOffset: true,
       polygonOffsetFactor: -1,
@@ -64,11 +115,15 @@ export class BreakHighlight {
     if (!this.target) return;
     if (p <= 0) {
       this.cracks.visible = false;
-    } else {
-      this.cracks.visible = true;
-      // 9 discrete crack stages like real Minecraft
-      const stage = Math.min(9, Math.floor(p * 9) + 1);
-      this.crackMat.opacity = 0.15 + stage * 0.05;
+      this.currentStage = -1;
+      return;
+    }
+    this.cracks.visible = true;
+    const stage = Math.min(CRACK_STAGES - 1, Math.floor(p * CRACK_STAGES));
+    if (stage !== this.currentStage) {
+      this.currentStage = stage;
+      this.crackMat.map = this.crackTextures[stage];
+      this.crackMat.needsUpdate = true;
     }
   }
 
@@ -79,6 +134,7 @@ export class BreakHighlight {
     (this.cracks.geometry as THREE.BufferGeometry).dispose();
     this.mat.dispose();
     this.crackMat.dispose();
+    this.crackTextures.forEach(t => t.dispose());
   }
 }
 

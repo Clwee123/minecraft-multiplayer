@@ -54,6 +54,7 @@ export class MobState extends Schema {
 }
 
 export class GameState extends Schema {
+  @type("string")             mode       = "survival";
   @type({ map: PlayerState }) players    = new MapSchema<PlayerState>();
   @type([BlockChange])        blockChanges = new ArraySchema<BlockChange>();
   @type({ map: MobState })    mobs       = new MapSchema<MobState>();
@@ -76,9 +77,15 @@ export class GameRoom extends Room<GameState> {
   private mobTimers  = new Map<string, number>(); // AI state timers
   private mobVelY    = new Map<string, number>(); // vertical velocity per mob
 
-  onCreate(_options: any) {
+  onCreate(options: any = {}) {
     this.setState(new GameState());
-    console.log(`[GameRoom] Created ${this.roomId}`);
+    // Mode is part of the matchmaking key — see filterBy in index.ts. We
+    // also stash it in state + metadata so clients can verify they landed
+    // in the room they asked for.
+    const mode = String(options.mode || "survival").toLowerCase();
+    this.state.mode = mode;
+    this.setMetadata({ mode });
+    console.log(`[GameRoom] Created ${this.roomId} (mode=${mode})`);
 
     // ── Message handlers ─────────────────────────────────────────────────────
 
@@ -178,6 +185,13 @@ export class GameRoom extends Room<GameState> {
   // ── Player lifecycle ──────────────────────────────────────────────────────
 
   onJoin(client: Client, options: any = {}) {
+    // Belt-and-braces: filterBy already keeps modes apart, but reject any
+    // late mismatch (e.g. an outdated client that didn't pass `mode`).
+    const requested = String(options.mode || this.state.mode).toLowerCase();
+    if (requested && requested !== this.state.mode) {
+      console.warn(`[GameRoom] rejecting ${client.sessionId} — wanted ${requested}, room is ${this.state.mode}`);
+      throw new Error(`mode_mismatch: room is ${this.state.mode}, you asked for ${requested}`);
+    }
     const p  = new PlayerState();
     p.id     = client.sessionId;
     p.name   = (options.name || "Player").slice(0, 24);

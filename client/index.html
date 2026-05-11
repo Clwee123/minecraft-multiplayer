@@ -162,6 +162,40 @@
       background: rgba(255,255,255,0.1);
     }
 
+    /* In-game friends panel (L key) */
+    #ingameFriends {
+      position: fixed; right: 12px; top: 60px;
+      width: 320px; max-height: calc(100vh - 100px);
+      background: rgba(20, 22, 32, 0.92);
+      border: 1px solid rgba(233, 69, 96, 0.6);
+      border-radius: 8px;
+      padding: 12px;
+      z-index: 40;
+      display: none;
+      overflow-y: auto;
+      font-family: 'Courier New', monospace;
+    }
+    #ingameFriends h3 {
+      margin: 0 0 8px 0;
+      color: #ffe66d;
+      font-size: 12px; letter-spacing: 1px;
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    #ingameFriends .login-prompt {
+      padding: 14px;
+      color: rgba(255,255,255,0.65);
+      font-size: 12px;
+      text-align: center;
+    }
+    #ingameFriends .login-prompt button {
+      margin-top: 8px;
+      padding: 6px 12px;
+      background: linear-gradient(135deg, #e94560, #ff6b6b);
+      border: none; color: #fff;
+      border-radius: 4px; cursor: pointer;
+      font-family: inherit;
+    }
+
     #legionFriendsCard {
       display: none;
       margin-top: 12px;
@@ -724,15 +758,6 @@
           <div class="mc-desc">Stand on a single block — break it and the world rebuilds beneath you.</div>
         </div>
       </div>
-      <!-- Friends list (visible only when logged in) -->
-      <div id="legionFriendsCard">
-        <h3>
-          👥 Friends
-          <button id="legionRefreshFriends">↻ refresh</button>
-        </h3>
-        <div id="legionFriendsList"></div>
-      </div>
-
       <div class="menu-footer">
         <span id="buildStamp">build: …</span>
       </div>
@@ -761,8 +786,15 @@
     <div id="helpHud">
       <div><b>WASD</b> move · <b>Shift</b> sprint · <b>C</b> crouch · <b>Space</b> jump · <b>2×Space</b> fly</div>
       <div><b>Mouse</b> look · <b>LMB</b> break (hold) · <b>RMB</b> place / open crafting table</div>
-      <div><b>1-9</b> / <b>scroll</b> select · <b>E</b> inventory · <b>P</b> debug · <b>T</b> chat</div>
+      <div><b>1-9</b> / <b>scroll</b> select · <b>E</b> inventory · <b>Q</b> drop · <b>P</b> debug · <b>T</b> chat · <b>L</b> friends</div>
     </div>
+
+    <!-- In-game friends panel (L key) -->
+    <div id="ingameFriends">
+      <h3>👥 Friends <button id="ingameFriendsClose" style="background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);color:#fff;padding:2px 8px;border-radius:4px;font-size:10px;cursor:pointer;">✕</button></h3>
+      <div id="ingameFriendsList"></div>
+    </div>
+
     <div id="fps">— fps</div>
     <div id="debugOverlay"></div>
     <div id="chatLog"></div>

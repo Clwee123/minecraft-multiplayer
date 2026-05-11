@@ -22,7 +22,11 @@ app.use("/colyseus", monitor());
 const httpServer = createServer(app);
 const gameServer = new Server({ server: httpServer });
 
-gameServer.define("game_room", GameRoom).enableRealtimeListing();
+// Route players to rooms by mode: survival / creative / bedwars / parkour /
+// oneblock. Colyseus' filterBy ensures joinOrCreate only matches an existing
+// room when the requested mode matches. Survival players never end up in a
+// bedwars room, etc.
+gameServer.define("game_room", GameRoom).filterBy(["mode"]).enableRealtimeListing();
 
 httpServer.listen(PORT, () => {
   console.log(`\n🎮  Minecraft Multiplayer Server`);

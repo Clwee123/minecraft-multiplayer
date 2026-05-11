@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { clone as skeletonClone } from "three/examples/jsm/utils/SkeletonUtils.js";
 
 /**
  * Loader for the player GLB model. Loads once, then clones the scene
@@ -57,17 +58,11 @@ export interface PlayerInstance {
 /** Returns a fresh clone of the player template, plus an AnimationMixer. */
 export function spawnPlayer(): PlayerInstance | null {
   if (!_template) return null;
-  // SkeletonUtils.clone() handles skinned meshes properly. Import lazily.
-  // For simplicity here, use plain clone which works for non-skinned models.
-  let root: THREE.Group;
-  try {
-    // Try skeleton-aware clone if model is skinned
-    // @ts-ignore - SkeletonUtils provided by three examples
-    const { clone } = require("three/examples/jsm/utils/SkeletonUtils.js");
-    root = clone(_template) as THREE.Group;
-  } catch {
-    root = _template.clone(true);
-  }
+  // SkeletonUtils.clone() is REQUIRED for SkinnedMesh — a plain clone leaves
+  // the new mesh's skeleton.bones pointing at the original tree's bones, so
+  // skinning matrices stay at identity and the whole model renders at the
+  // bind pose at the cloned tree's local origin (i.e. at world (0,0,0)).
+  const root = skeletonClone(_template) as THREE.Group;
   let mixer: THREE.AnimationMixer | null = null;
   let walkAction: THREE.AnimationAction | null = null;
   let idleAction: THREE.AnimationAction | null = null;
@@ -117,13 +112,8 @@ export interface FirstPersonArm {
 
 export function buildFirstPersonArm(): FirstPersonArm | null {
   if (!_template) return null;
-  let cloned: THREE.Object3D;
-  try {
-    const { clone } = require("three/examples/jsm/utils/SkeletonUtils.js");
-    cloned = clone(_template) as THREE.Object3D;
-  } catch {
-    cloned = _template.clone(true);
-  }
+  // Same SkeletonUtils story as spawnPlayer — must do a skeleton-aware clone.
+  const cloned = skeletonClone(_template) as THREE.Object3D;
 
   // Hide everything except the right arm mesh. Use a name match so we don't
   // depend on mesh order. Common naming in this rig: `default_arm_R`.
