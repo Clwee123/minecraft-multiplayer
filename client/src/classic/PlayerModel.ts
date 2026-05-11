@@ -162,8 +162,12 @@ export function buildFirstPersonArm(): FirstPersonArm | null {
   // Same SkeletonUtils story as spawnPlayer — must do a skeleton-aware clone.
   const cloned = skeletonClone(_template) as THREE.Object3D;
 
-  // Own materials so depthTest=false doesn't leak to remote players.
-  isolateMaterials(cloned, { transparent: true, depthTest: false, renderOrder: 1000 });
+  // Use the default lit shader with normal depth testing. Earlier we had
+  // depthTest:false + transparent:true so the arm rendered over the whole
+  // world, but that made the arm's own front/back faces bleed through each
+  // other (no z-sort within the model). Plain opaque + depthTest=true is
+  // exactly how remote-player meshes are rendered and looks correct.
+  isolateMaterials(cloned, { transparent: false, depthTest: true });
   // Normalise to a sensible size, then `cloned.position` re-aligns the
   // shoulder. Keep this a touch smaller than the world model since we only
   // see the arm.
