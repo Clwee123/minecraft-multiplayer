@@ -1914,7 +1914,7 @@ async function startGame(serverAddr: string | null) {
 }
 
 const bs = document.getElementById("buildStamp");
-if (bs) bs.textContent = `build: ${__BUILD_TIME__}`;
+if (bs) bs.textContent = `build v2: ${__BUILD_TIME__}`;
 
 // Arm the audio engine — the first user click/keypress will create + resume
 // the AudioContext. Done at boot so menu UI clicks also tick.
