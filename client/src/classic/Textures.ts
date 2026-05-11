@@ -139,6 +139,7 @@ export const BLOCKS: Record<number, BlockDef> = {
   41: { faces: all6(T_DIAM_BLOCK),           hardness: 5.0, tool: "pickaxe" },
   42: { faces: all6(T_TORCH), transparent: true, solid: false, crossShape: true, emissive: true, hardness: 0 },
   43: { faces: all6(T_LADDER), transparent: true, solid: false, hardness: 0.4 },
+  44: { faces: [T_WOOL_R, T_WOOL_R, T_WOOL_W, T_PLANKS, T_WOOL_R, T_WOOL_R], hardness: 0.2, drop: 44 },
 };
 
 // ── Items (id >= 50 = items, not placeable blocks) ────────────────────────────
@@ -160,6 +161,7 @@ export const ITEMS: Record<number, { name: string; tile: number; tool?: "axe" | 
   64: { name: "Diamond Sword",  tile: T_DIAM_BLOCK, tool: "sword",   toolTier: 4 },
   65: { name: "Apple",          tile: T_FLOWER_RED, food: 4 },
   66: { name: "Bread",          tile: T_SAND,       food: 5 },
+  67: { name: "Stone Shovel",   tile: T_COBBLE, tool: "shovel",  toolTier: 2 },
 };
 
 export const BLOCK_NAMES: Record<number, string> = {
@@ -174,7 +176,7 @@ export const BLOCK_NAMES: Record<number, string> = {
   34: "Red Mushroom", 35: "Brown Mushroom",
   36: "Crafting Table", 37: "Furnace", 38: "Furnace (Lit)",
   39: "Iron Block", 40: "Gold Block", 41: "Diamond Block",
-  42: "Torch", 43: "Ladder",
+  42: "Torch", 43: "Ladder", 44: "Bed",
 };
 
 // Creative hotbar default

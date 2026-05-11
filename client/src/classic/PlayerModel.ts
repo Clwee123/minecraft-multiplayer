@@ -97,13 +97,50 @@ export function buildFallbackPlayer(): THREE.Group {
   const root = new THREE.Group();
   const head = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 0.5),
     new THREE.MeshLambertMaterial({ color: 0xf5cba7 }));
-  head.position.y = 1.5; root.add(head);
+  head.position.y = 1.5; head.name = "head"; root.add(head);
   const body = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.9, 0.3),
     new THREE.MeshLambertMaterial({ color: 0x4a7cff }));
-  body.position.y = 0.8; root.add(body);
+  body.position.y = 0.8; body.name = "body"; root.add(body);
   const legL = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.85, 0.25),
     new THREE.MeshLambertMaterial({ color: 0x2a4a8a }));
-  legL.position.set(-0.15, 0.35, 0); root.add(legL);
-  const legR = legL.clone(); legR.position.x = 0.15; root.add(legR);
+  legL.position.set(-0.15, 0.35, 0); legL.name = "leg"; root.add(legL);
+  const legR = legL.clone(); legR.name = "leg"; legR.position.x = 0.15; root.add(legR);
   return root;
+}
+
+/**
+ * Build a billboard sprite showing the player's name above their head.
+ * Uses a canvas texture; positioned by the caller (typical y = 2.2).
+ */
+export function makeNameTag(name: string): THREE.Sprite {
+  const padding = 12;
+  const font = "bold 36px 'Segoe UI', sans-serif";
+  // Measure on an offscreen canvas
+  const measure = document.createElement("canvas").getContext("2d")!;
+  measure.font = font;
+  const textWidth = Math.ceil(measure.measureText(name).width);
+  const w = Math.max(64, textWidth + padding * 2);
+  const h = 56;
+  const canvas = document.createElement("canvas");
+  canvas.width = w; canvas.height = h;
+  const ctx = canvas.getContext("2d")!;
+  ctx.fillStyle = "rgba(0,0,0,0.55)";
+  ctx.fillRect(0, 0, w, h);
+  ctx.font = font;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillStyle = "#000";
+  ctx.fillText(name, w / 2 + 2, h / 2 + 2);
+  ctx.fillStyle = "#ffffff";
+  ctx.fillText(name, w / 2, h / 2);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.minFilter = THREE.LinearFilter;
+  tex.magFilter = THREE.LinearFilter;
+  const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false });
+  const sprite = new THREE.Sprite(mat);
+  // Sprite world size: 1.6 wide, scaled by aspect.
+  const scaleX = 1.6 * (w / h) * (h / 56);
+  sprite.scale.set(scaleX, 0.45, 1);
+  sprite.renderOrder = 999;
+  return sprite;
 }

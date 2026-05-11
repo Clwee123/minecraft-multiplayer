@@ -191,7 +191,7 @@ export const RECIPES: Recipe[] = [
   { kind: "shaped", pattern: ["CCC", ".S.", ".S."], key: { C: 9, S: 54 }, result: 59, count: 1 },
   { kind: "shaped", pattern: ["CC.", "CS.", ".S."], key: { C: 9, S: 54 }, result: 60, count: 1 },
   { kind: "shaped", pattern: [".CC", ".SC", ".S."], key: { C: 9, S: 54 }, result: 60, count: 1 },
-  { kind: "shaped", pattern: ["C", "S", "S"], key: { C: 9, S: 54 }, result: 57 /* shovel uses planks; for stone we'd want a new id, omit for now */, count: 1 },
+  { kind: "shaped", pattern: ["C", "S", "S"], key: { C: 9, S: 54 }, result: 67, count: 1 },
   { kind: "shaped", pattern: ["C", "C", "S"], key: { C: 9, S: 54 }, result: 61, count: 1 },
 
   // Iron tools
@@ -206,6 +206,9 @@ export const RECIPES: Recipe[] = [
 
   // Glass (smelting; for now allow as recipe)
   { kind: "shapeless", items: { 4: 4 }, result: 11, count: 1 },
+
+  // Bed: 3 red wool over 3 planks
+  { kind: "shaped", pattern: ["RRR", "PPP"], key: { R: 15, P: 8 }, result: 44, count: 1 },
 ];
 
 /** Try to match the given crafting grid (2x2 or 3x3) against any recipe.

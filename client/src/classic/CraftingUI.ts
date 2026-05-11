@@ -1,4 +1,4 @@
-import { Inventory, InvSlot, matchRecipe, consumeGrid, emptySlot } from "./Inventory";
+import { Inventory, InvSlot, matchRecipe, consumeGrid, emptySlot, RECIPES, Recipe } from "./Inventory";
 import { getItemTile, getItemName } from "./Textures";
 
 /**
@@ -41,6 +41,41 @@ export class CraftingUI {
       this.cursorEl.style.left = e.clientX + "px";
       this.cursorEl.style.top  = e.clientY + "px";
     });
+    // Hold right-mouse to keep placing one-at-a-time while the cursor is over a slot
+    document.addEventListener("mouseup", (e) => {
+      if (e.button === 2) this.stopRepeat();
+    });
+    document.addEventListener("mouseleave", () => this.stopRepeat());
+    this.wireRecipeBook();
+  }
+
+  private repeatTimer: any = null;
+  private repeatTarget: { arr: InvSlot[]; i: number } | null = null;
+  private startRepeat(arr: InvSlot[], i: number) {
+    this.stopRepeat();
+    this.repeatTarget = { arr, i };
+    // First tick after 180 ms, then every 60 ms
+    this.repeatTimer = setTimeout(() => {
+      this.repeatTimer = setInterval(() => {
+        if (!this.repeatTarget) { this.stopRepeat(); return; }
+        if (this.cursor.id === 0) { this.stopRepeat(); return; }
+        // Update target by elementFromPoint so dragging across slots works
+        const el = document.elementFromPoint(
+          parseInt(this.cursorEl.style.left || "0"),
+          parseInt(this.cursorEl.style.top  || "0"),
+        ) as HTMLElement | null;
+        const slotEl = el?.closest(".inv-slot, #invOutput") as HTMLElement | null;
+        if (slotEl && (slotEl as any)._slotRef) {
+          const r = (slotEl as any)._slotRef as { arr: InvSlot[]; i: number };
+          this.handleSlotClick(r.arr, r.i, true, "main");
+        }
+      }, 60);
+    }, 180);
+  }
+  private stopRepeat() {
+    if (this.repeatTimer) { clearTimeout(this.repeatTimer); clearInterval(this.repeatTimer); }
+    this.repeatTimer = null;
+    this.repeatTarget = null;
   }
 
   show(use3x3: boolean) {
@@ -178,12 +213,109 @@ export class CraftingUI {
       `;
       el.title = getItemName(s.id);
     }
+    (el as any)._slotRef = { arr, i };
     el.addEventListener("mousedown", (e) => {
       e.preventDefault();
       this.handleSlotClick(arr, i, e.button === 2, source);
+      if (e.button === 2) this.startRepeat(arr, i);
     });
     el.addEventListener("contextmenu", (e) => e.preventDefault());
     return el;
+  }
+
+  // ── Recipe book ─────────────────────────────────────────────────────────
+  private wireRecipeBook() {
+    const btn = document.getElementById("recipeBookBtn");
+    const panel = document.getElementById("recipeBook");
+    const closeBtn = document.getElementById("recipeBookClose");
+    const search = document.getElementById("recipeSearch") as HTMLInputElement | null;
+    if (!btn || !panel) return;
+    btn.addEventListener("click", () => {
+      panel.style.display = "flex";
+      this.renderRecipeBook(search?.value ?? "");
+      search?.focus();
+    });
+    closeBtn?.addEventListener("click", () => { panel.style.display = "none"; });
+    search?.addEventListener("input", () => this.renderRecipeBook(search.value));
+  }
+
+  private renderRecipeBook(filter: string) {
+    const list = document.getElementById("recipeList");
+    if (!list) return;
+    const q = filter.trim().toLowerCase();
+    list.innerHTML = "";
+    for (const r of RECIPES) {
+      const resultName = getItemName(r.result).toLowerCase();
+      if (q && !resultName.includes(q)) continue;
+      list.appendChild(this.buildRecipeRow(r));
+    }
+  }
+
+  private buildRecipeRow(r: Recipe): HTMLElement {
+    const row = document.createElement("div");
+    row.className = "recipe-row";
+    const grid = document.createElement("div");
+    grid.className = "recipe-grid";
+    let cells: (number | null)[] = [];
+    let dim = 3;
+    if (r.kind === "shaped") {
+      const pw = r.pattern[0].length;
+      dim = Math.max(pw, r.pattern.length);
+      for (let y = 0; y < dim; y++) {
+        for (let x = 0; x < dim; x++) {
+          if (y < r.pattern.length && x < pw) {
+            const ch = r.pattern[y][x];
+            cells.push(ch === "." || ch === " " ? null : r.key[ch] ?? null);
+          } else {
+            cells.push(null);
+          }
+        }
+      }
+    } else {
+      // Shapeless: lay out items left-to-right top-to-bottom
+      dim = 3;
+      for (const id in r.items) {
+        for (let n = 0; n < r.items[+id]; n++) cells.push(+id);
+      }
+      while (cells.length < dim * dim) cells.push(null);
+    }
+    grid.style.gridTemplateColumns = `repeat(${dim}, 24px)`;
+    grid.style.gridTemplateRows    = `repeat(${dim}, 24px)`;
+    for (const c of cells) {
+      const cell = document.createElement("div");
+      cell.className = "recipe-cell";
+      if (c != null) {
+        const tile = getItemTile(c);
+        const col = tile % 16, row = Math.floor(tile / 16);
+        cell.innerHTML = `<div class="recipe-icon" style="
+          background-image:url(/terrain_atlas.png?v=5);
+          background-size:384px 384px;
+          background-position:-${col * 24}px -${row * 24}px;
+        " title="${getItemName(c)}"></div>`;
+      }
+      grid.appendChild(cell);
+    }
+    row.appendChild(grid);
+
+    const arrow = document.createElement("div");
+    arrow.textContent = "→";
+    arrow.className = "recipe-arrow";
+    row.appendChild(arrow);
+
+    const out = document.createElement("div");
+    out.className = "recipe-out";
+    const tile = getItemTile(r.result);
+    const col = tile % 16, rowi = Math.floor(tile / 16);
+    out.innerHTML = `
+      <div class="recipe-icon" style="
+        background-image:url(/terrain_atlas.png?v=5);
+        background-size:384px 384px;
+        background-position:-${col * 24}px -${rowi * 24}px;
+      "></div>
+      <span class="recipe-label">${getItemName(r.result)}${r.count > 1 ? ` ×${r.count}` : ""}</span>
+    `;
+    row.appendChild(out);
+    return row;
   }
 
   private handleSlotClick(arr: InvSlot[], i: number, right: boolean, source: string) {
