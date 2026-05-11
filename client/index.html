@@ -78,49 +78,116 @@
       outline: none; border-color: #7eb84c;
       background: rgba(0,0,0,0.6);
     }
+    /* ── Bloxd-style mode grid ──────────────────────────────────── */
     .mode-grid {
-      display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 16px;
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+      gap: 8px;
+      margin-top: 16px;
+    }
+    .menu-panel {
+      max-width: 1100px;
     }
     .mode-card {
-      padding: 14px 16px;
-      background: linear-gradient(180deg, rgba(70,90,110,0.7), rgba(40,55,70,0.7));
-      border: 2px solid rgba(255,255,255,0.25);
-      color: #fff;
-      font-family: 'Minecraft', 'Courier New', monospace;
-      font-size: 13px; cursor: pointer; transition: all 0.15s;
-      border-radius: 2px; text-align: left;
-      box-shadow: 0 3px 0 rgba(0,0,0,0.4);
+      position: relative;
+      aspect-ratio: 1 / 1;
+      border-radius: 6px;
+      overflow: hidden;
+      cursor: pointer;
+      border: 2px solid rgba(255,255,255,0.18);
+      box-shadow: 0 3px 0 rgba(0,0,0,0.4), 0 5px 12px rgba(0,0,0,0.5);
+      transition: transform 0.12s ease, border-color 0.12s ease;
+      background: #222;
     }
     .mode-card:hover {
-      background: linear-gradient(180deg, rgba(126,184,76,0.45), rgba(70,120,40,0.45));
-      border-color: #7eb84c; transform: translateY(-1px);
-      box-shadow: 0 4px 0 rgba(0,0,0,0.4), 0 6px 12px rgba(126,184,76,0.3);
+      transform: translateY(-2px);
+      border-color: #7eb84c;
+      box-shadow: 0 5px 0 rgba(0,0,0,0.4), 0 8px 16px rgba(126,184,76,0.35);
     }
-    .mode-card:active {
-      transform: translateY(2px);
-      box-shadow: 0 1px 0 rgba(0,0,0,0.4);
+    .mode-card:active { transform: translateY(1px); }
+    .mode-card.disabled {
+      filter: grayscale(0.6) brightness(0.6);
+      cursor: not-allowed;
     }
-    .mode-card .mc-title {
-      font-size: 14px; font-weight: bold; margin-bottom: 4px;
-      display: flex; align-items: center; gap: 8px;
+    .mode-card.disabled:hover {
+      transform: none;
+      border-color: rgba(255,255,255,0.18);
+      box-shadow: 0 3px 0 rgba(0,0,0,0.4), 0 5px 12px rgba(0,0,0,0.5);
     }
-    .mode-card .mc-tag {
-      font-size: 10px; padding: 1px 6px;
-      background: rgba(255,255,255,0.15);
-      border-radius: 8px; color: #cfc;
+    .mc-cover {
+      position: absolute; inset: 0;
+      background-size: cover;
+      background-position: center;
+      image-rendering: auto;
     }
-    .mode-card .mc-tag.mp { background: rgba(126,184,76,0.4); color: #fff; }
-    .mode-card .mc-tag.offline { background: rgba(80,80,80,0.4); color: #ddd; }
-    .mode-card .mc-desc { font-size: 11px; color: #ccc; font-style: italic; }
-    .mode-card.featured {
-      grid-column: 1 / -1;
-      background: linear-gradient(180deg, rgba(180,60,60,0.7), rgba(120,30,30,0.7));
-      border-color: #ff9988;
+    .mc-cover::after {
+      /* Bottom gradient so the title is always legible over the screenshot. */
+      content: "";
+      position: absolute; inset: 0;
+      background: linear-gradient(180deg, transparent 50%, rgba(0,0,0,0.82) 100%);
+      pointer-events: none;
     }
-    .mode-card.featured:hover {
-      background: linear-gradient(180deg, rgba(220,90,90,0.8), rgba(160,40,40,0.8));
-      border-color: #ffbbaa;
+    .mc-tag {
+      position: absolute; top: 0; left: 0;
+      font-family: 'Minecraft', 'Courier New', monospace;
+      font-size: 11px; font-weight: bold;
+      padding: 4px 8px;
+      color: #fff;
+      letter-spacing: 1px;
+      background: #f0a418;
+      box-shadow: 0 2px 0 rgba(0,0,0,0.3);
+      z-index: 2;
     }
+    .mc-tag.updated { background: #4cae4c; }
+    .mc-tag.ranked  { background: #ffd14a; color: #5a3500; }
+    .mc-tag.limited { background: #e94560; }
+    .mc-tag.coming  { background: #888; color: #fff; }
+    .mc-ccu {
+      position: absolute; top: 6px; right: 6px;
+      font-family: 'Minecraft', 'Courier New', monospace;
+      font-size: 11px; font-weight: bold;
+      color: #fff;
+      background: rgba(0,0,0,0.55);
+      padding: 3px 8px;
+      border-radius: 4px;
+      display: flex; align-items: center; gap: 4px;
+      z-index: 2;
+      text-shadow: 1px 1px 0 #000;
+    }
+    .mc-ccu::before {
+      content: "👤";
+      font-size: 10px;
+      filter: grayscale(1) brightness(1.4);
+    }
+    .mc-title {
+      position: absolute; left: 0; right: 0; bottom: 0;
+      padding: 8px 10px 10px;
+      color: #fff;
+      font-family: 'Minecraft', 'Courier New', monospace;
+      z-index: 2;
+      pointer-events: none;
+    }
+    .mc-title .mc-name {
+      font-size: 13px;
+      font-weight: bold;
+      letter-spacing: 0.5px;
+      text-shadow: 2px 2px 0 #000;
+      line-height: 1.1;
+    }
+    .mc-title .mc-sub {
+      display: inline-block;
+      margin-top: 3px;
+      font-size: 10px;
+      padding: 1px 6px;
+      background: #5a8a3a;
+      color: #fff;
+      border-radius: 3px;
+      letter-spacing: 1px;
+      text-shadow: 1px 1px 0 #000;
+    }
+    .mc-title .mc-sub.offline { background: #5a5a5a; }
+    .mc-title .mc-sub.mp { background: #4a8aff; }
+    .mc-title .mc-sub.featured { background: #e94560; }
     .menu-footer {
       margin-top: 16px; text-align: center;
       font-family: 'Minecraft', 'Courier New', monospace;
@@ -1144,34 +1211,82 @@
         <input id="serverInput" type="text" placeholder="159.223.140.36" />
         <button id="browseServersBtn" class="legion-btn secondary" style="margin-left:6px;">Browse rooms</button>
       </div>
-      <div class="mode-grid">
-        <div class="mode-card" data-mode="survival_offline">
-          <div class="mc-title">⚔ Survival Mode <span class="mc-tag offline">offline</span></div>
-          <div class="mc-desc">Mine, craft, build. Tools speed up mining.</div>
-        </div>
+      <div class="mode-grid" id="modeGrid">
         <div class="mode-card" data-mode="survival_mp">
-          <div class="mc-title">⚔ Survival Mode <span class="mc-tag mp">multi</span></div>
-          <div class="mc-desc">Survival with friends on the shared world.</div>
+          <div class="mc-cover" style="background-image:url('/screenshots/survival.jpg');"></div>
+          <div class="mc-tag">POPULAR</div>
+          <div class="mc-ccu" data-mode-ccu="survival">0</div>
+          <div class="mc-title">
+            <div class="mc-name">Survival</div>
+            <span class="mc-sub mp">multi</span>
+          </div>
         </div>
-        <div class="mode-card" data-mode="creative_offline">
-          <div class="mc-title">✈ Creative Mode <span class="mc-tag offline">offline</span></div>
-          <div class="mc-desc">Fly, build freely with infinite blocks.</div>
+        <div class="mode-card" data-mode="survival_offline">
+          <div class="mc-cover" style="background-image:url('/screenshots/survival.jpg');"></div>
+          <div class="mc-ccu" data-mode-ccu="survival_offline">·</div>
+          <div class="mc-title">
+            <div class="mc-name">Survival</div>
+            <span class="mc-sub offline">offline</span>
+          </div>
         </div>
         <div class="mode-card" data-mode="creative_mp">
-          <div class="mc-title">✈ Creative Mode <span class="mc-tag mp">multi</span></div>
-          <div class="mc-desc">Creative on the shared multiplayer world.</div>
+          <div class="mc-cover" style="background-image:url('/screenshots/creative.jpg');"></div>
+          <div class="mc-tag updated">UPDATED</div>
+          <div class="mc-ccu" data-mode-ccu="creative">0</div>
+          <div class="mc-title">
+            <div class="mc-name">Creative</div>
+            <span class="mc-sub mp">multi</span>
+          </div>
+        </div>
+        <div class="mode-card" data-mode="creative_offline">
+          <div class="mc-cover" style="background-image:url('/screenshots/creative.jpg');"></div>
+          <div class="mc-ccu" data-mode-ccu="creative_offline">·</div>
+          <div class="mc-title">
+            <div class="mc-name">Creative</div>
+            <span class="mc-sub offline">offline</span>
+          </div>
         </div>
         <div class="mode-card" data-mode="bedwars_mp">
-          <div class="mc-title">🛏 Bedwars <span class="mc-tag mp">multi</span></div>
-          <div class="mc-desc">4-island arena · break the bed, win the round.</div>
+          <div class="mc-cover" style="background-image:url('/screenshots/bedwars.jpg');"></div>
+          <div class="mc-tag ranked">RANKED</div>
+          <div class="mc-ccu" data-mode-ccu="bedwars">0</div>
+          <div class="mc-title">
+            <div class="mc-name">Bedwars</div>
+            <span class="mc-sub mp">multi</span>
+          </div>
         </div>
         <div class="mode-card" data-mode="parkour_mp">
-          <div class="mc-title">🏃 Parkour <span class="mc-tag mp">multi</span></div>
-          <div class="mc-desc">Zig-zag platform course · reach the diamond block.</div>
+          <div class="mc-cover" style="background-image:url('/screenshots/parkour.jpg');"></div>
+          <div class="mc-ccu" data-mode-ccu="parkour">0</div>
+          <div class="mc-title">
+            <div class="mc-name">Parkour</div>
+            <span class="mc-sub mp">multi</span>
+          </div>
         </div>
-        <div class="mode-card featured" data-mode="oneblock">
-          <div class="mc-title">⬛ One Block</div>
-          <div class="mc-desc">Stand on a single block — break it and the world rebuilds beneath you.</div>
+        <div class="mode-card" data-mode="oneblock">
+          <div class="mc-cover" style="background-image:url('/screenshots/oneblock.jpg');"></div>
+          <div class="mc-tag limited">FEATURED</div>
+          <div class="mc-ccu" data-mode-ccu="oneblock">·</div>
+          <div class="mc-title">
+            <div class="mc-name">One Block</div>
+            <span class="mc-sub featured">solo</span>
+          </div>
+        </div>
+        <div class="mode-card disabled" data-mode="buildbattle">
+          <div class="mc-cover" style="background-image:url('/screenshots/buildbattle.jpg');"></div>
+          <div class="mc-tag coming">SOON</div>
+          <div class="mc-title">
+            <div class="mc-name">Build Battle</div>
+            <span class="mc-sub">coming soon</span>
+          </div>
+        </div>
+        <div class="mode-card disabled" data-mode="hideandseek">
+          <div class="mc-cover" style="background-image:url('/screenshots/hideandseek.jpg');"></div>
+          <div class="mc-tag coming">SOON</div>
+          <div class="mc-title">
+            <div class="mc-name">Hide and Seek</div>
+            <span class="mc-sub">coming soon</span>
+          </div>
         </div>
       </div>
       <div class="menu-footer">

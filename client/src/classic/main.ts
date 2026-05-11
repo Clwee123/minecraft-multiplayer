@@ -9,7 +9,7 @@ import { Inventory } from "./Inventory";
 import { CraftingUI } from "./CraftingUI";
 import { CreativeInventory } from "./CreativeInventory";
 import { TradeUI } from "./TradeUI";
-import { ServerFinder } from "./ServerFinder";
+import { ServerFinder, listRooms } from "./ServerFinder";
 import { ItemDrops } from "./ItemDrops";
 import { MODES, ModeId, buildBedwars, buildParkour, buildOneBlock, pickOneBlockNext } from "./Modes";
 import { preloadPlayerModel, buildFirstPersonArm, FirstPersonArm, applySkinToCharacter } from "./PlayerModel";
@@ -121,6 +121,14 @@ function wireMenuButtons() {
   document.getElementById("browseServersBtn")?.addEventListener("click", () => {
     serverFinder?.show();
   });
+
+  // ── Live CCU counters per mode card ───────────────────────────────────
+  refreshModeCCU(serverInput.value.trim());
+  setInterval(() => {
+    // Don't bother polling once the user has clicked into a game.
+    if (document.getElementById("mainMenu")?.style.display === "none") return;
+    refreshModeCCU(serverInput.value.trim());
+  }, 10_000);
 
   // When Legion user state changes, update name input + login banner
   Legion.onUserChanged((u) => {
@@ -434,6 +442,33 @@ function pollGamepad(dt: number) {
 
   // Save current state for edge detection next frame
   for (let i = 0; i < gp.buttons.length; i++) _gpPrev[i] = btn(i);
+}
+
+/**
+ * Query the Colyseus listing endpoint and sum `clients` by mode metadata so
+ * each menu card shows a live "👤 N" badge. Modes with no rooms (or offline
+ * variants) show "·" instead of a 0 so they don't read as broken.
+ */
+async function refreshModeCCU(serverAddr: string) {
+  try {
+    const rooms = await listRooms(serverAddr);
+    const tally: Record<string, number> = {};
+    for (const r of rooms) {
+      const mode = String(r.metadata?.mode || "").toLowerCase();
+      if (!mode) continue;
+      tally[mode] = (tally[mode] ?? 0) + (r.clients || 0);
+    }
+    document.querySelectorAll<HTMLElement>("[data-mode-ccu]").forEach(el => {
+      const key = el.dataset.modeCcu || "";
+      if (key.endsWith("_offline") || key === "oneblock") {
+        el.textContent = "·";
+      } else {
+        el.textContent = String(tally[key] ?? 0);
+      }
+    });
+  } catch (e) {
+    console.warn("[Menu] CCU refresh failed", e);
+  }
 }
 
 function renderFriendRow(f: LegionFriend): string {
