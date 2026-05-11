@@ -1629,6 +1629,8 @@ async function startGame(serverAddr: string | null) {
   chestUI.onClose = () => { refreshHotbar(); syncHeldItem(); setTimeout(() => document.body.requestPointerLock(), 50); };
   chestUI.onChange = () => { refreshHotbar(); syncHeldItem(); };
   chestUI.onSave = () => savePersistentState();
+  // Tell ChestUI how to detect adjacent chest blocks for double-chest merge.
+  chestUI.isChestBlock = (x, y, z) => world.getBlock(x, y, z) === 171;
   craftingUI = new CraftingUI(inv);
   craftingUI.onCraft = () => { refreshHotbar(); sound.craft(); };
   craftingUI.onClose = () => {

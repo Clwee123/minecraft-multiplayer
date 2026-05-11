@@ -182,10 +182,13 @@ export function buildFirstPersonArm(): FirstPersonArm | null {
     }
   });
 
-  // Find right-shoulder bone for swinging.
+  // Find right-shoulder bone for swinging, and the right-hand/forearm bone
+  // for attaching held items to the END of the arm instead of the elbow.
   let shoulder: THREE.Object3D | null = null;
+  let hand: THREE.Object3D | null = null;
   cloned.traverse((o: any) => {
     if (!shoulder && (o.name === "ArmR1" || /^arm.*r1$/i.test(o.name))) shoulder = o;
+    if (!hand && (o.name === "ArmR2" || /^arm.*r2$/i.test(o.name) || /hand.*r/i.test(o.name) || /wrist.*r/i.test(o.name))) hand = o;
   });
 
   // We need the bone's world-space position so we can offset the clone such
@@ -310,19 +313,23 @@ export function buildFirstPersonArm(): FirstPersonArm | null {
         heldMesh.parent?.remove(heldMesh);
         const m = (heldMesh as THREE.Mesh).material as THREE.Material | undefined;
         m?.dispose?.();
-        // Don't dispose geometry — it might be cached / shared.
         heldMesh = null;
       }
       if (itemId === 0) return;
       heldMesh = buildHeldItemModel(itemId, { firstPerson: true });
-      // Attach to the GROUP (camera-local, unscaled) instead of the cloned
-      // model — the model is scaled down ~0.4× so local offsets inside it
-      // were shrinking to nothing. Group is at identity, so these offsets
-      // are camera-relative directly.
-      heldMesh.position.set(0.35, -0.42, -0.55);
-      // Hold tools at the classic vanilla angle so the diagonal is visible.
+      // Attach the held mesh to the HAND bone so it tracks the end of the
+      // arm regardless of how the shoulder is rotated. Previously parented
+      // to the camera group with a fixed offset — with the new shoulder
+      // pose (forward = -1.92) the static offset landed at the elbow.
+      // The cloned model is scaled ~0.4×, so we counter-scale the held mesh.
+      const inv = 1 / (cloned.scale.y || 1);
+      heldMesh.scale.set(inv, inv, inv);
+      // Offset down the forearm in the hand-bone's local space and tilt for
+      // the classic vanilla diagonal.
+      heldMesh.position.set(0, -0.30, 0);
       heldMesh.rotation.set(0.18, -0.55, 0.55);
-      group.add(heldMesh);
+      const parent = (hand as THREE.Object3D | null) ?? group;
+      parent.add(heldMesh);
     },
   };
 }

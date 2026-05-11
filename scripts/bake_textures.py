@@ -58,9 +58,12 @@ if chest:
     def crop_face(box, dst_col, dst_row):
         f = src.crop(box).resize((TILE, TILE), Image.NEAREST)
         atlas.paste(f, (dst_col * TILE, dst_row * TILE), f)
-    crop_face((14,  0, 28, 14), 12, 14)  # top
-    crop_face((14, 33, 28, 47), 14, 14)  # front
-    crop_face((28, 33, 42, 47), 15, 14)  # side
+    # Use plain-wood regions where possible to keep the cube look consistent
+    # — the lid-top with hinges looks weirdly oriented on a single-cube top
+    # face since our cube faces have no per-face rotation.
+    crop_face((28, 19, 42, 33), 12, 14)  # top — plain wood top of base
+    crop_face((14, 33, 28, 47), 14, 14)  # front — base front with keyhole
+    crop_face((28, 33, 42, 47), 15, 14)  # side — plain side
     print("[ok] chest -> (12,14) top, (14,14) front, (15,14) side")
 
 atlas.save(ATLAS)

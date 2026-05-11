@@ -124,6 +124,11 @@ export class FurnaceUI {
   }
 
   show(x: number, y: number, z: number) {
+    // Create the state up-front. Previously we only set `this.active` to
+    // the key, but the state itself wasn't in the Map yet, so
+    // active_state() returned null and render() exited before drawing
+    // the inventory grid — the panel showed the machine and nothing else.
+    this.getOrCreate(x, y, z);
     this.active = `${x|0},${y|0},${z|0}`;
     this.open = true;
     this.panel.style.display = "flex";

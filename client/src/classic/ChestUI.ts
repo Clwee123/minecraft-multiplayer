@@ -77,9 +77,37 @@ export class ChestUI {
     }
   }
 
+  /** Called by main.ts to tell us about adjacent chest blocks so we can
+   *  decide if this is a single-chest (27 slots) or double-chest (54 slots)
+   *  open. Returns the partner key if found, else null. */
+  private findPartner(x: number, y: number, z: number, isChestBlock: (x: number, y: number, z: number) => boolean): { key: string; x: number; y: number; z: number } | null {
+    const offsets: Array<[number, number]> = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+    for (const [dx, dz] of offsets) {
+      if (isChestBlock(x + dx, y, z + dz)) {
+        return { key: `${(x+dx)|0},${y|0},${(z+dz)|0}`, x: x+dx, y, z: z+dz };
+      }
+    }
+    return null;
+  }
+
+  /** Set externally before show() so we know how to look up adjacent chests
+   *  for double-chest detection. main.ts provides world.getBlock. */
+  isChestBlock: (x: number, y: number, z: number) => boolean = () => false;
+
+  /** Partner cell of the currently-open double chest, or null for single. */
+  private activePartner: string | null = null;
+
   show(x: number, y: number, z: number) {
     this.active = `${x|0},${y|0},${z|0}`;
     this.slotsFor(this.active); // ensure exists
+    // Check for an adjacent chest to merge into a 54-slot "Large Chest".
+    const partner = this.findPartner(x, y, z, this.isChestBlock);
+    if (partner) {
+      this.activePartner = partner.key;
+      this.slotsFor(partner.key); // ensure partner exists
+    } else {
+      this.activePartner = null;
+    }
     this.open = true;
     this.panel.style.display = "flex";
     document.exitPointerLock();
@@ -115,12 +143,23 @@ export class ChestUI {
 
   private render() {
     if (!this.active) return;
-    const slots = this.slotsFor(this.active);
+    const slotsA = this.slotsFor(this.active);
+    const slotsB = this.activePartner ? this.slotsFor(this.activePartner) : null;
     const chestGrid = document.getElementById("chestGrid")!;
     chestGrid.innerHTML = "";
+    // Single chest = 27 slots; double chest = 54 slots (top half from active,
+    // bottom half from partner). Click handlers route to the correct array.
     for (let i = 0; i < CHEST_SLOTS; i++) {
-      chestGrid.appendChild(this.makeSlotEl(slots, i, "chest"));
+      chestGrid.appendChild(this.makeSlotEl(slotsA, i, "chest"));
     }
+    if (slotsB) {
+      for (let i = 0; i < CHEST_SLOTS; i++) {
+        chestGrid.appendChild(this.makeSlotEl(slotsB, i, "chest"));
+      }
+    }
+    // Update the header to reflect single vs double.
+    const hdr = document.querySelector("#chestUI .chest-header h2") as HTMLElement | null;
+    if (hdr) hdr.textContent = slotsB ? "LARGE CHEST" : "CHEST";
     const main = document.getElementById("chestInvMain")!;
     main.innerHTML = "";
     for (let i = 0; i < this.inv.main.length; i++) {
