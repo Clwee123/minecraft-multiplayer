@@ -239,18 +239,22 @@ export function buildFirstPersonArm(): FirstPersonArm | null {
         miningSwingPhase = 0;
       }
       // ── Walking bob + yaw sway on the whole arm ──
+      // Dialed way down from the previous values — was buzzing at sprint
+      // speed. The bob frequency scales with horizontal velocity but is
+      // clamped, and the amplitude is half what it used to be.
       if (ctx) {
         const moving = ctx.walkSpeed > 0.5 && ctx.onGround;
-        if (moving) walkPhase += Math.min(ctx.walkSpeed, 8) * dt * 1.6;
-        else        walkPhase *= 0.94; // ease out
-        const bobY = moving ? Math.sin(walkPhase * 2) * 0.025 : 0;
-        const bobX = moving ? Math.sin(walkPhase)     * 0.022 : 0;
-        // Smooth sway from rapid yaw changes — arms lag behind the camera.
-        const targetSway = Math.max(-0.6, Math.min(0.6, ctx.yawDelta * 25));
-        swayZ += (targetSway - swayZ) * Math.min(1, dt * 12);
-        group.position.x = groupBaseX + bobX + swayZ * 0.04;
+        const clampedSpeed = Math.min(ctx.walkSpeed, 6);
+        if (moving) walkPhase += clampedSpeed * dt * 0.6;
+        else        walkPhase *= 0.92;
+        const bobY = moving ? Math.sin(walkPhase * 2) * 0.012 : 0;
+        const bobX = moving ? Math.sin(walkPhase)     * 0.010 : 0;
+        // Sway from yaw changes — arms lag behind the camera, smoothed.
+        const targetSway = Math.max(-0.5, Math.min(0.5, ctx.yawDelta * 18));
+        swayZ += (targetSway - swayZ) * Math.min(1, dt * 10);
+        group.position.x = groupBaseX + bobX + swayZ * 0.025;
         group.position.y = groupBaseY + bobY;
-        group.rotation.z = -swayZ * 0.25;
+        group.rotation.z = -swayZ * 0.18;
       } else {
         group.position.x = groupBaseX;
         group.position.y = groupBaseY;
@@ -387,12 +391,14 @@ export function detachHeldItem(_playerRoot: THREE.Object3D, mesh: THREE.Object3D
 
 // ── Bloxity skin texture ───────────────────────────────────────────────────
 //
-// Bloxity ships per-user skin PNGs at static.bloxity.io/skins/<id>.png.
-// We apply the texture as `material.map` on every SkinnedMesh inside the
-// cloned GLB rig. Each clone has its own (cloned) materials thanks to
-// isolateMaterials() in spawnPlayer/buildFirstPersonArm, so changing one
-// player's skin won't leak to anybody else.
-const SKIN_CDN = "https://static.bloxity.io/skins";
+// Bloxity ships per-user skin PNGs at static.bloxity.io/avatars/skins/<id>.png
+// (note the /avatars/ segment — easy to drop, this is what fixed silent
+// 404s that left every player on the default GLB textures). We apply the
+// texture as `material.map` on every SkinnedMesh inside the cloned GLB
+// rig. Each clone has its own (cloned) materials thanks to isolateMaterials()
+// in spawnPlayer/buildFirstPersonArm, so changing one player's skin won't
+// leak to anybody else.
+const SKIN_CDN = "https://static.bloxity.io/avatars/skins";
 const _skinTextureCache: Map<string, THREE.Texture> = new Map();
 
 export function applySkinToCharacter(root: THREE.Object3D, skinId: string | null | undefined) {

@@ -143,6 +143,23 @@ export class Multiplayer {
       this.sessionId = this.room.sessionId;
       Legion.updateRoom(this.room.roomId);
 
+      // CRITICAL: wait for state.seed to land before we let main.ts build the
+      // world. Otherwise different clients in the same room race the initial
+      // state replication and generate terrain from different (random)
+      // seeds — the symptom is "we joined the same room but our worlds
+      // look totally different".
+      await new Promise<void>((resolve) => {
+        const ok = () => typeof (this.room?.state as any)?.seed === "number"
+                     && ((this.room!.state as any).seed | 0) > 0;
+        if (ok()) { resolve(); return; }
+        const handler = () => { if (ok()) { try { this.room!.onStateChange.remove(handler); } catch {} resolve(); } };
+        try { this.room.onStateChange(handler); } catch {}
+        // Hard timeout so we don't block boot forever if the server schema
+        // changes shape. main.ts falls back to a random seed in that case.
+        setTimeout(resolve, 2500);
+      });
+      console.log(`[MP] joined room ${this.room.roomId}, seed=${(this.room.state as any)?.seed}`);
+
       // ── One-shot events ────────────────────────────────────────────────
       this.room.onMessage("blockUpdate", (msg: any) => {
         if (!msg || !this.onBlockUpdate) return;

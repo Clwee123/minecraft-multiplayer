@@ -11,7 +11,7 @@ import { CreativeInventory } from "./CreativeInventory";
 import { TradeUI } from "./TradeUI";
 import { ServerFinder, listRooms } from "./ServerFinder";
 import { ItemDrops } from "./ItemDrops";
-import { MODES, ModeId, buildBedwars, buildParkour, buildOneBlock, pickOneBlockNext } from "./Modes";
+import { MODES, ModeId, buildBedwars, buildParkour, buildOneBlock, pickOneBlockNext, buildBuildBattle, buildHideAndSeek } from "./Modes";
 import { preloadPlayerModel, buildFirstPersonArm, FirstPersonArm, applySkinToCharacter } from "./PlayerModel";
 import { BreakHighlight, BreakParticles } from "./BreakEffects";
 import { Legion, LegionUser, LegionFriend, readInstantJoinIntent } from "./Legion";
@@ -113,6 +113,7 @@ function wireMenuButtons() {
       survival: "survival_mp", creative: "creative_mp",
       bedwars: "bedwars_mp", parkour: "parkour_mp",
       oneblock: "oneblock",
+      buildbattle: "buildbattle_mp", hideandseek: "hideandseek_mp",
     };
     mode = ((roomMode && fallback[roomMode]) || "survival_mp") as ModeId;
     pendingRoomId = roomId;
@@ -1117,10 +1118,12 @@ async function startGame(serverAddr: string | null) {
       player.vel.z += (dz / len) * 4.5;
       if (player.onGround) player.vel.y = Math.max(player.vel.y, 3.6);
     };
-    const modeKey = mode === "creative_mp" ? "creative"
-                  : mode === "bedwars_mp"  ? "bedwars"
-                  : mode === "parkour_mp"  ? "parkour"
-                  : mode === "oneblock"    ? "oneblock"
+    const modeKey = mode === "creative_mp"     ? "creative"
+                  : mode === "bedwars_mp"      ? "bedwars"
+                  : mode === "parkour_mp"      ? "parkour"
+                  : mode === "oneblock"        ? "oneblock"
+                  : mode === "buildbattle_mp"  ? "buildbattle"
+                  : mode === "hideandseek_mp"  ? "hideandseek"
                   : "survival";
     try {
       await mp.connect(serverAddr, modeKey, pendingRoomId);
@@ -1152,6 +1155,12 @@ async function startGame(serverAddr: string | null) {
     const s = buildOneBlock(world);
     spawnX = s.spawnX; spawnY = s.spawnY; spawnZ = s.spawnZ;
     oneBlockCenter = { x: 128, y: 40, z: 128 };
+  } else if (mode === "buildbattle_mp") {
+    const s = buildBuildBattle(world);
+    spawnX = s.spawnX; spawnY = s.spawnY; spawnZ = s.spawnZ;
+  } else if (mode === "hideandseek_mp") {
+    const s = buildHideAndSeek(world);
+    spawnX = s.spawnX; spawnY = s.spawnY; spawnZ = s.spawnZ;
   } else {
     const s = world.findSpawn();
     spawnX = s[0]; spawnY = s[1]; spawnZ = s[2];
@@ -1537,7 +1546,40 @@ sound.arm();
 // in the DOM already).
 wirePauseButtons();
 
-// Boot Legion SDK first so the menu can offer login before the user picks a mode.
+// Pre-read URL params at SCRIPT LOAD TIME so we don't depend on Legion SDK
+// being ready before we can decide to auto-join. The portal sometimes
+// launches us with ?instantMultiplayer=true&roomId=… and we don't want to
+// flash the lobby for the 0.5-8s the SDK takes to initialise.
+const _bootIntent = readInstantJoinIntent();
+console.log("[Boot] instant-MP intent:", _bootIntent);
+
+function startInstantMultiplayer(intent: ReturnType<typeof readInstantJoinIntent>) {
+  Legion.loadingStep("Preparing instant multiplayer…");
+  const u = Legion.getUser();
+  playerName = u?.username || u?.displayName || ("Player" + Math.floor(Math.random() * 1000));
+  localStorage.setItem("mc.playerName", playerName);
+
+  const requested = (intent.mode || "survival_mp").toLowerCase();
+  const fallbackMap: Record<string, ModeId> = {
+    survival: "survival_mp", creative: "creative_mp",
+    bedwars: "bedwars_mp", parkour: "parkour_mp",
+    oneblock: "oneblock",
+    buildbattle: "buildbattle_mp", hideandseek: "hideandseek_mp",
+  };
+  const resolved = (MODES[requested as ModeId] ? requested : fallbackMap[requested]) as ModeId;
+  mode = resolved || "survival_mp";
+  pendingRoomId = intent.roomId;
+  console.log(`[Boot] auto-joining mode=${mode} roomId=${pendingRoomId}`);
+
+  const isLocal = location.hostname === "localhost" || location.hostname === "127.0.0.1";
+  const server = isLocal ? "localhost:8471" : "159.223.140.36";
+  Legion.loadingStep(intent.roomId ? `Connecting to room ${intent.roomId}` : "Connecting to server");
+  startGame(server);
+}
+
+// Boot Legion SDK in parallel with the menu wiring. The menu still shows
+// while the SDK initialises (so guests can pick a mode immediately); when
+// the SDK resolves we re-render the login banner with their account.
 Legion.init().then(() => {
   wireMenuButtons();
   renderLegionPanel(Legion.getUser());
@@ -1553,33 +1595,20 @@ Legion.init().then(() => {
     }
   });
 
-  // ── Instant-multiplayer auto-boot ────────────────────────────────────
-  // When Bloxity launches us with ?instantMultiplayer=true (optionally with
-  // ?roomId=…&mode=…) we skip the lobby entirely and join straight away.
-  // Per the Bloxity contract we keep reporting loadingStep() and DO NOT call
-  // loadingEnd() until we've actually joined the target room — the portal's
-  // loading screen stays up until that happens.
-  const intent = readInstantJoinIntent();
-  if (intent.instantMultiplayer) {
-    Legion.loadingStep("Preparing instant multiplayer…");
-    const u = Legion.getUser();
-    playerName = u?.username || u?.displayName || ("Player" + Math.floor(Math.random() * 1000));
-    localStorage.setItem("mc.playerName", playerName);
-
-    // Resolve the mode. Defaults to survival multiplayer.
-    const requested = (intent.mode || "survival_mp").toLowerCase();
-    const fallbackMap: Record<string, ModeId> = {
-      survival: "survival_mp", creative: "creative_mp",
-      bedwars: "bedwars_mp", parkour: "parkour_mp",
-      oneblock: "oneblock",
-    };
-    const resolved = (MODES[requested as ModeId] ? requested : fallbackMap[requested]) as ModeId;
-    mode = resolved || "survival_mp";
-    pendingRoomId = intent.roomId;
-
-    const isLocal = location.hostname === "localhost" || location.hostname === "127.0.0.1";
-    const server = isLocal ? "localhost:8471" : "159.223.140.36";
-    Legion.loadingStep(intent.roomId ? `Connecting to room ${intent.roomId}` : "Connecting to server");
-    startGame(server);
+  // Re-check intent after SDK loads in case the portal-side flag arrived
+  // late (window.Legion.SDK.game.isInstantMultiplayer can flip true once
+  // the SDK initialises).
+  const lateIntent = readInstantJoinIntent();
+  if (!_bootIntent.instantMultiplayer && lateIntent.instantMultiplayer) {
+    startInstantMultiplayer(lateIntent);
   }
 });
+
+// Fire instant-MP straight away if the URL already says so — don't wait
+// for Legion.init() at all. Login data will fill in later if the SDK loads.
+if (_bootIntent.instantMultiplayer) {
+  // Stash the player name from whatever we know synchronously.
+  const savedName = localStorage.getItem("mc.playerName");
+  playerName = savedName || ("Player" + Math.floor(Math.random() * 1000));
+  startInstantMultiplayer(_bootIntent);
+}

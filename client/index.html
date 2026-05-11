@@ -81,16 +81,16 @@
     /* ── Bloxd-style mode grid ──────────────────────────────────── */
     .mode-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-      gap: 8px;
+      grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+      gap: 10px;
       margin-top: 16px;
     }
     .menu-panel {
-      max-width: 1100px;
+      max-width: 1200px;
     }
     .mode-card {
       position: relative;
-      aspect-ratio: 1 / 1;
+      aspect-ratio: 16 / 9;
       border-radius: 6px;
       overflow: hidden;
       cursor: pointer;
@@ -1272,20 +1272,22 @@
             <span class="mc-sub featured">solo</span>
           </div>
         </div>
-        <div class="mode-card disabled" data-mode="buildbattle">
+        <div class="mode-card" data-mode="buildbattle_mp">
           <div class="mc-cover" style="background-image:url('/screenshots/buildbattle.jpg');"></div>
-          <div class="mc-tag coming">SOON</div>
+          <div class="mc-tag updated">NEW</div>
+          <div class="mc-ccu" data-mode-ccu="buildbattle">0</div>
           <div class="mc-title">
             <div class="mc-name">Build Battle</div>
-            <span class="mc-sub">coming soon</span>
+            <span class="mc-sub mp">multi</span>
           </div>
         </div>
-        <div class="mode-card disabled" data-mode="hideandseek">
+        <div class="mode-card" data-mode="hideandseek_mp">
           <div class="mc-cover" style="background-image:url('/screenshots/hideandseek.jpg');"></div>
-          <div class="mc-tag coming">SOON</div>
+          <div class="mc-tag updated">NEW</div>
+          <div class="mc-ccu" data-mode-ccu="hideandseek">0</div>
           <div class="mc-title">
             <div class="mc-name">Hide and Seek</div>
-            <span class="mc-sub">coming soon</span>
+            <span class="mc-sub mp">multi</span>
           </div>
         </div>
       </div>

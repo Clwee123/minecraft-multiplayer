@@ -11,7 +11,9 @@ export type ModeId =
   | "creative_mp"
   | "bedwars_mp"
   | "parkour_mp"
-  | "oneblock";
+  | "oneblock"
+  | "buildbattle_mp"
+  | "hideandseek_mp";
 
 export interface ModeConfig {
   id: ModeId;
@@ -31,7 +33,132 @@ export const MODES: Record<ModeId, ModeConfig> = {
   bedwars_mp:       { id: "bedwars_mp",       label: "Bedwars · Multiplayer",       short: "bedwars",  isMultiplayer: true,  isCreative: false, useDefaultWorld: false, hotbar: [9, 8, 14, 15, 11, 39, 41, 64, 65] },
   parkour_mp:       { id: "parkour_mp",       label: "Parkour · Multiplayer",       short: "parkour",  isMultiplayer: true,  isCreative: false, useDefaultWorld: false },
   oneblock:         { id: "oneblock",         label: "One Block",                          short: "oneblock", isMultiplayer: false, isCreative: false, useDefaultWorld: false },
+  buildbattle_mp:   { id: "buildbattle_mp",   label: "Build Battle · Multiplayer",          short: "buildbattle", isMultiplayer: true, isCreative: true, useDefaultWorld: false,
+                       /* creative loadout — common build blocks */
+                       hotbar: [8, 9, 1, 14, 15, 11, 36, 42, 22] },
+  hideandseek_mp:   { id: "hideandseek_mp",   label: "Hide and Seek · Multiplayer",         short: "hideandseek", isMultiplayer: true, isCreative: false, useDefaultWorld: false },
 };
+
+/**
+ * Build a Build-Battle arena: a centre spawn platform plus four 12×12
+ * grass plots ringed in sandstone, separated by walking paths. Each plot
+ * has a small marker so players know which is theirs.
+ */
+export function buildBuildBattle(world: World): { spawnX: number; spawnY: number; spawnZ: number } {
+  world.clearAll();
+  const cx = 128, cz = 128, y = 40;
+  // Central spawn pad
+  for (let dx = -3; dx <= 3; dx++) for (let dz = -3; dz <= 3; dz++) {
+    world.setBlock(cx + dx, y, cz + dz, 26);             // stone bricks
+  }
+  // Four plots at (±20, ±20)
+  const plots = [
+    { x: cx - 22, z: cz - 22, marker: 14 }, // white wool marker
+    { x: cx + 22, z: cz - 22, marker: 15 }, // red wool marker
+    { x: cx - 22, z: cz + 22, marker: 41 }, // diamond block marker
+    { x: cx + 22, z: cz + 22, marker: 40 }, // gold block marker
+  ];
+  for (const p of plots) {
+    // 13×13 plot (12×12 build area + 1-wide perimeter)
+    for (let dx = -6; dx <= 6; dx++) for (let dz = -6; dz <= 6; dz++) {
+      const onEdge = Math.abs(dx) === 6 || Math.abs(dz) === 6;
+      world.setBlock(p.x + dx, y, p.z + dz, onEdge ? 27 : 1);  // sandstone rim, grass interior
+    }
+    // 1-block wall around so people don't accidentally walk into a neighbour's plot
+    for (let dx = -6; dx <= 6; dx++) {
+      world.setBlock(p.x + dx, y + 1, p.z - 6, 27);
+      world.setBlock(p.x + dx, y + 1, p.z + 6, 27);
+    }
+    for (let dz = -6; dz <= 6; dz++) {
+      world.setBlock(p.x - 6, y + 1, p.z + dz, 27);
+      world.setBlock(p.x + 6, y + 1, p.z + dz, 27);
+    }
+    // Plot marker / colour tile near a corner
+    world.setBlock(p.x - 5, y + 1, p.z - 5, p.marker);
+  }
+  // Cobble paths from centre to each plot
+  const pathOff: Array<[number, number]> = [[-1, -1], [1, -1], [-1, 1], [1, 1]];
+  for (let i = 0; i < 4; i++) {
+    const [sx, sz] = pathOff[i];
+    for (let t = 4; t < 18; t++) {
+      world.setBlock(cx + sx * t, y, cz + sz * t, 9);
+      world.setBlock(cx + sx * t + 1, y, cz + sz * t, 9);
+    }
+  }
+  return { spawnX: cx + 0.5, spawnY: y + 1.001, spawnZ: cz + 0.5 };
+}
+
+/**
+ * Build a Hide-and-Seek arena: a circular grass island ringed in sand, with
+ * deterministic trees and four small wooden huts dotted around. Trees and
+ * huts give the seekers' targets places to actually hide.
+ */
+export function buildHideAndSeek(world: World): { spawnX: number; spawnY: number; spawnZ: number } {
+  world.clearAll();
+  const cx = 128, cz = 128, y = 38;
+  const R = 36;
+  // Circular grass island
+  for (let dx = -R; dx <= R; dx++) for (let dz = -R; dz <= R; dz++) {
+    const d = Math.hypot(dx, dz);
+    if (d > R) continue;
+    const top = d > R - 1.2 ? 4 : 1;  // sand at the edge, grass interior
+    world.setBlock(cx + dx, y, cz + dz, top);
+    if (top === 1) world.setBlock(cx + dx, y - 1, cz + dz, 2); // dirt sub
+  }
+  // Trees (deterministic spread)
+  const trees: Array<[number, number]> = [
+    [-22, -18], [-10, -25], [4, -28], [18, -22], [26, -10],
+    [-28, 0],   [-16, 6],   [10, 10],  [22, 18],   [-6, 22],
+    [14, 26],   [28, -6],   [0, 28],   [-26, 14],
+  ];
+  for (const [tx, tz] of trees) placeOakTree(world, cx + tx, y + 1, cz + tz);
+  // Four small huts to hide in
+  const huts: Array<{ x: number; z: number }> = [
+    { x: cx - 14, z: cz - 8 },
+    { x: cx + 12, z: cz - 14 },
+    { x: cx + 16, z: cz + 8 },
+    { x: cx - 18, z: cz + 12 },
+  ];
+  for (const h of huts) placeSmallHut(world, h.x, y + 1, h.z);
+  return { spawnX: cx + 0.5, spawnY: y + 1.001, spawnZ: cz + 0.5 };
+}
+
+/** Helper — 5-tall oak tree with a 3×3×2 canopy. */
+function placeOakTree(world: World, x: number, y: number, z: number) {
+  for (let i = 0; i < 5; i++) world.setBlock(x, y + i, z, 5); // log
+  const top = y + 4;
+  for (let dx = -2; dx <= 2; dx++) for (let dz = -2; dz <= 2; dz++) for (let dy = 0; dy <= 2; dy++) {
+    if (Math.abs(dx) === 2 && Math.abs(dz) === 2 && dy < 1) continue;
+    if (dx === 0 && dz === 0 && dy < 2) continue;
+    world.setBlock(x + dx, top + dy, z + dz, 6);
+  }
+}
+
+/** Helper — 4×4 wooden hut with a door slot, used by Hide and Seek. */
+function placeSmallHut(world: World, x: number, y: number, z: number) {
+  // Plank floor
+  for (let dx = -2; dx <= 2; dx++) for (let dz = -2; dz <= 2; dz++) {
+    world.setBlock(x + dx, y - 1, z + dz, 8);
+  }
+  // Plank walls 3 tall
+  for (let h = 0; h < 3; h++) {
+    for (let dx = -2; dx <= 2; dx++) {
+      world.setBlock(x + dx, y + h, z - 2, 8);
+      world.setBlock(x + dx, y + h, z + 2, 8);
+    }
+    for (let dz = -2; dz <= 2; dz++) {
+      world.setBlock(x - 2, y + h, z + dz, 8);
+      world.setBlock(x + 2, y + h, z + dz, 8);
+    }
+  }
+  // Punch out a door
+  world.setBlock(x, y,     z + 2, 0);
+  world.setBlock(x, y + 1, z + 2, 0);
+  // Log-roof
+  for (let dx = -2; dx <= 2; dx++) for (let dz = -2; dz <= 2; dz++) {
+    world.setBlock(x + dx, y + 3, z + dz, 5);
+  }
+}
 
 /** Build a Bedwars-style world: small island arena, central diamond pile + generators. */
 export function buildBedwars(world: World): { spawnX: number; spawnY: number; spawnZ: number } {
