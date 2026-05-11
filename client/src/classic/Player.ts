@@ -6,16 +6,23 @@ import type { Inventory } from "./Inventory";
 const WALK_SPEED   = 4.317;
 const SPRINT_SPEED = 5.612;
 const CROUCH_SPEED = 1.5;
+const SWIM_SPEED   = 2.5;
 const FLY_SPEED    = 10.0;
 const FLY_FAST     = 20.0;
 const JUMP_VEL     = 8.4;
+const SWIM_UP_VEL  = 4.0;
 const GRAVITY      = 28;
+const WATER_GRAVITY = 6;       // mostly buoyant
+const WATER_TERMINAL = -3;     // sink speed cap
 const PLAYER_W     = 0.6;
 const PLAYER_H     = 1.8;
 const CROUCH_H     = 1.4;
 const EYE          = 1.62;
 const CROUCH_EYE   = 1.25;
 const REACH        = 5.0;
+const MAX_AIR      = 20;       // 10 bubbles like real MC
+const AIR_DRAIN_PER_SEC = 1;   // 20 air → 20 s underwater before damage
+const DROWN_DPS    = 2;        // 1 heart per second once out of air
 
 export type GameMode = "survival" | "creative";
 
@@ -36,12 +43,24 @@ export class Player {
   hunger = 20;     // 10 drumsticks = 20
   inv: Inventory | null = null;
 
+  // ── Water / swimming ──
+  /** True when feet/body are in a water cell (affects movement physics). */
+  inWater = false;
+  /** True when the eye position is in a water cell (drains air, blue tint). */
+  headUnderwater = false;
+  /** Remaining air supply (0..MAX_AIR). Drains while headUnderwater, refills otherwise. */
+  airSupply = MAX_AIR;
+  maxAir = MAX_AIR;
+  private drownTimer = 0;
+
   private keys: Record<string, boolean> = {};
   private lastSpace = 0;
   private mouseDown = false;
-  private breakingAt: { x: number; y: number; z: number } | null = null;
-  private breakProgress = 0; // 0..1
-  private breakTime = 0.5;   // seconds total for current target
+  /** Block currently being mined (public so main.ts can sync the animation to other clients). */
+  breakingAt: { x: number; y: number; z: number } | null = null;
+  /** Mining progress 0..1 (public for the same reason). */
+  breakProgress = 0;
+  private breakTime = 0.5;
 
   /** Currently-aimed block (for debug HUD). */
   lastHit: { x: number; y: number; z: number; type: number } | null = null;
@@ -58,6 +77,8 @@ export class Player {
   onJump?: () => void;
   /** Fired when the player just landed on the ground (one-shot). */
   onLand?: () => void;
+  /** Fired whenever airSupply changes (for the bubble HUD). */
+  onAirChange?: (air: number, max: number) => void;
 
   constructor(camera: THREE.PerspectiveCamera, world: World) {
     this.camera = camera;
@@ -219,18 +240,41 @@ export class Player {
   }
 
   update(dt: number) {
+    // ── Water state (must run first so movement code can use it) ──
+    const feetBlock = this.world.getBlock(Math.floor(this.pos.x), Math.floor(this.pos.y),       Math.floor(this.pos.z));
+    const headBlock = this.world.getBlock(Math.floor(this.pos.x), Math.floor(this.pos.y + EYE), Math.floor(this.pos.z));
+    this.inWater = feetBlock === 7 || headBlock === 7;
+    this.headUnderwater = headBlock === 7;
+
+    // Air supply: drain while head submerged, refill quickly otherwise.
+    const prevAir = this.airSupply;
+    if (this.headUnderwater && this.gameMode !== "creative") {
+      this.airSupply = Math.max(0, this.airSupply - AIR_DRAIN_PER_SEC * dt);
+      if (this.airSupply <= 0) {
+        this.drownTimer += dt;
+        if (this.drownTimer >= 1) { this.drownTimer = 0; this.takeDamage(DROWN_DPS); }
+      } else {
+        this.drownTimer = 0;
+      }
+    } else {
+      this.airSupply = Math.min(this.maxAir, this.airSupply + 4 * dt);
+      this.drownTimer = 0;
+    }
+    if (Math.abs(this.airSupply - prevAir) > 0.05) this.onAirChange?.(this.airSupply, this.maxAir);
+
     // ── Movement ──
     const forward = (this.keys["KeyW"] ? 1 : 0) - (this.keys["KeyS"] ? 1 : 0);
     const right   = (this.keys["KeyD"] ? 1 : 0) - (this.keys["KeyA"] ? 1 : 0);
     const sprint  = (this.keys["ShiftLeft"] || this.keys["ShiftRight"]) && !this.flying;
     const crouch  = this.keys["KeyC"];
-    this.sprinting = sprint && forward > 0 && !crouch;
+    this.sprinting = sprint && forward > 0 && !crouch && !this.inWater;
     this.crouching = crouch && !this.flying;
 
     let baseSpeed: number;
     if (this.flying) {
-      // While flying, ShiftLeft = descend (handled below), so sprint = boost
       baseSpeed = (this.keys["ShiftLeft"] || this.keys["ShiftRight"]) ? FLY_FAST : FLY_SPEED;
+    } else if (this.inWater) {
+      baseSpeed = SWIM_SPEED;
     } else if (this.crouching) {
       baseSpeed = CROUCH_SPEED;
     } else if (this.sprinting) {
@@ -249,6 +293,13 @@ export class Player {
       if (this.keys["Space"]) vy += FLY_SPEED;
       if (this.keys["ShiftLeft"] || this.keys["ShiftRight"]) vy -= FLY_SPEED;
       this.vel.y = vy;
+    } else if (this.inWater) {
+      // Buoyant: weak gravity, capped sink rate. Space → swim up,
+      // ShiftLeft → dive faster.
+      this.vel.y -= WATER_GRAVITY * dt;
+      if (this.vel.y < WATER_TERMINAL) this.vel.y = WATER_TERMINAL;
+      if (this.keys["Space"]) this.vel.y = SWIM_UP_VEL;
+      if (this.keys["ShiftLeft"]) this.vel.y -= 2 * dt;
     } else {
       this.vel.y -= GRAVITY * dt;
       if (this.vel.y < -50) this.vel.y = -50;

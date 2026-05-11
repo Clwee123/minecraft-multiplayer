@@ -64,6 +64,24 @@ class Chunk {
   }
 }
 
+export type Biome = "ocean" | "beach" | "plains" | "forest" | "desert" | "hills" | "snowy";
+
+interface BiomeProfile {
+  heightOffset: number;
+  surface: number;      // top block id
+  subsurface: number;   // a few cells below the top
+}
+
+const BIOMES: Record<Biome, BiomeProfile> = {
+  ocean:  { heightOffset: -16, surface:  4, subsurface: 4 },   // sand under water
+  beach:  { heightOffset:  -8, surface:  4, subsurface: 4 },
+  plains: { heightOffset:   0, surface:  1, subsurface: 2 },   // grass on dirt
+  forest: { heightOffset:   1, surface:  1, subsurface: 2 },
+  desert: { heightOffset:  -1, surface:  4, subsurface: 4 },   // sand all the way
+  hills:  { heightOffset:  12, surface:  1, subsurface: 2 },
+  snowy:  { heightOffset:   6, surface: 23, subsurface: 2 },   // snow on dirt
+};
+
 export interface WorldOptions {
   infinite?: boolean;     // true = chunk-stream around player (survival/creative)
   seed?: number;
@@ -86,8 +104,10 @@ export class World {
   private nH1: (x: number, z: number) => number;
   private nH2: (x: number, z: number) => number;
   private nH3: (x: number, z: number) => number;
-  private nCave: (x: number, y: number, z: number) => number;
-  private nOre: (x: number, y: number, z: number) => number;
+  private nCave:  (x: number, y: number, z: number) => number;
+  private nCave2: (x: number, y: number, z: number) => number;
+  private nOre:   (x: number, y: number, z: number) => number;
+  private nBiome: (x: number, z: number) => number;
 
   constructor(scene: THREE.Scene, seed = 0, options: WorldOptions = {}) {
     this.scene = scene;
@@ -98,11 +118,28 @@ export class World {
     this.nH1 = createNoise2D(r);
     this.nH2 = createNoise2D(r);
     this.nH3 = createNoise2D(r);
-    this.nCave = createNoise3D(r);
-    this.nOre = createNoise3D(r);
+    this.nCave  = createNoise3D(r);
+    this.nCave2 = createNoise3D(r);
+    this.nOre   = createNoise3D(r);
+    this.nBiome = createNoise2D(r);
 
     this.initMaterials();
   }
+
+  /** Coarse biome classification for a world-space column. */
+  private biomeAt(wx: number, wz: number): Biome {
+    const t = this.nBiome(wx * 0.0045, wz * 0.0045); // -1..1, smooth large patches
+    if (t < -0.55) return "ocean";
+    if (t < -0.25) return "beach";
+    if (t < 0.05)  return "plains";
+    if (t < 0.25)  return "forest";
+    if (t < 0.5)   return "desert";
+    if (t < 0.75)  return "hills";
+    return "snowy";
+  }
+
+  /** Public accessor — used by main.ts for biome-aware features. */
+  getBiome(wx: number, wz: number): Biome { return this.biomeAt(wx, wz); }
 
   private initMaterials() {
     const atlas = getAtlasTexture();
@@ -185,27 +222,37 @@ export class World {
   /** Generate chunk data for (cx, cz). Returns the new chunk. */
   private generateChunk(cx: number, cz: number): Chunk {
     const chunk = new Chunk();
+    const biomeOfColumn: Biome[][] = [];
+
     for (let lx = 0; lx < CHUNK_W; lx++) {
+      biomeOfColumn[lx] = [];
       for (let lz = 0; lz < CHUNK_W; lz++) {
         const wx = cx * CHUNK_W + lx;
         const wz = cz * CHUNK_W + lz;
+        const biome = this.biomeAt(wx, wz);
+        biomeOfColumn[lx][lz] = biome;
+        const prof = BIOMES[biome];
+
         const h1 = this.nH1(wx * 0.012, wz * 0.012) * 12;
         const h2 = this.nH2(wx * 0.04,  wz * 0.04)  * 3;
         const h3 = this.nH3(wx * 0.003, wz * 0.003) * 5;
-        const height = Math.max(2, Math.min(CHUNK_H - 4, Math.floor(SEA_LEVEL + h1 + h2 + h3)));
+        const height = Math.max(2, Math.min(CHUNK_H - 4,
+          Math.floor(SEA_LEVEL + h1 + h2 + h3 + prof.heightOffset)));
 
         for (let y = 0; y < CHUNK_H; y++) {
           let block = 0;
           if (y === 0) {
-            block = 3;
+            block = 3; // bedrock-ish stone floor
           } else if (y < height - 3) {
             block = 3;
-            // Caves
+            // Caves: two layered noise fields — together they carve much
+            // more interesting tunnels than a single threshold did.
             if (y > 4 && y < height - 5) {
-              const c = this.nCave(wx * 0.06, y * 0.08, wz * 0.06);
-              if (Math.abs(c) < 0.06) block = 0;
+              const c1 = this.nCave (wx * 0.06,  y * 0.08, wz * 0.06);
+              const c2 = this.nCave2(wx * 0.03,  y * 0.04, wz * 0.03);
+              const combined = Math.abs(c1) * 0.6 + Math.abs(c2) * 0.4;
+              if (combined < 0.10) block = 0;
             }
-            // Ores (only in stone)
             if (block === 3) {
               const o = this.nOre(wx * 0.18, y * 0.18, wz * 0.18);
               if      (y < 12 && o > 0.78) block = 21;
@@ -214,52 +261,153 @@ export class World {
               else if (y < 56 && o > 0.60) block = 18;
             }
           } else if (y < height) {
-            block = 2;
+            block = prof.subsurface;
           } else if (y === height) {
-            block = (height <= SEA_LEVEL) ? 4 : 1;
+            // Top: biome's surface, OR sand if column is below sea level.
+            block = (height <= SEA_LEVEL) ? 4 : prof.surface;
           } else if (y <= SEA_LEVEL && height < SEA_LEVEL) {
-            block = 7;
+            block = 7; // ocean fill
           }
           if (block !== 0) chunk.set(lx, y, lz, block);
         }
       }
     }
 
-    // Decorations contained inside the chunk (avoid cross-chunk writes by inset)
+    // ── Per-biome decorations ──
     const rng = mulberry32(this.seed ^ (cx * 73428767) ^ (cz * 1928371));
-    // Trees — 2 to 3 attempts per chunk, inset from edges so canopy fits
-    const treeTries = 3;
+    // Pick a "majority biome" for chunk-wide decisions like village placement.
+    const centerBiome = biomeOfColumn[CHUNK_W >> 1][CHUNK_W >> 1];
+
+    // Trees + ground decor by biome at the column.
+    const treeTries = centerBiome === "forest" ? 8
+                    : centerBiome === "plains" ? 2
+                    : centerBiome === "hills"  ? 4
+                    : centerBiome === "snowy"  ? 3
+                    : centerBiome === "desert" ? 0
+                    : 0;
     for (let i = 0; i < treeTries; i++) {
       const lx = 2 + Math.floor(rng() * (CHUNK_W - 4));
       const lz = 2 + Math.floor(rng() * (CHUNK_W - 4));
-      // Find surface
       let y = CHUNK_H - 1;
       while (y > 0 && chunk.get(lx, y, lz) === 0) y--;
-      if (chunk.get(lx, y, lz) === 1 && y < CHUNK_H - 8) {
-        this.placeTree(chunk, lx, y + 1, lz, rng);
+      const top = chunk.get(lx, y, lz);
+      const biome = biomeOfColumn[lx][lz];
+      // Only grow on the appropriate top block
+      if (y < CHUNK_H - 8 && (top === 1 || top === 23)) {
+        if (biome === "hills" || biome === "snowy") {
+          this.placeTree(chunk, lx, y + 1, lz, rng, 28, 29);   // spruce
+        } else if (biome === "forest" && rng() < 0.35) {
+          this.placeTree(chunk, lx, y + 1, lz, rng, 5,  6);    // oak — birch could go here too
+        } else {
+          this.placeTree(chunk, lx, y + 1, lz, rng, 5,  6);
+        }
       }
     }
-    // Flowers — 4-6 per chunk
-    const flowerTries = 5;
+
+    // Flowers / tallgrass (mostly plains + forest).
+    const flowerTries = centerBiome === "plains" ? 6
+                      : centerBiome === "forest" ? 5
+                      : centerBiome === "hills"  ? 3
+                      : 0;
     for (let i = 0; i < flowerTries; i++) {
       const lx = Math.floor(rng() * CHUNK_W);
       const lz = Math.floor(rng() * CHUNK_W);
       let y = CHUNK_H - 1;
       while (y > 0 && chunk.get(lx, y, lz) === 0) y--;
       if (chunk.get(lx, y, lz) === 1 && y + 1 < CHUNK_H && chunk.get(lx, y + 1, lz) === 0) {
-        const which = rng();
-        const id = which < 0.4 ? 30 : (which < 0.8 ? 31 : 32);
+        const w = rng();
+        const id = w < 0.4 ? 30 : (w < 0.8 ? 31 : 32);
         chunk.set(lx, y + 1, lz, id);
+      }
+    }
+
+    // Cactus in desert (~1-2 per chunk).
+    if (centerBiome === "desert") {
+      const tries = 2;
+      for (let i = 0; i < tries; i++) {
+        const lx = 2 + Math.floor(rng() * (CHUNK_W - 4));
+        const lz = 2 + Math.floor(rng() * (CHUNK_W - 4));
+        let y = CHUNK_H - 1;
+        while (y > 0 && chunk.get(lx, y, lz) === 0) y--;
+        if (chunk.get(lx, y, lz) === 4 && y + 3 < CHUNK_H) {
+          const h = 1 + Math.floor(rng() * 3);
+          for (let dy = 1; dy <= h; dy++) {
+            if (chunk.get(lx, y + dy, lz) === 0) chunk.set(lx, y + dy, lz, 45);
+          }
+        }
+      }
+    }
+
+    // Snow layer dusting on top of snowy biome ground.
+    if (centerBiome === "snowy") {
+      for (let lx = 0; lx < CHUNK_W; lx++) {
+        for (let lz = 0; lz < CHUNK_W; lz++) {
+          let y = CHUNK_H - 1;
+          while (y > 0 && chunk.get(lx, y, lz) === 0) y--;
+          // Replace top grass with snow when the column is snowy
+          if (chunk.get(lx, y, lz) === 1) chunk.set(lx, y, lz, 23);
+        }
+      }
+    }
+
+    // ── Villages ──
+    // Place a small hut every ~6 chunks where the centre column is plains.
+    // The hut footprint (5×5) fits comfortably inside a single chunk.
+    if (centerBiome === "plains" && ((cx % 6) + 6) % 6 === 0 && ((cz % 6) + 6) % 6 === 0) {
+      // Find a flat-enough ground level near chunk centre.
+      const cxL = 6, czL = 6;
+      let y = CHUNK_H - 1;
+      while (y > 0 && chunk.get(cxL, y, czL) === 0) y--;
+      if (chunk.get(cxL, y, czL) === 1 && y < CHUNK_H - 6) {
+        this.placeHut(chunk, cxL, y + 1, czL);
       }
     }
 
     return chunk;
   }
 
-  private placeTree(chunk: Chunk, lx: number, ly: number, lz: number, rng: () => number) {
+  /** Drop a small 5×5 wooden hut at (lx,ly,lz). ly is the FLOOR level. */
+  private placeHut(chunk: Chunk, lx: number, ly: number, lz: number) {
+    const floor = 8;   // planks
+    const wall  = 8;   // planks
+    const roof  = 5;   // oak log (gives a distinct roof texture)
+    const W = 5;
+    const H = 4;       // wall height
+    const half = (W - 1) >> 1;
+    for (let dx = -half; dx <= half; dx++) {
+      for (let dz = -half; dz <= half; dz++) {
+        const x = lx + dx, z = lz + dz;
+        if (x < 0 || x >= CHUNK_W || z < 0 || z >= CHUNK_W) continue;
+        // Clear above for the building footprint
+        for (let dy = 0; dy <= H + 1; dy++) {
+          if (ly + dy < CHUNK_H) chunk.set(x, ly + dy, z, 0);
+        }
+        // Floor
+        if (ly - 1 >= 0) chunk.set(x, ly - 1, z, floor);
+        // Walls (perimeter only)
+        const onEdge = Math.abs(dx) === half || Math.abs(dz) === half;
+        if (onEdge) {
+          for (let dy = 0; dy < H; dy++) {
+            if (ly + dy < CHUNK_H) chunk.set(x, ly + dy, z, wall);
+          }
+        }
+        // Roof
+        if (ly + H < CHUNK_H) chunk.set(x, ly + H, z, roof);
+      }
+    }
+    // Door slot in front of the hut: punch out two wall blocks.
+    if (lx + 0 >= 0 && lx + 0 < CHUNK_W) {
+      chunk.set(lx,     ly,     lz + half, 0);
+      chunk.set(lx,     ly + 1, lz + half, 0);
+    }
+    // Torch on top of one corner so the village reads at night.
+    if (ly + H + 1 < CHUNK_H) chunk.set(lx + half - 1, ly + H + 1, lz + half - 1, 42);
+  }
+
+  private placeTree(chunk: Chunk, lx: number, ly: number, lz: number, rng: () => number, logId = 5, leafId = 6) {
     const h = 4 + Math.floor(rng() * 3);
     for (let i = 0; i < h; i++) {
-      if (ly + i < CHUNK_H) chunk.set(lx, ly + i, lz, 5);
+      if (ly + i < CHUNK_H) chunk.set(lx, ly + i, lz, logId);
     }
     const top = ly + h - 1;
     for (let dx = -2; dx <= 2; dx++) {
@@ -269,7 +417,7 @@ export class World {
           if (dx === 0 && dz === 0 && dy < 2) continue;
           const lxx = lx + dx, lyy = top + dy, lzz = lz + dz;
           if (lxx < 0 || lxx >= CHUNK_W || lyy < 0 || lyy >= CHUNK_H || lzz < 0 || lzz >= CHUNK_W) continue;
-          if (chunk.get(lxx, lyy, lzz) === 0) chunk.set(lxx, lyy, lzz, 6);
+          if (chunk.get(lxx, lyy, lzz) === 0) chunk.set(lxx, lyy, lzz, leafId);
         }
       }
     }

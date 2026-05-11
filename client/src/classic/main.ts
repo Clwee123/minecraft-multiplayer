@@ -6,6 +6,7 @@ import { Player } from "./Player";
 import { Multiplayer } from "./Multiplayer";
 import { Inventory } from "./Inventory";
 import { CraftingUI } from "./CraftingUI";
+import { CreativeInventory } from "./CreativeInventory";
 import { ItemDrops } from "./ItemDrops";
 import { MODES, ModeId, buildBedwars, buildParkour, buildOneBlock, pickOneBlockNext } from "./Modes";
 import { preloadPlayerModel, buildFirstPersonArm, FirstPersonArm } from "./PlayerModel";
@@ -44,6 +45,7 @@ let world: World;
 let player: Player;
 let inv: Inventory;
 let craftingUI: CraftingUI;
+let creativeInv: CreativeInventory;
 let drops: ItemDrops;
 let mp: Multiplayer | null = null;
 let mode: ModeId = "creative_offline";
@@ -308,9 +310,16 @@ window.addEventListener("keydown", (e) => {
     if (n >= 0 && n < 9) selectSlot(n);
   }
   if (e.code === "KeyE") {
-    craftingUI.toggle(false);
-    if (craftingUI.open) document.exitPointerLock();
-    else document.body.requestPointerLock();
+    // Creative mode opens the all-items grid; survival opens the crafting
+    // grid (matches MC's behaviour).
+    if (player?.gameMode === "creative") {
+      creativeInv.toggle();
+      if (!creativeInv.open) document.body.requestPointerLock();
+    } else {
+      craftingUI.toggle(false);
+      if (craftingUI.open) document.exitPointerLock();
+      else document.body.requestPointerLock();
+    }
   }
   if (e.code === "KeyP") {
     debugOn = !debugOn;
@@ -481,6 +490,35 @@ function renderHunger(h: number) {
     else if (h >= i * 2 + 1) d.classList.add("half");
     el.appendChild(d);
   }
+}
+
+function renderBubbles(air: number, max: number) {
+  const el = document.getElementById("bubbles");
+  if (!el) return;
+  // Only show bubbles while losing air. Hide when full and out of water.
+  const show = air < max;
+  el.style.display = show ? "flex" : "none";
+  if (!show) return;
+  el.innerHTML = "";
+  for (let i = 0; i < 10; i++) {
+    const b = document.createElement("div");
+    b.className = "bubble";
+    const required = (i + 1) * 2; // each bubble = 2 air
+    if (air >= required) {
+      // intact
+    } else if (air >= required - 1) {
+      b.classList.add("pop");
+    } else {
+      b.classList.add("empty");
+    }
+    el.appendChild(b);
+  }
+}
+
+function setWaterTint(on: boolean) {
+  const el = document.getElementById("waterTint");
+  if (!el) return;
+  el.classList.toggle("active", on);
 }
 
 // ── Player list (TAB) ──────────────────────────────────────────────────────
@@ -698,6 +736,9 @@ async function startGame(serverAddr: string | null) {
 
   drops = new ItemDrops(scene);
   drops.onPickup = () => sound.pickup();
+  creativeInv = new CreativeInventory(inv);
+  creativeInv.onClose = () => setTimeout(() => document.body.requestPointerLock(), 50);
+  creativeInv.onChange = () => refreshHotbar();
   craftingUI = new CraftingUI(inv);
   craftingUI.onCraft = () => { refreshHotbar(); sound.craft(); };
   craftingUI.onClose = () => {
@@ -751,12 +792,12 @@ async function startGame(serverAddr: string | null) {
   };
   player.onJump = () => sound.jump();
   player.onLand = () => {
-    // Find the block under our feet for surface-specific landing thud.
     const bx = Math.floor(player.pos.x);
     const by = Math.floor(player.pos.y) - 1;
     const bz = Math.floor(player.pos.z);
     sound.land(blockSurface(world.getBlock(bx, by, bz)));
   };
+  player.onAirChange = (air, max) => renderBubbles(air, max);
   player.onBreakProgress = (p) => {
     breakFx.setProgress(p);
   };
@@ -772,6 +813,32 @@ async function startGame(serverAddr: string | null) {
     mp.onChat = (sender, msg) => { addChatLine(sender, msg); sound.chat(); };
     mp.onBlockUpdate = (x, y, z, type) => world.setBlock(x, y, z, type);
     mp.onLocalDamage = (d) => player.takeDamage(d);
+    // ── Remote break-overlay sync ──
+    // Maintain one BreakHighlight per remote sessionId. We dispose it on
+    // breakStop OR after 1.5 s without an update (safety against dropped
+    // messages or disconnects).
+    const remoteBreakers = new Map<string, { fx: BreakHighlight; lastT: number; key: string }>();
+    mp.onRemoteBreakStart = (sid, x, y, z) => {
+      let r = remoteBreakers.get(sid);
+      if (!r) { r = { fx: new BreakHighlight(scene), lastT: performance.now(), key: "" }; remoteBreakers.set(sid, r); }
+      r.fx.setTarget(x, y, z); r.fx.setProgress(0.01);
+      r.key = `${x},${y},${z}`;
+      r.lastT = performance.now();
+    };
+    mp.onRemoteBreakProgress = (sid, x, y, z, p) => {
+      let r = remoteBreakers.get(sid);
+      if (!r) { r = { fx: new BreakHighlight(scene), lastT: performance.now(), key: "" }; remoteBreakers.set(sid, r); }
+      const key = `${x},${y},${z}`;
+      if (r.key !== key) { r.fx.setTarget(x, y, z); r.key = key; }
+      r.fx.setProgress(p);
+      r.lastT = performance.now();
+    };
+    mp.onRemoteBreakStop = (sid) => {
+      const r = remoteBreakers.get(sid);
+      if (r) { r.fx.dispose(); remoteBreakers.delete(sid); }
+    };
+    // Stash on global so the game loop can sweep stale entries
+    (window as any)._remoteBreakers = remoteBreakers;
     try {
       // Pass the room id from `?roomId=…` if Bloxity launched us with one.
       // The Multiplayer.connect path falls back to joinOrCreate on failure.
@@ -817,6 +884,10 @@ async function startGame(serverAddr: string | null) {
   // Footstep / splash tracking
   let stepDist = 0;
   let lastInWater = false;
+  // Break-progress sync state
+  let lastSentBreakKey: string | null = null;
+  let lastSentBreakProgress = -1;
+  let breakSendTimer = 0;
   const RENDER_DIST = 5;
 
   function loop() {
@@ -908,14 +979,49 @@ async function startGame(serverAddr: string | null) {
       }
     }
 
-    // Water splash: detect feet entering a water cell.
+    // Water splash + blue tint overlay. Tint follows the HEAD position so
+    // it only kicks in when fully submerged.
     {
       const bx = Math.floor(player.pos.x);
       const by = Math.floor(player.pos.y);
       const bz = Math.floor(player.pos.z);
-      const inWater = world.getBlock(bx, by, bz) === 7;
-      if (inWater && !lastInWater) sound.splash();
-      lastInWater = inWater;
+      const feetInWater = world.getBlock(bx, by, bz) === 7;
+      if (feetInWater && !lastInWater) sound.splash();
+      lastInWater = feetInWater;
+      setWaterTint(player.headUnderwater);
+    }
+
+    // ── Break-progress relay ──
+    // Send our current mining target + progress to other clients so they
+    // see the crack overlay grow on our targeted block. Throttled to
+    // ~10 Hz; transitions (new block / stopped) are sent immediately.
+    if (mp?.isConnected()) {
+      const target = player.breakingAt;
+      const targetKey = target ? `${target.x},${target.y},${target.z}` : null;
+      if (targetKey !== lastSentBreakKey) {
+        if (lastSentBreakKey) mp.sendBreakStop();
+        if (target) mp.sendBreakStart(target.x, target.y, target.z);
+        lastSentBreakKey = targetKey;
+        lastSentBreakProgress = -1;
+      }
+      if (target) {
+        breakSendTimer += dt;
+        if (breakSendTimer >= 0.1) {
+          breakSendTimer = 0;
+          if (Math.abs(player.breakProgress - lastSentBreakProgress) > 0.02) {
+            mp.sendBreakProgress(target.x, target.y, target.z, player.breakProgress);
+            lastSentBreakProgress = player.breakProgress;
+          }
+        }
+      }
+    }
+    // Sweep stale remote-breakers (no update in 1.5 s).
+    const rbs: Map<string, { fx: BreakHighlight; lastT: number; key: string }> = (window as any)._remoteBreakers;
+    if (rbs) {
+      const now = performance.now();
+      for (const [sid, r] of rbs) {
+        if (now - r.lastT > 1500) { r.fx.dispose(); rbs.delete(sid); }
+      }
     }
 
     if (player.pos.y < -10) {

@@ -183,6 +183,9 @@ export const BLOCKS: Record<number, BlockDef> = {
   42: { faces: all6(T_TORCH), transparent: true, solid: false, crossShape: true, emissive: true, hardness: 0 },
   43: { faces: all6(T_LADDER), transparent: true, solid: false, hardness: 0.4 },
   44: { faces: [T_WOOL_R, T_WOOL_R, T_WOOL_W, T_PLANKS, T_WOOL_R, T_WOOL_R], hardness: 0.2, drop: 44, iconTile: T_I_BED },
+  // Desert cactus — block-shaped to keep meshing simple; can't actually
+  // damage the player (TODO if we want stricter parity with vanilla).
+  45: { faces: all6(T_CACTUS), hardness: 0.4 },
 };
 
 // ── Items (id >= 50 = items, not placeable blocks) ────────────────────────────
@@ -232,7 +235,7 @@ export const BLOCK_NAMES: Record<number, string> = {
   34: "Red Mushroom", 35: "Brown Mushroom",
   36: "Crafting Table", 37: "Furnace", 38: "Furnace (Lit)",
   39: "Iron Block", 40: "Gold Block", 41: "Diamond Block",
-  42: "Torch", 43: "Ladder", 44: "Bed",
+  42: "Torch", 43: "Ladder", 44: "Bed", 45: "Cactus",
 };
 
 // Creative hotbar default

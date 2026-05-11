@@ -150,6 +150,27 @@ export class GameRoom extends Room<GameState> {
       }
     });
 
+    // ── Break-progress relays ────────────────────────────────────────────
+    // Purely ephemeral animation sync — see CLAUDE.md: messages are fine for
+    // one-shot events with no persistence. We just forward to other clients
+    // so they can render the crack overlay growing on the targeted block.
+    this.onMessage("breakStart", (client, data: any) => {
+      this.broadcast("breakStart", {
+        from: client.sessionId,
+        x: data.x | 0, y: data.y | 0, z: data.z | 0,
+      }, { except: client });
+    });
+    this.onMessage("breakProgress", (client, data: any) => {
+      this.broadcast("breakProgress", {
+        from: client.sessionId,
+        x: data.x | 0, y: data.y | 0, z: data.z | 0,
+        progress: Math.max(0, Math.min(1, Number(data.progress) || 0)),
+      }, { except: client });
+    });
+    this.onMessage("breakStop", (client) => {
+      this.broadcast("breakStop", { from: client.sessionId }, { except: client });
+    });
+
     this.onMessage("updateAvatar", (client, data: any = {}) => {
       const p = this.state.players.get(client.sessionId);
       if (!p) return;

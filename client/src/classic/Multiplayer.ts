@@ -84,6 +84,13 @@ export class Multiplayer {
    *  Delta is the positive damage amount. */
   onLocalDamage?: (dmg: number) => void;
 
+  /** A remote player started breaking a block. */
+  onRemoteBreakStart?: (sid: string, x: number, y: number, z: number) => void;
+  /** A remote player's break progress changed (0..1). */
+  onRemoteBreakProgress?: (sid: string, x: number, y: number, z: number, progress: number) => void;
+  /** A remote player stopped breaking (LMB released or block broken). */
+  onRemoteBreakStop?: (sid: string) => void;
+
   private lastSelfHealth = -1;
 
   constructor(scene: THREE.Scene, playerName: string) {
@@ -138,6 +145,17 @@ export class Multiplayer {
           this.onBlockUpdate(c.x, c.y, c.z, type);
         }
       });
+      // Per-block break animation sync (ephemeral, message-based by design).
+      this.room.onMessage("breakStart", (msg: any) => {
+        if (msg && msg.from) this.onRemoteBreakStart?.(msg.from, msg.x | 0, msg.y | 0, msg.z | 0);
+      });
+      this.room.onMessage("breakProgress", (msg: any) => {
+        if (msg && msg.from) this.onRemoteBreakProgress?.(msg.from, msg.x | 0, msg.y | 0, msg.z | 0, Number(msg.progress) || 0);
+      });
+      this.room.onMessage("breakStop", (msg: any) => {
+        if (msg && msg.from) this.onRemoteBreakStop?.(msg.from);
+      });
+
       this.room.onMessage("chat", (msg: any) => {
         if (!msg || !this.onChat) return;
         const sender = msg.sender ?? msg.playerName ?? msg.name ?? msg.from ?? "";
@@ -226,6 +244,10 @@ export class Multiplayer {
     // Send under several keys so any server schema flavor will pick it up.
     this.room.send("chat", { message: text, text, msg: text, sender: this.playerName });
   }
+
+  sendBreakStart(x: number, y: number, z: number)    { this.room?.send("breakStart",    { x, y, z }); }
+  sendBreakProgress(x: number, y: number, z: number, progress: number) { this.room?.send("breakProgress", { x, y, z, progress }); }
+  sendBreakStop()                                   { this.room?.send("breakStop", {}); }
 
   sendSleep() { this.room?.send("sleep", {}); }
   /** Damage a mob — server validates that it exists, decrements its health, broadcasts mobHit/mobKilled. */
