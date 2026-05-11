@@ -29,15 +29,11 @@ class BlockIconCacheImpl {
     this.renderer.setPixelRatio(1);
     this.renderer.setClearColor(0x000000, 0);
     this.scene = new THREE.Scene();
-    // Bright soft ambient + a directional from the upper-right so the front
-    // and side faces aren't the same shade.
-    this.scene.add(new THREE.AmbientLight(0xffffff, 0.85));
-    const dir = new THREE.DirectionalLight(0xffffff, 0.55);
-    dir.position.set(1.2, 1.0, 0.8);
-    this.scene.add(dir);
-    // Orthographic so the cube doesn't get perspective distortion.
+    // No lights — we render with MeshBasicMaterial (unlit) so the icon
+    // shows the texture at full contrast. Face-shading is done manually
+    // by darkening the side/right material colours below so it still
+    // reads as a 3D cube.
     this.camera = new THREE.OrthographicCamera(-1.0, 1.0, 1.0, -1.0, 0.1, 10);
-    // Classic 30° / 45° iso angle — gives the recognisable diamond top.
     this.camera.position.set(1.8, 1.55, 1.8);
     this.camera.lookAt(0, 0, 0);
     this.cube = new THREE.Mesh(new THREE.BoxGeometry(CUBE_SIZE, CUBE_SIZE, CUBE_SIZE));
@@ -59,7 +55,17 @@ class BlockIconCacheImpl {
     const atlas = getAtlasTexture();
     const mats: THREE.MeshBasicMaterial[] = [];
     const textures: THREE.Texture[] = [];
-    // BoxGeometry face order matches our FACE_DIRS: +X, -X, +Y, -Y, +Z, -Z
+    // BoxGeometry face order: +X, -X, +Y, -Y, +Z, -Z (visible faces from
+    // the iso angle are +X right, +Y top, +Z front). We manually tint side
+    // faces darker so the cube still reads as 3D under an unlit shader.
+    const SHADE = [
+      0xcfcfcf,  // +X (right) — slight shade
+      0xcfcfcf,  // -X (left hidden)
+      0xffffff,  // +Y (top — brightest)
+      0xa0a0a0,  // -Y (bottom hidden)
+      0xe6e6e6,  // +Z (front — between top and right)
+      0xe6e6e6,  // -Z (back hidden)
+    ];
     for (let f = 0; f < 6; f++) {
       const tileIdx = def.faces[f];
       const [u0, v0, u1, v1] = tileUV(tileIdx);
@@ -73,6 +79,7 @@ class BlockIconCacheImpl {
       textures.push(t);
       mats.push(new THREE.MeshBasicMaterial({
         map: t,
+        color: SHADE[f],
         transparent: !!def.transparent || !!def.isLeaf,
         alphaTest: (def.transparent || def.isLeaf) ? 0.5 : 0,
         side: THREE.FrontSide,

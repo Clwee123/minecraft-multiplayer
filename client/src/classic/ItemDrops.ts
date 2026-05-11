@@ -55,8 +55,10 @@ export class ItemDrops {
     });
   }
 
-  /** Update drops: gravity, spin, pickup by player. */
-  update(dt: number, playerPos: THREE.Vector3, inv: Inventory, isSolid: (x: number, y: number, z: number) => boolean): void {
+  /** Update drops: gravity, spin, pickup by player. `canPickup=false` makes
+   *  drops fall but blocks the player from collecting (used while dead so a
+   *  corpse can't scoop its own loot). */
+  update(dt: number, playerPos: THREE.Vector3, inv: Inventory, isSolid: (x: number, y: number, z: number) => boolean, canPickup = true): void {
     const now = performance.now();
     for (let i = this.drops.length - 1; i >= 0; i--) {
       const d = this.drops[i];
@@ -79,8 +81,9 @@ export class ItemDrops {
       // Bob
       d.mesh.position.y += Math.sin(now * 0.003 + i) * 0.001;
 
-      // Pickup if close enough and aged > 500ms
-      if (now - d.bornAt > 500) {
+      // Pickup if close enough and aged > 500ms, AND the player is allowed
+      // to pick up (e.g. not dead/respawning).
+      if (canPickup && now - d.bornAt > 500) {
         const dx = d.mesh.position.x - playerPos.x;
         const dy = d.mesh.position.y - (playerPos.y + 1.0);
         const dz = d.mesh.position.z - playerPos.z;

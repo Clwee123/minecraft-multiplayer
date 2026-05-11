@@ -34,6 +34,8 @@ export interface RemotePlayer {
   heldMesh: THREE.Object3D | null;
   /** Bloxity skin id ("-1"/"" = guest default "0"). */
   skinId: string;
+  /** Bone whose world position drives the nametag (Neck1_leaf in our rig). */
+  headBone: THREE.Object3D | null;
 }
 
 export interface RemoteMob {
@@ -317,15 +319,24 @@ export class Multiplayer {
 
     const userName = String(player?.name || "Player");
     const displayName = String(player?.displayName || userName);
-    const pfp = String(player?.pfp || "");
+    // Fall back to the default Bloxity guest pfp if the user has none — the
+    // visible nametag should never be a bare text strip.
+    const pfp = String(player?.pfp || "https://static.bloxity.io/img/pfps/0.png?width=128&quality=85");
     const tag = makeNameTag(displayName, pfp);
-    // Position the tag based on the model's actual bounds so it lands
-    // ABOVE the head regardless of whether the GLB came in tall or short.
-    group.updateMatrixWorld(true);
-    const bbox = new THREE.Box3().setFromObject(group);
-    const localTop = (bbox.max.y - group.position.y) || 1.8;
-    tag.position.set(0, localTop + 0.35, 0);
-    group.add(tag);
+    // Bone-tracked positioning: SkinnedMesh.boundingBox is the bind-pose
+    // bounds which lies about the rendered model height on this rig, so the
+    // tag was landing at the player's chest. We instead anchor the sprite
+    // in scene space and copy the head bone's world position each frame.
+    let headBone: THREE.Object3D | null = null;
+    group.traverse((o: any) => {
+      if (!headBone && (o.name === "Neck1_leaf" || o.name === "Neck1")) headBone = o;
+    });
+    if (!headBone) {
+      group.traverse((o: any) => {
+        if (!headBone && /head|neck/i.test(o.name)) headBone = o;
+      });
+    }
+    this.scene.add(tag);
 
     // Apply the player's Bloxity skin texture to the cloned GLB. Falls back
     // to skin "0" for guests / new accounts.
@@ -350,28 +361,34 @@ export class Multiplayer {
       heldId: 0,
       heldMesh: null,
       skinId: initialSkin,
+      headBone,
     });
   }
 
-  /** Replace a remote player's nametag (e.g. on avatar change). */
+  /** Replace a remote player's nametag (e.g. on avatar change). Sprite stays
+   *  in the scene; its world position is set per-frame in update(). */
   private refreshRemoteTag(rp: RemotePlayer) {
-    let yPos = 2.2;
     if (rp.nameTag) {
-      yPos = rp.nameTag.position.y; // preserve the bound-aware y we computed at spawn
-      rp.mesh.remove(rp.nameTag);
+      this.scene.remove(rp.nameTag);
       const m = rp.nameTag.material as THREE.SpriteMaterial;
       if (m.map) m.map.dispose();
       m.dispose();
     }
-    const tag = makeNameTag(rp.displayName || rp.name, rp.pfp);
-    tag.position.set(0, yPos, 0);
-    rp.mesh.add(tag);
+    const pfp = rp.pfp || "https://static.bloxity.io/img/pfps/0.png?width=128&quality=85";
+    const tag = makeNameTag(rp.displayName || rp.name, pfp);
+    this.scene.add(tag);
     rp.nameTag = tag;
   }
 
   private removeRemotePlayer(sessionId: string) {
     const rp = this.remotePlayers.get(sessionId);
     if (!rp) return;
+    if (rp.nameTag) {
+      this.scene.remove(rp.nameTag);
+      const m = rp.nameTag.material as THREE.SpriteMaterial;
+      if (m.map) m.map.dispose();
+      m.dispose();
+    }
     this.scene.remove(rp.mesh);
     rp.mesh.traverse((o: any) => {
       if (o.geometry) o.geometry.dispose();
@@ -540,6 +557,19 @@ export class Multiplayer {
 
       rp.mesh.position.set(rp.x, rp.y, rp.z);
       rp.mesh.rotation.y = rp.rotY + Math.PI;
+
+      // Nametag follows the head bone's world position each frame so it
+      // always lands above the head regardless of skinning / scaling.
+      if (rp.nameTag) {
+        if (rp.headBone) {
+          rp.mesh.updateMatrixWorld(true);
+          const wp = new THREE.Vector3();
+          rp.headBone.getWorldPosition(wp);
+          rp.nameTag.position.set(wp.x, wp.y + 0.4, wp.z);
+        } else {
+          rp.nameTag.position.set(rp.x, rp.y + 2.0, rp.z);
+        }
+      }
 
       if (rp.anim) {
         rp.anim.mixer?.update(dt);

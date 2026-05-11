@@ -41,7 +41,17 @@ export class Player {
   health = 20;     // 10 hearts = 20 hp
   maxHealth = 20;
   hunger = 20;     // 10 drumsticks = 20
+  /** True between the moment hp hits 0 and the player clicks Respawn. While
+   *  dead, all input is dropped and physics velocity is zeroed so the corpse
+   *  can't pick up its own drops or wander away. */
+  isDead = false;
   inv: Inventory | null = null;
+
+  // ── XP ──
+  /** Current XP level (whole number). */
+  xpLevel = 0;
+  /** Progress toward next level (0..1). */
+  xpProgress = 0;
 
   // ── Water / swimming ──
   /** True when feet/body are in a water cell (affects movement physics). */
@@ -79,6 +89,28 @@ export class Player {
   onLand?: () => void;
   /** Fired whenever airSupply changes (for the bubble HUD). */
   onAirChange?: (air: number, max: number) => void;
+  /** Fired whenever XP level OR progress changes. */
+  onXpChange?: (level: number, progress: number) => void;
+
+  /** XP-to-next-level for `level`. Mirrors MC 1.8: 17 (lvl<16), then
+   *  17+3*(lvl-15), then 62+7*(lvl-30). */
+  private xpNeeded(level: number): number {
+    if (level < 16) return 17;
+    if (level < 31) return 17 + 3 * (level - 15);
+    return 62 + 7 * (level - 30);
+  }
+
+  /** Grant XP points. Levels up automatically; fires onXpChange after. */
+  addXp(amount: number) {
+    if (this.isDead || this.gameMode === "creative") return;
+    let p = this.xpProgress * this.xpNeeded(this.xpLevel) + amount;
+    while (p >= this.xpNeeded(this.xpLevel)) {
+      p -= this.xpNeeded(this.xpLevel);
+      this.xpLevel += 1;
+    }
+    this.xpProgress = p / this.xpNeeded(this.xpLevel);
+    this.onXpChange?.(this.xpLevel, this.xpProgress);
+  }
 
   constructor(camera: THREE.PerspectiveCamera, world: World) {
     this.camera = camera;
@@ -94,15 +126,18 @@ export class Player {
   spawnAt(x: number, y: number, z: number) {
     this.pos.set(x, y, z);
     this.vel.set(0, 0, 0);
+    this.isDead = false;
   }
 
   takeDamage(dmg: number) {
     if (this.gameMode === "creative") return;
-    if (this.health <= 0) return; // already dead, waiting for respawn
+    if (this.health <= 0 || this.isDead) return;
     this.health = Math.max(0, this.health - dmg);
+    if (this.health <= 0) this.isDead = true;
     this.onHealthChange?.(this.health);
     // No auto-respawn — main.ts shows the death screen on hp <= 0 and the
-    // player clicks Respawn to come back. While dead, takeDamage is a no-op.
+    // player clicks Respawn to come back. While dead, takeDamage is a no-op
+    // and update() drops input + freezes the body.
   }
 
   private attachInput() {
@@ -135,13 +170,12 @@ export class Player {
 
     document.addEventListener("mousedown", (e) => {
       if (!document.pointerLockElement) return;
+      if (this.isDead) return;
       if (e.button === 0) {
         this.mouseDown = true;
         if (this.gameMode === "creative") {
-          // Instant break in creative
           this.doBreak();
         }
-        // In survival, mouseDown starts the break process which is ticked in update()
       } else if (e.button === 2) {
         this.doPlace();
       }
@@ -239,13 +273,32 @@ export class Player {
   }
 
   update(dt: number) {
+    // ── Dead-player freeze ──
+    // While dead the body just falls straight down (gravity) and absorbs no
+    // input. Camera still follows but the input handlers (mouse / WASD)
+    // exit early via this guard.
+    if (this.isDead) {
+      this.vel.x = 0; this.vel.z = 0;
+      this.vel.y -= GRAVITY * dt;
+      this.moveAxis("y", this.vel.y * dt);
+      this.camera.position.set(this.pos.x, this.pos.y + EYE, this.pos.z);
+      this.camera.rotation.order = "YXZ";
+      this.camera.rotation.y = this.yaw;
+      this.camera.rotation.x = this.pitch;
+      this.lastHit = null;
+      this.mouseDown = false;
+      this.breakingAt = null;
+      this.breakProgress = 0;
+      return;
+    }
     // ── Water state (must run first so movement code can use it) ──
     const feetBlock = this.world.getBlock(Math.floor(this.pos.x), Math.floor(this.pos.y),       Math.floor(this.pos.z));
     const headBlock = this.world.getBlock(Math.floor(this.pos.x), Math.floor(this.pos.y + EYE), Math.floor(this.pos.z));
     this.inWater = feetBlock === 7 || headBlock === 7;
     this.headUnderwater = headBlock === 7;
 
-    // Air supply: drain while head submerged, refill quickly otherwise.
+    // Air supply: drain while head submerged, INSTANT refill on surfacing.
+    // (Real MC also fills bubbles back instantly when you leave water.)
     const prevAir = this.airSupply;
     if (this.headUnderwater && this.gameMode !== "creative") {
       this.airSupply = Math.max(0, this.airSupply - AIR_DRAIN_PER_SEC * dt);
@@ -255,11 +308,11 @@ export class Player {
       } else {
         this.drownTimer = 0;
       }
-    } else {
-      this.airSupply = Math.min(this.maxAir, this.airSupply + 4 * dt);
+    } else if (this.airSupply < this.maxAir) {
+      this.airSupply = this.maxAir;
       this.drownTimer = 0;
     }
-    if (Math.abs(this.airSupply - prevAir) > 0.05) this.onAirChange?.(this.airSupply, this.maxAir);
+    if (this.airSupply !== prevAir) this.onAirChange?.(this.airSupply, this.maxAir);
 
     // ── Movement ──
     const forward = (this.keys["KeyW"] ? 1 : 0) - (this.keys["KeyS"] ? 1 : 0);

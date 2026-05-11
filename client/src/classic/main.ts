@@ -451,6 +451,7 @@ renderer.domElement.addEventListener("click", () => {
 let lmbHeld = false;
 document.addEventListener("mousedown", (e) => {
   if (!document.pointerLockElement) return;
+  if (player?.isDead) return;  // no combat or interaction while dead
   if (e.button === 0) {
     lmbHeld = true;
     fpArm?.triggerSwing(1);
@@ -470,6 +471,10 @@ document.addEventListener("mousedown", (e) => {
           refreshHotbar();
         }
       }
+      // Award a chunk of XP per hit (an actual kill would be much bigger;
+      // server doesn't yet tell us when a mob died, so per-hit is the best
+      // signal we have).
+      if (player && !cfg.isCreative) player.addXp(2);
     } else {
       sound.swing();
     }
@@ -625,6 +630,13 @@ function setWaterTint(on: boolean) {
   el.classList.toggle("active", on);
 }
 
+function renderXp(level: number, progress: number) {
+  const fill = document.getElementById("xpFill") as HTMLElement | null;
+  const lvl = document.getElementById("xpLevel") as HTMLElement | null;
+  if (fill) fill.style.width = (progress * 100) + "%";
+  if (lvl)  lvl.textContent = String(level);
+}
+
 // ── Death screen ──────────────────────────────────────────────────────────
 let _deathWired = false;
 let _respawnPos = { x: 0, y: 64, z: 0 };
@@ -653,8 +665,14 @@ function respawnLocalPlayer() {
   // Just bring the player back at full hp/air at the respawn point.
   player.health = player.maxHealth;
   player.airSupply = player.maxAir;
+  player.isDead = false;          // re-enable input + interactions
+  // XP reset on death (vanilla actually keeps part; we drop everything).
+  player.xpLevel = 0;
+  player.xpProgress = 0;
+  renderXp(0, 0);
   // Don't fire onHealthChange — that would re-trigger the death flow.
   renderHearts(player.health);
+  renderBubbles(player.maxAir, player.maxAir);
   player.spawnAt(_respawnPos.x, _respawnPos.y, _respawnPos.z);
   if (mp?.isConnected()) mp.sendRespawn();
   refreshHotbar();
@@ -983,6 +1001,16 @@ async function startGame(serverAddr: string | null) {
       const dropCount = def!.dropCount ?? 1;
       drops.spawn(dropId, dropCount, x, y, z);
     }
+    // XP rewards: bigger amount for ores, small for everything else (vanilla-ish).
+    if (!cfg.isCreative) {
+      const xp = prevType === 18 ? 2 :       // coal ore
+                 prevType === 19 ? 3 :       // iron ore  → smelting; close enough
+                 prevType === 20 ? 4 :       // gold ore
+                 prevType === 21 ? 7 :       // diamond ore
+                 prevType === 152 ? 4 :      // quartz ore
+                 1;                          // anything else
+      player.addXp(xp);
+    }
     if (mp?.isConnected()) mp.sendBlockUpdate(x, y, z, 0);
     if (mode === "oneblock" && oneBlockCenter && x === oneBlockCenter.x && y === oneBlockCenter.y && z === oneBlockCenter.z) {
       const next = pickOneBlockNext();
@@ -1019,6 +1047,7 @@ async function startGame(serverAddr: string | null) {
     }
   };
   player.onJump = () => sound.jump();
+  player.onXpChange = (lvl, p) => renderXp(lvl, p);
   player.onLand = () => {
     const bx = Math.floor(player.pos.x);
     const by = Math.floor(player.pos.y) - 1;
@@ -1063,10 +1092,16 @@ async function startGame(serverAddr: string | null) {
   selectSlot(0);
   renderHearts(cfg.isCreative ? 20 : player.health);
   renderHunger(20);
+  renderXp(0, 0);
   const heartsEl = document.getElementById("hearts")!;
   const hungerEl = document.getElementById("hunger")!;
+  const xpBar   = document.getElementById("xpBar")!;
+  const xpLevel = document.getElementById("xpLevel")!;
   heartsEl.style.display = cfg.isCreative ? "none" : "flex";
   if (hungerEl) hungerEl.style.display = cfg.isCreative ? "none" : "flex";
+  // XP bar is survival-only (matches vanilla — creative hides it).
+  xpBar.style.display   = cfg.isCreative ? "none" : "block";
+  xpLevel.style.display = cfg.isCreative ? "none" : "block";
   document.getElementById("modeLabel")!.textContent = cfg.label;
 
   loader.style.display = "none";
@@ -1128,7 +1163,7 @@ async function startGame(serverAddr: string | null) {
     world.rebuildDirty(2, player.pos.x, player.pos.z);
 
     if (!cfg.isCreative) {
-      drops.update(dt, player.pos, inv, (x, y, z) => world.isSolid(x, y, z));
+      drops.update(dt, player.pos, inv, (x, y, z) => world.isSolid(x, y, z), !player.isDead);
       // Hunger drain — one tick every ~60 s of walking (10× slower than before).
       hungerTimer += dt * (player.sprinting ? 2 : 1);
       if (hungerTimer > 60) {

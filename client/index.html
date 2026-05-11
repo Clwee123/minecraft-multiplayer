@@ -617,6 +617,35 @@
       background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 9 9' shape-rendering='crispEdges'><path d='M0 1h2v1h1V1h3v1h1V1h2v3h-1v1h-1v1h-1v1h-1v1H4v-1H3v-1H2v-1H1V4H0Z' fill='%23333'/><path d='M0 1h2v1h1V1h1v6H4v-1H3v-1H2v-1H1V4H0Z' fill='%23dd2020'/></svg>");
     }
 
+    /* ── XP bar (survival only) ─────────────────────────────────── */
+    #xpBar {
+      position: fixed; bottom: 56px; left: 50%;
+      transform: translateX(-50%);
+      width: 364px; height: 6px;
+      background: rgba(0,0,0,0.55);
+      border: 1px solid rgba(0,0,0,0.7);
+      z-index: 19;
+      display: none;
+    }
+    #xpFill {
+      height: 100%;
+      background: #5be17a;
+      box-shadow: 0 0 4px rgba(91,225,122,0.6);
+      transition: width 0.18s ease;
+      width: 0%;
+    }
+    #xpLevel {
+      position: fixed; bottom: 61px; left: 50%;
+      transform: translateX(-50%);
+      color: #7fff9b;
+      font-family: 'Minecraft', 'Courier New', monospace;
+      font-size: 12px;
+      text-shadow: 1px 1px 0 #000;
+      z-index: 20;
+      display: none;
+      pointer-events: none;
+    }
+
     /* ── Bubbles (oxygen while underwater) ──────────────────────── */
     #bubbles {
       position: fixed; bottom: 86px;
@@ -1078,6 +1107,8 @@
     <div id="waterTint"></div>
     <div id="crosshair"></div>
     <div id="hotbar"></div>
+    <div id="xpBar"><div id="xpFill"></div></div>
+    <div id="xpLevel"></div>
     <div id="hearts"></div>
     <div id="hunger"></div>
     <div id="bubbles"></div>
