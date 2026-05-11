@@ -9,10 +9,15 @@
 import * as Colyseus from "colyseus.js";
 import * as THREE from "three";
 import { spawnPlayer, buildFallbackPlayer, makeNameTag, PlayerInstance } from "./PlayerModel";
+import { Legion } from "./Legion";
 
 export interface RemotePlayer {
   id: string;
   name: string;
+  /** Legion display name (defaults to name if Legion data isn't synced). */
+  displayName: string;
+  /** Legion profile picture URL (empty string if not synced). */
+  pfp: string;
   x: number; y: number; z: number;
   rotY: number; rotX: number;
   health: number;
@@ -89,12 +94,21 @@ export class Multiplayer {
     const url = resolveServerUrl(serverUrl);
     console.log("[MP] connecting to", url);
     this.client = new Colyseus.Client(url);
+
+    // Bundle the Legion identity + avatar into the join options. The server
+    // populates PlayerState fields so other clients can render our pfp/name.
+    const legionPayload = Legion.buildJoinPayload();
+    const joinOptions: any = {
+      name: legionPayload?.name ?? this.playerName,
+      gameMode: mode === "creative" ? "creative" : "survival",
+    };
+    if (legionPayload?.legion) joinOptions.legion = legionPayload.legion;
+
     try {
-      this.room = await this.client.joinOrCreate("game_room", {
-        name: this.playerName,
-        gameMode: mode === "creative" ? "creative" : "survival",
-      });
+      this.room = await this.client.joinOrCreate("game_room", joinOptions);
       this.sessionId = this.room.sessionId;
+      // Tell the Bloxity portal which room we're in so friends can join us.
+      Legion.updateRoom(this.room.roomId);
 
       // ── One-shot events ────────────────────────────────────────────────
       this.room.onMessage("blockUpdate", (msg: any) => {
@@ -200,6 +214,12 @@ export class Multiplayer {
 
   sendSleep() { this.room?.send("sleep", {}); }
   sendHit(targetId: string) { this.room?.send("hit", { id: targetId }); }
+  /** Push the locally-equipped avatar to the server (called when Legion fires onAvatarChanged). */
+  sendAvatarUpdate(avatar: any, extra: { displayName?: string; pfp?: string } = {}) {
+    if (!this.room) return;
+    this.room.send("updateAvatar", { ...avatar, ...extra });
+  }
+  getRoomId(): string | null { return this.room?.roomId ?? null; }
 
   private ensureRemotePlayer(sessionId: string, player: any) {
     if (this.remotePlayers.has(sessionId)) return;
@@ -214,14 +234,18 @@ export class Multiplayer {
     group.position.set(px, py, pz);
     this.scene.add(group);
 
-    const displayName = String(player?.name || "Player");
-    const tag = makeNameTag(displayName);
+    const userName = String(player?.name || "Player");
+    const displayName = String(player?.displayName || userName);
+    const pfp = String(player?.pfp || "");
+    const tag = makeNameTag(displayName, pfp);
     tag.position.set(0, 2.2, 0);
     group.add(tag);
 
     this.remotePlayers.set(sessionId, {
       id: sessionId,
-      name: displayName,
+      name: userName,
+      displayName,
+      pfp,
       x: px, y: py, z: pz,
       rotY: player?.rotY ?? 0, rotX: player?.rotX ?? 0,
       health: player?.health ?? 20,
@@ -233,6 +257,20 @@ export class Multiplayer {
       speed: 0,
       nameTag: tag,
     });
+  }
+
+  /** Replace a remote player's nametag (e.g. on avatar change). */
+  private refreshRemoteTag(rp: RemotePlayer) {
+    if (rp.nameTag) {
+      rp.mesh.remove(rp.nameTag);
+      const m = rp.nameTag.material as THREE.SpriteMaterial;
+      if (m.map) m.map.dispose();
+      m.dispose();
+    }
+    const tag = makeNameTag(rp.displayName || rp.name, rp.pfp);
+    tag.position.set(0, 2.2, 0);
+    rp.mesh.add(tag);
+    rp.nameTag = tag;
   }
 
   private removeRemotePlayer(sessionId: string) {
@@ -314,6 +352,14 @@ export class Multiplayer {
         if (Number.isFinite(p.rotY)) rp.targetRotY = p.rotY;
         if (typeof p.health === "number") rp.health = p.health;
         if (p.name && p.name !== rp.name) rp.name = String(p.name);
+        // Avatar fields — rebuild the nametag if displayName or pfp changed.
+        const newDisplay = String(p.displayName || rp.name);
+        const newPfp = String(p.pfp || "");
+        if (newDisplay !== rp.displayName || newPfp !== rp.pfp) {
+          rp.displayName = newDisplay;
+          rp.pfp = newPfp;
+          this.refreshRemoteTag(rp);
+        }
       });
       // Remove vanished players
       for (const sid of [...this.remotePlayers.keys()]) {

@@ -235,38 +235,80 @@ export function buildFallbackPlayer(): THREE.Group {
 }
 
 /**
- * Build a billboard sprite showing the player's name above their head.
- * Uses a canvas texture; positioned by the caller (typical y = 2.2).
+ * Build a billboard sprite showing the player's name + optional pfp.
+ * The canvas is composed first; if pfp is provided, the image is loaded
+ * asynchronously and the canvas texture is refreshed once it arrives.
  */
-export function makeNameTag(name: string): THREE.Sprite {
+export function makeNameTag(name: string, pfpUrl?: string): THREE.Sprite {
   const padding = 12;
   const font = "bold 36px 'Segoe UI', sans-serif";
-  // Measure on an offscreen canvas
+  const pfpSize = 48;
   const measure = document.createElement("canvas").getContext("2d")!;
   measure.font = font;
   const textWidth = Math.ceil(measure.measureText(name).width);
-  const w = Math.max(64, textWidth + padding * 2);
-  const h = 56;
+  const hasPfp = !!pfpUrl;
+  const leftSpace = hasPfp ? pfpSize + padding : 0;
+  const w = Math.max(96, textWidth + padding * 2 + leftSpace);
+  const h = 60;
   const canvas = document.createElement("canvas");
   canvas.width = w; canvas.height = h;
   const ctx = canvas.getContext("2d")!;
-  ctx.fillStyle = "rgba(0,0,0,0.55)";
-  ctx.fillRect(0, 0, w, h);
-  ctx.font = font;
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.fillStyle = "#000";
-  ctx.fillText(name, w / 2 + 2, h / 2 + 2);
-  ctx.fillStyle = "#ffffff";
-  ctx.fillText(name, w / 2, h / 2);
+
+  const drawBase = () => {
+    ctx.clearRect(0, 0, w, h);
+    ctx.fillStyle = "rgba(0,0,0,0.6)";
+    // Rounded background
+    const r = 8;
+    ctx.beginPath();
+    ctx.moveTo(r, 0); ctx.lineTo(w - r, 0); ctx.quadraticCurveTo(w, 0, w, r);
+    ctx.lineTo(w, h - r); ctx.quadraticCurveTo(w, h, w - r, h);
+    ctx.lineTo(r, h); ctx.quadraticCurveTo(0, h, 0, h - r);
+    ctx.lineTo(0, r); ctx.quadraticCurveTo(0, 0, r, 0);
+    ctx.fill();
+    ctx.font = font;
+    ctx.textBaseline = "middle";
+    const textX = padding + leftSpace;
+    // Drop shadow then white text
+    ctx.fillStyle = "#000";
+    ctx.fillText(name, textX + 2, h / 2 + 2);
+    ctx.fillStyle = "#ffffff";
+    ctx.fillText(name, textX, h / 2);
+  };
+  drawBase();
+
   const tex = new THREE.CanvasTexture(canvas);
   tex.minFilter = THREE.LinearFilter;
   tex.magFilter = THREE.LinearFilter;
   const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false });
   const sprite = new THREE.Sprite(mat);
-  // Sprite world size: 1.6 wide, scaled by aspect.
-  const scaleX = 1.6 * (w / h) * (h / 56);
-  sprite.scale.set(scaleX, 0.45, 1);
+  const scaleX = 1.8 * (w / h);
+  sprite.scale.set(scaleX, 0.5, 1);
   sprite.renderOrder = 999;
+
+  if (hasPfp) {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      drawBase();
+      // Circular clip + pfp
+      const cx = padding + pfpSize / 2, cy = h / 2;
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(cx, cy, pfpSize / 2, 0, Math.PI * 2);
+      ctx.closePath();
+      ctx.clip();
+      ctx.drawImage(img, cx - pfpSize / 2, cy - pfpSize / 2, pfpSize, pfpSize);
+      ctx.restore();
+      // Outline ring
+      ctx.beginPath();
+      ctx.arc(cx, cy, pfpSize / 2, 0, Math.PI * 2);
+      ctx.strokeStyle = "#e94560";
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      tex.needsUpdate = true;
+    };
+    img.onerror = () => { /* fall back to text-only tag */ };
+    img.src = pfpUrl!;
+  }
   return sprite;
 }

@@ -14,6 +14,22 @@ export class PlayerState extends Schema {
   @type("boolean") onGround: boolean = false;
   @type("uint8")   health: number = 40;
   @type("string")  gameMode: string = "survival";
+
+  // Bloxity / Legion SDK avatar fields. Synced from the Legion API at join
+  // time. All cosmetic / body-part IDs are 24-char ObjectIds (or "-1" for
+  // unequipped). pfp is the full image URL.
+  @type("string")  legionId:    string = "";
+  @type("string")  displayName: string = "";
+  @type("string")  pfp:         string = "";
+  @type("string")  hatId:   string = "-1";
+  @type("string")  backId:  string = "-1";
+  @type("string")  skinId:  string = "-1";
+  @type("string")  headId:  string = "-1";
+  @type("string")  armLId:  string = "-1";
+  @type("string")  armRId:  string = "-1";
+  @type("string")  legLId:  string = "-1";
+  @type("string")  legRId:  string = "-1";
+  @type("string")  torsoId: string = "-1";
 }
 
 export class BlockChange extends Schema {
@@ -127,6 +143,23 @@ export class GameRoom extends Room<GameState> {
       }
     });
 
+    this.onMessage("updateAvatar", (client, data: any = {}) => {
+      const p = this.state.players.get(client.sessionId);
+      if (!p) return;
+      const a = (v: any) => (typeof v === "string" && v.length > 0 ? v.slice(0, 32) : "-1");
+      if (data.hatId   !== undefined) p.hatId   = a(data.hatId);
+      if (data.backId  !== undefined) p.backId  = a(data.backId);
+      if (data.skinId  !== undefined) p.skinId  = a(data.skinId);
+      if (data.headId  !== undefined) p.headId  = a(data.headId);
+      if (data.armLId  !== undefined) p.armLId  = a(data.armLId);
+      if (data.armRId  !== undefined) p.armRId  = a(data.armRId);
+      if (data.legLId  !== undefined) p.legLId  = a(data.legLId);
+      if (data.legRId  !== undefined) p.legRId  = a(data.legRId);
+      if (data.torsoId !== undefined) p.torsoId = a(data.torsoId);
+      if (typeof data.pfp === "string") p.pfp = data.pfp.slice(0, 512);
+      if (typeof data.displayName === "string") p.displayName = data.displayName.slice(0, 32);
+    });
+
     this.onMessage("playerRespawn", (client) => {
       const p = this.state.players.get(client.sessionId);
       if (!p) return;
@@ -151,6 +184,28 @@ export class GameRoom extends Room<GameState> {
     p.x      = (Math.random() - 0.5) * 6;
     p.y      = 42;   // spawn high — client lands on surface via physics
     p.z      = (Math.random() - 0.5) * 6;
+
+    // ── Bloxity / Legion identity & avatar ──
+    // Trust the client-provided Legion user data. In a hardened deployment
+    // this would be verified by validating options.legion.token against the
+    // Legion API server-side, but for now we sync the names/avatar through.
+    const legion = options.legion || {};
+    if (legion.userId) p.legionId = String(legion.userId).slice(0, 64);
+    if (legion.username) p.name = String(legion.username).slice(0, 24);
+    if (legion.displayName) p.displayName = String(legion.displayName).slice(0, 32);
+    if (legion.pfp) p.pfp = String(legion.pfp).slice(0, 512);
+    const av = legion.avatar || {};
+    const a = (v: any) => (typeof v === "string" && v.length > 0 ? v.slice(0, 32) : "-1");
+    p.hatId   = a(av.hatId);
+    p.backId  = a(av.backId);
+    p.skinId  = a(av.skinId);
+    p.headId  = a(av.headId);
+    p.armLId  = a(av.armLId);
+    p.armRId  = a(av.armRId);
+    p.legLId  = a(av.legLId);
+    p.legRId  = a(av.legRId);
+    p.torsoId = a(av.torsoId);
+
     this.state.players.set(client.sessionId, p);
     console.log(`[GameRoom] ${p.name} joined (${client.sessionId})`);
 

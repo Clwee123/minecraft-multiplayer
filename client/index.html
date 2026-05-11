@@ -119,6 +119,108 @@
       font-size: 11px; color: rgba(255,255,255,0.5);
     }
 
+    /* ── Bloxity / Legion auth panel ─────────────────────────────── */
+    #legionBanner {
+      display: flex; align-items: center; gap: 14px;
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 10px;
+      padding: 10px 14px;
+      margin-bottom: 12px;
+    }
+    #legionBanner.logged-in {
+      background: linear-gradient(90deg, rgba(233,69,96,0.18), rgba(126,184,76,0.12));
+      border-color: rgba(233,69,96,0.5);
+    }
+    #legionUserBox {
+      display: none; align-items: center; gap: 12px; flex: 1;
+    }
+    #legionPfp {
+      width: 42px; height: 42px; border-radius: 50%;
+      border: 2px solid #e94560; object-fit: cover;
+    }
+    #legionName {
+      font-family: 'Courier New', monospace;
+      font-size: 14px; font-weight: bold; color: #fff;
+    }
+    #legionHandle {
+      font-family: 'Courier New', monospace;
+      font-size: 11px; color: rgba(255,255,255,0.55);
+    }
+    .legion-btn {
+      padding: 8px 14px;
+      border-radius: 6px;
+      border: 1px solid rgba(255,255,255,0.25);
+      background: linear-gradient(135deg, #e94560, #ff6b6b);
+      color: #fff; font-weight: bold;
+      font-family: 'Courier New', monospace;
+      font-size: 12px;
+      cursor: pointer;
+    }
+    .legion-btn:hover { transform: translateY(-1px); }
+    .legion-btn.secondary {
+      background: rgba(255,255,255,0.1);
+    }
+
+    #legionFriendsCard {
+      display: none;
+      margin-top: 12px;
+      padding: 12px;
+      background: rgba(0,0,0,0.35);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 8px;
+      max-height: 240px;
+      overflow-y: auto;
+    }
+    #legionFriendsCard h3 {
+      margin: 0 0 8px 0;
+      color: #ffe66d;
+      font-family: 'Courier New', monospace;
+      font-size: 12px; letter-spacing: 1px;
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    #legionFriendsCard h3 button {
+      background: rgba(255,255,255,0.1);
+      border: 1px solid rgba(255,255,255,0.2);
+      color: #fff; padding: 3px 8px; border-radius: 4px;
+      font-size: 10px; cursor: pointer;
+    }
+    .friend-row {
+      display: flex; align-items: center; gap: 10px;
+      padding: 6px;
+      background: rgba(255,255,255,0.04);
+      border-radius: 6px;
+      margin-bottom: 4px;
+    }
+    .friend-pfp {
+      width: 32px; height: 32px; border-radius: 50%;
+    }
+    .friend-meta { flex: 1; min-width: 0; }
+    .friend-name {
+      font-family: 'Courier New', monospace;
+      font-size: 12px; color: #fff;
+      white-space: nowrap; text-overflow: ellipsis; overflow: hidden;
+    }
+    .friend-status {
+      font-family: 'Courier New', monospace;
+      font-size: 10px;
+    }
+    .friend-status.online  { color: #5be17a; }
+    .friend-status.in_game { color: #5ab1ff; }
+    .friend-status.offline { color: rgba(255,255,255,0.4); }
+    .friend-invite-btn {
+      padding: 4px 10px;
+      background: rgba(33,150,243,0.2);
+      border: 1px solid rgba(33,150,243,0.5);
+      color: #5ab1ff;
+      font-size: 11px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-family: 'Courier New', monospace;
+    }
+    .friend-invite-btn:hover { background: rgba(33,150,243,0.4); }
+    .friend-invite-btn:disabled { opacity: 0.6; cursor: default; }
+
     /* ── Loading ────────────────────────────────────────────────── */
     #loadingScreen {
       position: fixed; inset: 0;
@@ -566,8 +668,24 @@
   <!-- ── Main menu ──────────────────────────────────────────────── -->
   <div id="mainMenu">
     <h1>MINECRAFT</h1>
-    <div class="subtitle">— Web Edition (1.8 style) —</div>
+    <div class="subtitle">— Web Edition (1.8 style) · Powered by Bloxity —</div>
     <div class="menu-panel">
+
+      <!-- Bloxity / Legion login banner -->
+      <div id="legionBanner">
+        <div id="legionUserBox">
+          <img id="legionPfp" alt="" />
+          <div>
+            <div id="legionName"></div>
+            <div id="legionHandle"></div>
+          </div>
+        </div>
+        <div style="margin-left:auto;display:flex;gap:8px;">
+          <button class="legion-btn" id="legionLoginBtn">Login with Bloxity</button>
+          <button class="legion-btn secondary" id="legionLogoutBtn" style="display:none;">Logout</button>
+        </div>
+      </div>
+
       <div class="menu-row">
         <label>Name:</label>
         <input id="nameInput" type="text" maxlength="20" placeholder="Player" />
@@ -606,6 +724,15 @@
           <div class="mc-desc">Stand on a single block — break it and the world rebuilds beneath you.</div>
         </div>
       </div>
+      <!-- Friends list (visible only when logged in) -->
+      <div id="legionFriendsCard">
+        <h3>
+          👥 Friends
+          <button id="legionRefreshFriends">↻ refresh</button>
+        </h3>
+        <div id="legionFriendsList"></div>
+      </div>
+
       <div class="menu-footer">
         <span id="buildStamp">build: …</span>
       </div>
@@ -684,6 +811,8 @@
     </div>
   </div>
 
+  <!-- Bloxity / Legion SDK — loads before our bundle so window.Legion is available -->
+  <script src="https://bloxity.io/legion-sdk.min.js"></script>
   <script type="module" src="/src/classic/main.ts"></script>
 </body>
 </html>

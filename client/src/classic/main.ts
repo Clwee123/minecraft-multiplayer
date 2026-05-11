@@ -10,6 +10,7 @@ import { ItemDrops } from "./ItemDrops";
 import { MODES, ModeId, buildBedwars, buildParkour, buildOneBlock, pickOneBlockNext } from "./Modes";
 import { preloadPlayerModel, buildFirstPersonArm, FirstPersonArm } from "./PlayerModel";
 import { BreakHighlight, BreakParticles } from "./BreakEffects";
+import { Legion, LegionUser, LegionFriend } from "./Legion";
 
 // ── Renderer / scene ────────────────────────────────────────────────────────
 const renderer = new THREE.WebGLRenderer({ antialias: false });
@@ -81,6 +82,105 @@ function wireMenuButtons() {
       startGame(cfg.isMultiplayer ? serverInput.value.trim() : null);
     });
   });
+
+  // ── Bloxity / Legion auth ──
+  const loginBtn  = document.getElementById("legionLoginBtn") as HTMLButtonElement | null;
+  const logoutBtn = document.getElementById("legionLogoutBtn") as HTMLButtonElement | null;
+  const refreshFriendsBtn = document.getElementById("legionRefreshFriends") as HTMLButtonElement | null;
+  loginBtn?.addEventListener("click", async () => {
+    await Legion.showAuthPopup();
+  });
+  logoutBtn?.addEventListener("click", () => Legion.logout());
+  refreshFriendsBtn?.addEventListener("click", () => refreshFriendsList());
+
+  // When Legion user state changes, update name input + login banner
+  Legion.onUserChanged((u) => {
+    renderLegionPanel(u);
+    if (u) {
+      const display = u.displayName || u.username;
+      nameInput.value = display;
+      localStorage.setItem("mc.playerName", display);
+      refreshFriendsList();
+    }
+  });
+}
+
+function renderLegionPanel(user: LegionUser | null) {
+  const banner = document.getElementById("legionBanner");
+  const loginBtn  = document.getElementById("legionLoginBtn");
+  const logoutBtn = document.getElementById("legionLogoutBtn");
+  const userBox = document.getElementById("legionUserBox");
+  const pfpEl   = document.getElementById("legionPfp") as HTMLImageElement | null;
+  const nameEl  = document.getElementById("legionName");
+  const handleEl = document.getElementById("legionHandle");
+  const friendsCard = document.getElementById("legionFriendsCard");
+  if (!banner) return;
+  if (user) {
+    banner.classList.add("logged-in");
+    if (loginBtn)  loginBtn.style.display = "none";
+    if (logoutBtn) logoutBtn.style.display = "inline-flex";
+    if (userBox) userBox.style.display = "flex";
+    if (pfpEl)   pfpEl.src = user.pfp || "https://static.bloxity.io/img/pfps/0.png?width=128&quality=85";
+    if (nameEl)  nameEl.textContent = user.displayName || user.username;
+    if (handleEl) handleEl.textContent = "@" + user.username;
+    if (friendsCard) friendsCard.style.display = "block";
+  } else {
+    banner.classList.remove("logged-in");
+    if (loginBtn)  loginBtn.style.display = "inline-flex";
+    if (logoutBtn) logoutBtn.style.display = "none";
+    if (userBox) userBox.style.display = "none";
+    if (friendsCard) friendsCard.style.display = "none";
+  }
+}
+
+async function refreshFriendsList() {
+  const list = document.getElementById("legionFriendsList");
+  if (!list) return;
+  if (!Legion.isLoggedIn()) {
+    list.innerHTML = `<div style="opacity:.6;font-size:12px;padding:8px;">Log in to see your Bloxity friends.</div>`;
+    return;
+  }
+  list.innerHTML = `<div style="opacity:.6;font-size:12px;padding:8px;">Loading friends…</div>`;
+  const friends = await Legion.getFriends();
+  if (friends.length === 0) {
+    list.innerHTML = `<div style="opacity:.6;font-size:12px;padding:8px;">No friends yet. Add some on bloxity.io.</div>`;
+    return;
+  }
+  list.innerHTML = friends.map(renderFriendRow).join("");
+  list.querySelectorAll<HTMLButtonElement>(".friend-invite-btn").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const userId = btn.dataset.userid!;
+      const username = btn.dataset.username!;
+      // Make sure the portal knows our current room before inviting.
+      if (mp?.isConnected()) Legion.updateRoom(mp.getRoomId() || "");
+      btn.disabled = true;
+      btn.textContent = "Inviting…";
+      const ok = await Legion.inviteFriend(userId);
+      btn.textContent = ok ? "✓ Sent" : "Failed";
+      setTimeout(() => { btn.disabled = false; btn.textContent = "✉ Invite"; }, 1800);
+      if (ok) addChatLine("", `Invited ${username}`);
+    });
+  });
+}
+
+function renderFriendRow(f: LegionFriend): string {
+  const pfp = f.pfp || "https://static.bloxity.io/img/pfps/0.png?width=128&quality=85";
+  const status = f.presence?.status || "offline";
+  const game = f.presence?.gameName;
+  const statusLabel =
+    status === "in_game" ? (game ? `🎮 ${escapeHtml(game)}` : "🎮 In game") :
+    status === "online"  ? "🟢 Online" :
+                            "⚫ Offline";
+  return `
+    <div class="friend-row">
+      <img class="friend-pfp" src="${pfp}" alt="" />
+      <div class="friend-meta">
+        <div class="friend-name">${escapeHtml(f.displayName || f.username)}</div>
+        <div class="friend-status ${status}">${statusLabel}</div>
+      </div>
+      <button class="friend-invite-btn" data-userid="${escapeHtml(f._id)}" data-username="${escapeHtml(f.username)}">✉ Invite</button>
+    </div>
+  `;
 }
 
 // ── Hotbar UI ───────────────────────────────────────────────────────────────
@@ -418,6 +518,7 @@ async function startGame(serverAddr: string | null) {
   loader.style.display = "flex";
   (document.getElementById("loadingStatus") as HTMLElement).textContent = "Loading textures…";
 
+  Legion.loadingStep("Loading textures…");
   await preloadAtlas();
   preloadPlayerModel().catch(() => {});
 
@@ -539,6 +640,9 @@ async function startGame(serverAddr: string | null) {
   loader.style.display = "none";
   document.getElementById("ingameUI")!.style.display = "block";
 
+  Legion.loadingEnd();
+  Legion.gameplayStart();
+
   // Game loop
   let last = performance.now();
   let waterT = 0;
@@ -647,4 +751,20 @@ async function startGame(serverAddr: string | null) {
 
 const bs = document.getElementById("buildStamp");
 if (bs) bs.textContent = `build: ${__BUILD_TIME__}`;
-wireMenuButtons();
+
+// Boot Legion SDK first so the menu can offer login before the user picks a mode.
+Legion.init().then(() => {
+  wireMenuButtons();
+  renderLegionPanel(Legion.getUser());
+
+  // Push avatar changes to the server so other players see the new cosmetics.
+  Legion.onAvatarChanged((avatar) => {
+    if (mp?.isConnected()) {
+      const u = Legion.getUser();
+      mp.sendAvatarUpdate(avatar, {
+        displayName: u?.displayName || u?.username,
+        pfp: u?.pfp,
+      });
+    }
+  });
+});
