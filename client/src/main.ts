@@ -79,7 +79,7 @@ const MAX_SHIELD_DURABILITY = 50;
 // ── Day/Night cycle ───────────────────────────────────────────────────────────
 
 const DAY_DURATION   = 240; // seconds for a full day/night cycle
-let dayTime          = 0.25; // start at dawn (0=midnight, 0.25=dawn, 0.5=noon, 0.75=dusk)
+let dayTime          = 0.5; // start at noon (0=midnight, 0.25=dawn, 0.5=noon, 0.75=dusk)
 
 const SKY_COLORS = {
   night:  new THREE.Color(0x050510),
@@ -1069,25 +1069,21 @@ async function startGame(name: string) {
     }
   }
 
-  // Find a safe spawn: scan grid for low-elevation (plains/forest) spot
+  // Find a safe spawn: scan outward from origin for plains/forest biome
   {
     let spawnX = 0, spawnZ = 0;
-    let bestY = 9999;
-    // First pass: strict — want plains/forest (63-80)
-    for (let dx = -5; dx <= 5 && bestY === 9999; dx++) {
-      for (let dz = -5; dz <= 5 && bestY === 9999; dz++) {
-        const tx = dx * 16, tz = dz * 16;
-        const h = world.getSurfaceHeight(tx, tz);
-        if (h >= 63 && h <= 80) { bestY = h; spawnX = tx; spawnZ = tz; }
-      }
-    }
-    // Second pass: accept anything solid above sea level
-    if (bestY === 9999) {
-      for (let dx = -5; dx <= 5; dx++) {
-        for (let dz = -5; dz <= 5; dz++) {
+    let found = false;
+    // Search outward ring-by-ring up to ±20 chunks (320 blocks) for non-ocean biome
+    for (let r = 0; r <= 20 && !found; r++) {
+      for (let dx = -r; dx <= r && !found; dx++) {
+        for (let dz = -r; dz <= r && !found; dz++) {
+          if (Math.abs(dx) !== r && Math.abs(dz) !== r) continue; // ring only
           const tx = dx * 16, tz = dz * 16;
-          const h = world.getSurfaceHeight(tx, tz);
-          if (h > 62 && h < bestY) { bestY = h; spawnX = tx; spawnZ = tz; }
+          const biome = world.getBiome(tx, tz);
+          if (biome !== 4) { // not ocean
+            const h = world.getSurfaceHeight(tx, tz);
+            if (h > 62) { spawnX = tx; spawnZ = tz; found = true; }
+          }
         }
       }
     }

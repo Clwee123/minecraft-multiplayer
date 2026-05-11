@@ -155,16 +155,26 @@ let _waterTex: THREE.CanvasTexture | null = null;
 let _waterMat: THREE.MeshLambertMaterial | null = null;
 
 function drawWater(ctx: CanvasRenderingContext2D, t: number) {
-  const w1 = Math.sin(t * 1.1) * 0.5 + 0.5;
-  const w2 = Math.sin(t * 0.65 + 1.3) * 0.5 + 0.5;
-  ctx.fillStyle = "#1a5fa0";
+  // Classic Minecraft water: bright blue base #3F76E4 with lighter wave lines
+  const w1 = Math.sin(t * 0.8) * 0.5 + 0.5;
+  const w2 = Math.sin(t * 0.5 + 1.1) * 0.5 + 0.5;
+  const w3 = Math.sin(t * 1.2 + 2.3) * 0.5 + 0.5;
+  // Base: classic MC blue
+  ctx.fillStyle = "#2463b8";
   ctx.fillRect(0, 0, 16, 16);
-  ctx.fillStyle = `rgba(40,130,210,${0.45 + w1 * 0.3})`;
-  ctx.fillRect(0, Math.round(w1 * 9), 16, 3);
-  ctx.fillStyle = `rgba(80,160,240,${0.2 + w2 * 0.2})`;
-  ctx.fillRect(0, Math.round(w2 * 5) + 6, 16, 2);
-  ctx.fillStyle = `rgba(180,220,255,${0.06 + w1 * 0.06})`;
-  ctx.fillRect(Math.round(w2 * 10), 0, 4, 16);
+  // Lighter wave highlights (horizontal bands that scroll)
+  const y1 = Math.round(w1 * 12);
+  const y2 = Math.round(w2 * 12);
+  const y3 = Math.round(w3 * 10);
+  ctx.fillStyle = "rgba(80,150,240,0.7)";
+  ctx.fillRect(0, y1, 16, 2);
+  ctx.fillStyle = "rgba(60,120,220,0.6)";
+  ctx.fillRect(0, y2, 16, 1);
+  ctx.fillStyle = "rgba(130,190,255,0.45)";
+  ctx.fillRect(0, y3, 16, 1);
+  // Specular glint
+  ctx.fillStyle = `rgba(180,220,255,${0.08 + w1 * 0.10})`;
+  ctx.fillRect(Math.round(w2 * 10), Math.round(w1 * 8), 3, 1);
 }
 
 function getWaterMat(): THREE.MeshLambertMaterial {
@@ -179,10 +189,11 @@ function getWaterMat(): THREE.MeshLambertMaterial {
   _waterMat = new THREE.MeshLambertMaterial({
     map: _waterTex,
     transparent: true,
-    opacity: 0.78,
-    depthWrite: false, // prevent water from occluding things behind it at shallow angles
+    opacity: 0.72,
+    depthWrite: false,
     alphaTest: 0,
-    side: THREE.DoubleSide, // render from below too (no sky bleed-through)
+    side: THREE.DoubleSide,
+    color: 0x4488ff, // tint to enhance blue
   });
   return _waterMat;
 }

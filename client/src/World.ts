@@ -308,8 +308,8 @@ export class World {
 
   // ── Opaque check ──────────────────────────────────────────────────────────
   private static readonly TRANSPARENT_TYPES = new Set([
-    7,9,21,50,51,52,56,57,58,83,84,85,86,87,88
-  ]);
+    6,7,9,21,50,51,52,56,57,58,83,84,85,86,87,88,102,103,109
+  ]); // 6=leaves always counted transparent so canopy renders all faces
   static isOpaque(type: number): boolean {
     return type > 0 && !World.TRANSPARENT_TYPES.has(type);
   }
@@ -332,7 +332,8 @@ export class World {
     mesh.castShadow     = false;
     mesh.receiveShadow  = false;
     mesh.frustumCulled  = false;
-    if (blockType === 7) mesh.renderOrder = 1; // water last
+    if (blockType === 7) mesh.renderOrder = 2; // water last
+    else if ([6,84,86,88,9,21].includes(blockType)) mesh.renderOrder = 1; // leaves+glass after opaque
     this.scene.add(mesh);
     this.instancedMeshes.set(blockType, mesh);
     this.instanceCount.set(blockType, 0);
