@@ -351,19 +351,67 @@ export class World {
     }
 
     // ── Villages ──
-    // Place a small hut every ~6 chunks where the centre column is plains.
-    // The hut footprint (5×5) fits comfortably inside a single chunk.
+    // Plains-biome chunks on a 6-chunk lattice get a village cluster of
+    // 3 huts plus a cobblestone path between them. Each hut footprint is
+    // 5×5; the spacing keeps them inside a single chunk.
     if (centerBiome === "plains" && ((cx % 6) + 6) % 6 === 0 && ((cz % 6) + 6) % 6 === 0) {
-      // Find a flat-enough ground level near chunk centre.
-      const cxL = 6, czL = 6;
-      let y = CHUNK_H - 1;
-      while (y > 0 && chunk.get(cxL, y, czL) === 0) y--;
-      if (chunk.get(cxL, y, czL) === 1 && y < CHUNK_H - 6) {
-        this.placeHut(chunk, cxL, y + 1, czL);
+      const groundY = (cxL: number, czL: number) => {
+        let y = CHUNK_H - 1;
+        while (y > 0 && chunk.get(cxL, y, czL) === 0) y--;
+        return y;
+      };
+      const hutSites: Array<[number, number]> = [
+        [4, 4], [11, 4], [8, 11],
+      ];
+      const built: Array<{ x: number; y: number; z: number }> = [];
+      for (const [hx, hz] of hutSites) {
+        const gy = groundY(hx, hz);
+        const top = chunk.get(hx, gy, hz);
+        if ((top === 1 || top === 4) && gy < CHUNK_H - 6) {
+          this.placeHut(chunk, hx, gy + 1, hz);
+          built.push({ x: hx, y: gy + 1, z: hz });
+        }
+      }
+      // Cobblestone paths joining hut centres.
+      for (let i = 1; i < built.length; i++) {
+        this.placePath(chunk, built[i - 1], built[i]);
+      }
+      // Central well (a tiny 3×3 with a water cell in the middle).
+      if (built.length >= 2) {
+        const cxL = 8, czL = 7;
+        const gy = groundY(cxL, czL);
+        if (gy < CHUNK_H - 4) {
+          for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) {
+            const x = cxL + dx, z = czL + dz;
+            if (x < 0 || x >= CHUNK_W || z < 0 || z >= CHUNK_W) continue;
+            chunk.set(x, gy, z, 9);     // cobble rim
+            chunk.set(x, gy + 1, z, 0); // clear above
+          }
+          chunk.set(cxL, gy, czL, 7); // water in centre
+        }
       }
     }
 
     return chunk;
+  }
+
+  /** Lay a cobblestone path between two hut centres at the ground level. */
+  private placePath(chunk: Chunk, a: { x: number; y: number; z: number }, b: { x: number; y: number; z: number }) {
+    const dx = b.x - a.x, dz = b.z - a.z;
+    const steps = Math.max(Math.abs(dx), Math.abs(dz));
+    for (let s = 0; s <= steps; s++) {
+      const t = s / steps;
+      const x = Math.round(a.x + dx * t);
+      const z = Math.round(a.z + dz * t);
+      if (x < 0 || x >= CHUNK_W || z < 0 || z >= CHUNK_W) continue;
+      // Drop a cobble block at ground level
+      let y = a.y - 1;
+      // Snap to local ground in case terrain dips between huts.
+      while (y > 0 && chunk.get(x, y, z) === 0) y--;
+      if (chunk.get(x, y, z) === 1 || chunk.get(x, y, z) === 4) {
+        chunk.set(x, y, z, 9);
+      }
+    }
   }
 
   /** Drop a small 5×5 wooden hut at (lx,ly,lz). ly is the FLOOR level. */

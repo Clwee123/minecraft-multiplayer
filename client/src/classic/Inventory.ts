@@ -6,9 +6,31 @@ export const INV_SLOTS = 27;
 export interface InvSlot {
   id: number;     // 0 = empty
   count: number;
+  /** Current tool damage (0 = pristine). Only meaningful for tools/swords. */
+  damage?: number;
 }
 
 const MAX_STACK = 64;
+const TOOL_STACK = 1;
+
+function maxStackFor(id: number): number {
+  if (id === 0) return 0;
+  if (id >= 50 && ITEMS[id]?.tool) return TOOL_STACK;  // tools don't stack
+  return MAX_STACK;
+}
+
+/** Damage a tool slot by `amount` uses. Returns true if the tool broke. */
+export function damageTool(slot: InvSlot, amount = 1): boolean {
+  if (slot.id === 0) return false;
+  const item = ITEMS[slot.id];
+  if (!item || !item.durability) return false;
+  slot.damage = (slot.damage ?? 0) + amount;
+  if (slot.damage >= item.durability) {
+    slot.id = 0; slot.count = 0; slot.damage = 0;
+    return true;
+  }
+  return false;
+}
 
 export function emptySlot(): InvSlot { return { id: 0, count: 0 }; }
 
@@ -43,35 +65,43 @@ export class Inventory {
 
   add(id: number, count = 1): number {
     if (this.gameMode === "creative") return 0;
+    const cap = maxStackFor(id);
     for (const slot of this.hotbar) {
-      if (slot.id === id && slot.count < MAX_STACK) {
-        const can = Math.min(count, MAX_STACK - slot.count);
+      if (slot.id === id && slot.count < cap) {
+        const can = Math.min(count, cap - slot.count);
         slot.count += can; count -= can;
         if (count === 0) return 0;
       }
     }
     for (const slot of this.main) {
-      if (slot.id === id && slot.count < MAX_STACK) {
-        const can = Math.min(count, MAX_STACK - slot.count);
+      if (slot.id === id && slot.count < cap) {
+        const can = Math.min(count, cap - slot.count);
         slot.count += can; count -= can;
         if (count === 0) return 0;
       }
     }
     for (const slot of this.hotbar) {
       if (slot.id === 0) {
-        const can = Math.min(count, MAX_STACK);
-        slot.id = id; slot.count = can; count -= can;
+        const can = Math.min(count, cap);
+        slot.id = id; slot.count = can; slot.damage = 0; count -= can;
         if (count === 0) return 0;
       }
     }
     for (const slot of this.main) {
       if (slot.id === 0) {
-        const can = Math.min(count, MAX_STACK);
-        slot.id = id; slot.count = can; count -= can;
+        const can = Math.min(count, cap);
+        slot.id = id; slot.count = can; slot.damage = 0; count -= can;
         if (count === 0) return 0;
       }
     }
     return count;
+  }
+
+  /** Damage the currently held tool. Returns true if it just broke. */
+  damageHeld(amount = 1): boolean {
+    if (this.gameMode === "creative") return false;
+    const slot = this.getHeld();
+    return damageTool(slot, amount);
   }
 
   consumeHeld(): boolean {

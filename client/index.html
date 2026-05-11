@@ -170,6 +170,158 @@
       background: rgba(255,255,255,0.1);
     }
 
+    /* ── Death screen ───────────────────────────────────────────── */
+    #deathScreen {
+      position: fixed; inset: 0;
+      background: rgba(120, 0, 0, 0.55);
+      display: none; align-items: center; justify-content: center;
+      flex-direction: column;
+      z-index: 300;
+    }
+    .death-window {
+      background: rgba(20,10,10,0.92);
+      border: 3px solid rgba(255,80,80,0.7);
+      padding: 30px 50px;
+      display: flex; flex-direction: column; align-items: center; gap: 14px;
+      font-family: 'Minecraft', 'Courier New', monospace;
+    }
+    .death-window h1 {
+      margin: 0; color: #ff5050;
+      font-size: 36px; letter-spacing: 3px;
+      text-shadow: 3px 3px 0 #2a0000;
+    }
+    .death-cause {
+      color: #ffe66d; font-size: 13px; opacity: 0.9;
+    }
+    .death-window button {
+      padding: 8px 22px;
+      background: rgba(60,60,60,0.9);
+      border: 2px solid rgba(255,255,255,0.3);
+      color: #fff; font-family: inherit; font-size: 13px;
+      cursor: pointer;
+      min-width: 220px;
+    }
+    .death-window button:hover {
+      background: rgba(126,184,76,0.4); border-color: #7eb84c;
+    }
+
+    /* ── Trade UI ────────────────────────────────────────────────── */
+    #tradeUI {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.6);
+      display: none; align-items: center; justify-content: center;
+      z-index: 200;
+    }
+    .trade-window {
+      background: rgba(30,30,40,0.96);
+      border: 3px solid #1a1a1a;
+      padding: 16px 20px;
+      width: 460px; max-width: 92vw;
+      display: flex; flex-direction: column;
+      font-family: 'Minecraft', 'Courier New', monospace;
+    }
+    .trade-header {
+      display: flex; justify-content: space-between; align-items: center;
+      margin-bottom: 10px;
+    }
+    .trade-header h2 {
+      margin: 0; color: #ffe66d;
+      font-size: 16px; letter-spacing: 2px;
+    }
+    #tradeClose {
+      background: rgba(180,60,60,0.7);
+      border: 1px solid rgba(255,255,255,0.3);
+      color: #fff; padding: 4px 10px;
+      cursor: pointer; border-radius: 2px; font-family: inherit;
+    }
+    .trade-row {
+      display: flex; align-items: center; gap: 12px;
+      padding: 10px;
+      background: rgba(0,0,0,0.35);
+      border: 1px solid rgba(255,255,255,0.08);
+      margin-bottom: 6px;
+    }
+    .trade-cost, .trade-result {
+      display: flex; align-items: center; gap: 4px;
+      font-size: 12px;
+    }
+    .trade-icon {
+      width: 24px; height: 24px;
+      background-size: 384px 384px;
+      image-rendering: pixelated;
+    }
+    .trade-arrow { color: #aaa; font-size: 18px; }
+    .trade-row button {
+      margin-left: auto;
+      padding: 6px 14px;
+      background: rgba(126,184,76,0.3);
+      border: 1px solid #7eb84c;
+      color: #fff; font-family: inherit; font-size: 12px;
+      cursor: pointer;
+    }
+    .trade-row button:disabled {
+      background: rgba(80,80,80,0.4); border-color: #555;
+      color: #888; cursor: not-allowed;
+    }
+
+    /* ── Server finder ──────────────────────────────────────────── */
+    #serverFinder {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.7);
+      display: none; align-items: center; justify-content: center;
+      z-index: 1100;
+    }
+    .finder-window {
+      background: rgba(20,22,32,0.98);
+      border: 3px solid #1a1a1a;
+      padding: 16px 20px;
+      width: 540px; max-width: 95vw; max-height: 80vh;
+      display: flex; flex-direction: column;
+      font-family: 'Minecraft', 'Courier New', monospace;
+    }
+    .finder-header {
+      display: flex; justify-content: space-between; align-items: center;
+      margin-bottom: 10px;
+    }
+    .finder-header h2 {
+      margin: 0; color: #ffe66d;
+      font-size: 16px; letter-spacing: 2px;
+    }
+    .finder-row {
+      display: flex; align-items: center; gap: 10px;
+      padding: 8px 10px;
+      background: rgba(0,0,0,0.4);
+      border: 1px solid rgba(255,255,255,0.1);
+      margin-bottom: 4px;
+      font-size: 12px;
+    }
+    .finder-row .mode { color: #ffe66d; min-width: 100px; }
+    .finder-row .players { color: #5be17a; min-width: 60px; }
+    .finder-row .roomid { color: #888; flex: 1; }
+    .finder-row button {
+      padding: 4px 12px;
+      background: linear-gradient(135deg, #e94560, #ff6b6b);
+      border: none; color: #fff; cursor: pointer;
+      font-family: inherit;
+    }
+    .finder-controls {
+      display: flex; gap: 8px; margin-bottom: 8px;
+    }
+    .finder-controls input, .finder-controls select {
+      flex: 1;
+      padding: 6px 10px;
+      background: rgba(0,0,0,0.4);
+      border: 1px solid rgba(255,255,255,0.25);
+      color: #fff;
+      font-family: inherit; font-size: 12px;
+    }
+    #finderClose {
+      background: rgba(180,60,60,0.7);
+      border: 1px solid rgba(255,255,255,0.3);
+      color: #fff; padding: 4px 10px;
+      cursor: pointer; border-radius: 2px; font-family: inherit;
+    }
+
     /* ── Creative inventory ─────────────────────────────────────── */
     #creativeInv {
       position: fixed; inset: 0;
@@ -426,6 +578,17 @@
       color: #fff; text-shadow: 1px 1px 0 #000;
       pointer-events: none;
     }
+    /* Durability bar drawn under tool icons in any slot. */
+    .slot-durability {
+      position: absolute; left: 3px; right: 3px; bottom: 1px;
+      height: 3px;
+      background: rgba(0,0,0,0.6);
+      pointer-events: none;
+    }
+    .slot-durability .fill {
+      height: 100%;
+      transition: width 0.15s ease, background-color 0.2s ease;
+    }
     .hotbar-slot .slot-count, .inv-slot .slot-count {
       position: absolute; bottom: -2px; right: 2px;
       font-size: 11px; font-family: monospace;
@@ -433,18 +596,18 @@
       pointer-events: none; font-weight: bold;
     }
 
-    /* ── Hearts (proper non-overlapping shape via SVG) ──────────── */
+    /* ── Hearts (above hotbar, left-aligned to hotbar edge) ─────── */
     #hearts {
-      position: fixed; bottom: 62px; left: 50%;
-      transform: translateX(calc(-50% - 100px));
-      display: none; gap: 3px;
+      position: fixed; bottom: 66px;
+      left: calc(50% - 191px);
+      display: none; gap: 1px;
       z-index: 20;
     }
     .heart {
-      width: 18px; height: 18px;
+      width: 14px; height: 14px;
       background-repeat: no-repeat;
       background-size: contain;
-      flex: 0 0 18px;
+      flex: 0 0 14px;
       background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 9 9' shape-rendering='crispEdges'><path d='M0 1h2v1h1V1h3v1h1V1h2v3h-1v1h-1v1h-1v1h-1v1H4v-1H3v-1H2v-1H1V4H0Z' fill='%23333' stroke='%23000' stroke-width='1'/></svg>");
     }
     .heart.full {
@@ -456,16 +619,16 @@
 
     /* ── Bubbles (oxygen while underwater) ──────────────────────── */
     #bubbles {
-      position: fixed; bottom: 84px; left: 50%;
-      transform: translateX(calc(-50% + 100px));
-      display: none; gap: 2px;
+      position: fixed; bottom: 86px;
+      right: calc(50% - 191px);
+      display: none; gap: 1px;
       z-index: 20;
     }
     .bubble {
-      width: 16px; height: 16px;
+      width: 14px; height: 14px;
       background-repeat: no-repeat;
       background-size: contain;
-      flex: 0 0 16px;
+      flex: 0 0 14px;
       background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 9 9' shape-rendering='crispEdges'><circle cx='4.5' cy='4.5' r='3.5' fill='%23a8d8ff' stroke='%23000' stroke-width='1'/><circle cx='3' cy='3' r='1' fill='%23ffffff' opacity='0.8'/></svg>");
     }
     .bubble.pop {
@@ -484,18 +647,18 @@
     }
     #waterTint.active { opacity: 1; }
 
-    /* ── Hunger (drumsticks) ────────────────────────────────────── */
+    /* ── Hunger (above hotbar, right-aligned to hotbar edge) ────── */
     #hunger {
-      position: fixed; bottom: 62px; left: 50%;
-      transform: translateX(calc(-50% + 100px));
-      display: none; gap: 3px;
+      position: fixed; bottom: 66px;
+      right: calc(50% - 191px);
+      display: none; gap: 1px;
       z-index: 20;
     }
     .drumstick {
-      width: 18px; height: 18px;
+      width: 14px; height: 14px;
       background-repeat: no-repeat;
       background-size: contain;
-      flex: 0 0 18px;
+      flex: 0 0 14px;
       background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 9 9' shape-rendering='crispEdges'><path d='M2 1h4v1h1v1h1v1H7v1H6v1H5v1H4v1H3V7H2V6H1V5h1V4h1V3h1V2H2z' fill='%23333' stroke='%23000' stroke-width='0.5'/></svg>");
     }
     .drumstick.full {
@@ -842,6 +1005,7 @@
       <div class="menu-row">
         <label>Server:</label>
         <input id="serverInput" type="text" placeholder="159.223.140.36" />
+        <button id="browseServersBtn" class="legion-btn secondary" style="margin-left:6px;">Browse rooms</button>
       </div>
       <div class="mode-grid">
         <div class="mode-card" data-mode="survival_offline">
@@ -879,6 +1043,29 @@
     </div>
   </div>
 
+  <!-- Server finder modal -->
+  <div id="serverFinder">
+    <div class="finder-window">
+      <div class="finder-header">
+        <h2>OPEN ROOMS</h2>
+        <button id="finderClose">close ✕</button>
+      </div>
+      <div class="finder-controls">
+        <input id="finderSearch" type="text" placeholder="Filter by room id…" autocomplete="off" />
+        <select id="finderModeFilter">
+          <option value="">All modes</option>
+          <option value="survival">Survival</option>
+          <option value="creative">Creative</option>
+          <option value="bedwars">Bedwars</option>
+          <option value="parkour">Parkour</option>
+          <option value="oneblock">One Block</option>
+        </select>
+        <button id="finderRefresh" class="legion-btn secondary" style="padding:6px 12px;">↻ refresh</button>
+      </div>
+      <div id="finderRows" style="flex:1;overflow-y:auto;"></div>
+    </div>
+  </div>
+
   <!-- ── Loading ────────────────────────────────────────────────── -->
   <div id="loadingScreen">
     <h2>Loading…</h2>
@@ -904,6 +1091,27 @@
       <div><b>WASD</b> move · <b>Shift</b> sprint · <b>C</b> crouch · <b>Space</b> jump · <b>2×Space</b> fly</div>
       <div><b>Mouse</b> look · <b>LMB</b> break (hold) · <b>RMB</b> place / open crafting table</div>
       <div><b>1-9</b> / <b>scroll</b> select · <b>E</b> inventory · <b>Q</b> drop · <b>P</b> debug · <b>T</b> chat · <b>L</b> friends</div>
+    </div>
+
+    <!-- Death screen -->
+    <div id="deathScreen">
+      <div class="death-window">
+        <h1>You Died!</h1>
+        <div class="death-cause" id="deathCause">Score: 0</div>
+        <button id="deathRespawnBtn">Respawn</button>
+        <button id="deathMenuBtn">Title Screen</button>
+      </div>
+    </div>
+
+    <!-- Trade UI (right-click villager) -->
+    <div id="tradeUI">
+      <div class="trade-window">
+        <div class="trade-header">
+          <h2>VILLAGER TRADES</h2>
+          <button id="tradeClose">close ✕</button>
+        </div>
+        <div id="tradeList"></div>
+      </div>
     </div>
 
     <!-- Creative inventory (E in creative mode) -->

@@ -290,7 +290,12 @@ export class Multiplayer {
     const displayName = String(player?.displayName || userName);
     const pfp = String(player?.pfp || "");
     const tag = makeNameTag(displayName, pfp);
-    tag.position.set(0, 2.2, 0);
+    // Position the tag based on the model's actual bounds so it lands
+    // ABOVE the head regardless of whether the GLB came in tall or short.
+    group.updateMatrixWorld(true);
+    const bbox = new THREE.Box3().setFromObject(group);
+    const localTop = (bbox.max.y - group.position.y) || 1.8;
+    tag.position.set(0, localTop + 0.35, 0);
     group.add(tag);
 
     this.remotePlayers.set(sessionId, {
@@ -315,14 +320,16 @@ export class Multiplayer {
 
   /** Replace a remote player's nametag (e.g. on avatar change). */
   private refreshRemoteTag(rp: RemotePlayer) {
+    let yPos = 2.2;
     if (rp.nameTag) {
+      yPos = rp.nameTag.position.y; // preserve the bound-aware y we computed at spawn
       rp.mesh.remove(rp.nameTag);
       const m = rp.nameTag.material as THREE.SpriteMaterial;
       if (m.map) m.map.dispose();
       m.dispose();
     }
     const tag = makeNameTag(rp.displayName || rp.name, rp.pfp);
-    tag.position.set(0, 2.2, 0);
+    tag.position.set(0, yPos, 0);
     rp.mesh.add(tag);
     rp.nameTag = tag;
   }
@@ -526,24 +533,66 @@ export class Multiplayer {
   }
 }
 
-/** Build a simple box-based mob mesh (zombie/skeleton/cow stub). */
+/**
+ * Build a box-based mob mesh keyed to its kind. Each variant has its own
+ * proportions + colours. Quadrupeds (cow, sheep, pig) are wider and lower;
+ * humanoids (zombie, skeleton, villager) stand 1.8 m. Spider lies flat.
+ */
 function buildSimpleMob(kind: string): THREE.Group {
   const g = new THREE.Group();
-  let bodyColor = 0x4a7c4a;
-  let headColor = 0x6cb86c;
-  if (kind === "skeleton") { bodyColor = 0xdddddd; headColor = 0xeeeeee; }
-  if (kind === "cow")      { bodyColor = 0x5a3a1a; headColor = 0x7a5a3a; }
-  if (kind === "creeper")  { bodyColor = 0x55aa44; headColor = 0x55aa44; }
-  const head = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 0.5),
-    new THREE.MeshLambertMaterial({ color: headColor }));
-  head.position.y = 1.5; g.add(head);
-  const body = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.9, 0.3),
-    new THREE.MeshLambertMaterial({ color: bodyColor }));
-  body.position.y = 0.8; g.add(body);
-  const legL = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.85, 0.25),
-    new THREE.MeshLambertMaterial({ color: 0x2a2a1a }));
-  legL.position.set(-0.15, 0.35, 0); legL.name = "leg"; g.add(legL);
-  const legR = legL.clone(); legR.name = "leg"; legR.position.x = 0.15; g.add(legR);
-  // No nametag on mobs — only players get name billboards.
+  (g as any).mobKind = kind;
+  type Spec = {
+    headSize: [number, number, number];
+    bodySize: [number, number, number];
+    headY: number; bodyY: number;
+    headColor: number; bodyColor: number; legColor: number;
+    legCount: 2 | 4;
+    horizontalBody?: boolean;
+  };
+  const SPECS: Record<string, Spec> = {
+    zombie:        { headSize:[.5,.5,.5], bodySize:[.6,.9,.3], headY:1.5, bodyY:.8, headColor:0x6cb86c, bodyColor:0x4a7c4a, legColor:0x223a78, legCount:2 },
+    creeper:       { headSize:[.5,.5,.5], bodySize:[.5,1.0,.5],headY:1.7, bodyY:.9, headColor:0x55aa44, bodyColor:0x55aa44, legColor:0x55aa44, legCount:4 },
+    skeleton:      { headSize:[.5,.5,.5], bodySize:[.45,.9,.25],headY:1.5,bodyY:.8, headColor:0xeeeeee, bodyColor:0xcccccc, legColor:0xbcbcbc, legCount:2 },
+    witherskeleton:{ headSize:[.5,.5,.5], bodySize:[.55,1.0,.3],headY:1.6,bodyY:.85,headColor:0x222222, bodyColor:0x303030, legColor:0x202020, legCount:2 },
+    villager:      { headSize:[.55,.55,.5],bodySize:[.6,.9,.3],headY:1.55,bodyY:.8,headColor:0xa86b3a, bodyColor:0x553a78, legColor:0x6a3f1a, legCount:2 },
+    wolf:          { headSize:[.4,.4,.4], bodySize:[.7,.4,.35],headY:0.95,bodyY:0.55,headColor:0xc8c0b0,bodyColor:0xbcb4a4, legColor:0xa49a86, legCount:4, horizontalBody:true },
+    cow:           { headSize:[.5,.5,.5], bodySize:[.9,.6,.5], headY:0.95,bodyY:.65, headColor:0x7a5a3a,bodyColor:0x5a3a1a, legColor:0x2a1a0a, legCount:4, horizontalBody:true },
+    sheep:         { headSize:[.45,.45,.45],bodySize:[.85,.65,.5],headY:1.05,bodyY:.7,headColor:0xeeddc8,bodyColor:0xf0f0f0, legColor:0x553a23, legCount:4, horizontalBody:true },
+    pig:           { headSize:[.5,.5,.5], bodySize:[.9,.55,.5],headY:0.95,bodyY:.6, headColor:0xf2b0a4,bodyColor:0xe896a0, legColor:0xd87680, legCount:4, horizontalBody:true },
+    chicken:       { headSize:[.3,.3,.3], bodySize:[.4,.45,.3],headY:0.95,bodyY:.55,headColor:0xffffff,bodyColor:0xffffff, legColor:0xffaa00, legCount:2 },
+    spider:        { headSize:[.55,.4,.55],bodySize:[.7,.4,.7],headY:0.55,bodyY:.55,headColor:0x2a0a0a,bodyColor:0x3a1010, legColor:0x202020, legCount:4, horizontalBody:true },
+    cat:           { headSize:[.35,.35,.35],bodySize:[.6,.4,.3],headY:0.8,bodyY:.4, headColor:0xd8a868,bodyColor:0xc8985c, legColor:0xb88848, legCount:4, horizontalBody:true },
+    phantom:       { headSize:[.45,.3,.4], bodySize:[1.2,.2,.8],headY:1.0,bodyY:.95,headColor:0x4060a0,bodyColor:0x3050a0, legColor:0x3050a0, legCount:2 },
+    slime:         { headSize:[.7,.7,.7], bodySize:[.7,.05,.7],headY:0.5, bodyY:.05,headColor:0x66cc66,bodyColor:0x66cc66, legColor:0x66cc66, legCount:2 },
+  };
+  const s = SPECS[kind] ?? SPECS.zombie;
+  const head = new THREE.Mesh(new THREE.BoxGeometry(...s.headSize),
+    new THREE.MeshLambertMaterial({ color: s.headColor }));
+  head.position.y = s.headY; head.name = "head";
+  g.add(head);
+  const body = new THREE.Mesh(new THREE.BoxGeometry(...s.bodySize),
+    new THREE.MeshLambertMaterial({ color: s.bodyColor }));
+  body.position.y = s.bodyY; body.name = "body";
+  if (s.horizontalBody) body.rotation.x = 0; // body already wider in X — no rotation needed
+  g.add(body);
+  // Legs
+  const legGeo = new THREE.BoxGeometry(0.22, Math.max(0.25, s.bodyY - 0.05), 0.22);
+  const legMat = new THREE.MeshLambertMaterial({ color: s.legColor });
+  const halfH  = legGeo.parameters.height / 2;
+  const offX   = s.bodySize[0] / 2 - 0.12;
+  const offZ   = s.bodySize[2] / 2 - 0.1;
+  const legY   = halfH;
+  if (s.legCount === 2) {
+    const a = new THREE.Mesh(legGeo, legMat); a.position.set(-0.15, legY, 0); a.name = "leg"; g.add(a);
+    const b = a.clone(); b.position.x = 0.15; b.name = "leg"; g.add(b);
+  } else {
+    const positions: Array<[number, number]> = [[-offX, -offZ], [offX, -offZ], [-offX, offZ], [offX, offZ]];
+    for (const [px, pz] of positions) {
+      const l = new THREE.Mesh(legGeo, legMat);
+      l.position.set(px, legY, pz);
+      l.name = "leg";
+      g.add(l);
+    }
+  }
   return g;
 }

@@ -1,12 +1,15 @@
 declare const __BUILD_TIME__: string;
 import * as THREE from "three";
 import { preloadAtlas, tickWater, BLOCKS, ITEMS, getItemTile, getItemName, isPlaceable, CREATIVE_HOTBAR } from "./Textures";
+import { damageTool } from "./Inventory";
 import { World } from "./World";
 import { Player } from "./Player";
 import { Multiplayer } from "./Multiplayer";
 import { Inventory } from "./Inventory";
 import { CraftingUI } from "./CraftingUI";
 import { CreativeInventory } from "./CreativeInventory";
+import { TradeUI } from "./TradeUI";
+import { ServerFinder } from "./ServerFinder";
 import { ItemDrops } from "./ItemDrops";
 import { MODES, ModeId, buildBedwars, buildParkour, buildOneBlock, pickOneBlockNext } from "./Modes";
 import { preloadPlayerModel, buildFirstPersonArm, FirstPersonArm } from "./PlayerModel";
@@ -46,6 +49,8 @@ let player: Player;
 let inv: Inventory;
 let craftingUI: CraftingUI;
 let creativeInv: CreativeInventory;
+let tradeUI: TradeUI;
+let serverFinder: ServerFinder | null = null;
 let drops: ItemDrops;
 let mp: Multiplayer | null = null;
 let mode: ModeId = "creative_offline";
@@ -61,7 +66,7 @@ let fpArm: FirstPersonArm | null = null;
 // Day/night: 0..24000 ticks. 0=morning, 6000=noon, 12000=dusk, 18000=midnight.
 // Local clock when offline; mirrored from server state when MP.
 let timeOfDay = 6000;
-const DAY_LENGTH_SECONDS = 20 * 60; // 20-minute full cycle
+const DAY_LENGTH_SECONDS = 180; // 3-minute cycle, matches server tick rate
 
 // Hunger: 0..20
 let hunger = 20;
@@ -94,6 +99,24 @@ function wireMenuButtons() {
     await Legion.showAuthPopup();
   });
   logoutBtn?.addEventListener("click", () => Legion.logout());
+
+  // Server finder — list all open rooms, click to join by id.
+  serverFinder = new ServerFinder(() => serverInput.value.trim());
+  serverFinder.onJoin = (roomId, roomMode) => {
+    playerName = nameInput.value.trim() || "Player";
+    localStorage.setItem("mc.playerName", playerName);
+    const fallback: Record<string, ModeId> = {
+      survival: "survival_mp", creative: "creative_mp",
+      bedwars: "bedwars_mp", parkour: "parkour_mp",
+      oneblock: "oneblock",
+    };
+    mode = ((roomMode && fallback[roomMode]) || "survival_mp") as ModeId;
+    pendingRoomId = roomId;
+    startGame(serverInput.value.trim());
+  };
+  document.getElementById("browseServersBtn")?.addEventListener("click", () => {
+    serverFinder?.show();
+  });
 
   // When Legion user state changes, update name input + login banner
   Legion.onUserChanged((u) => {
@@ -271,9 +294,11 @@ function refreshHotbar() {
     const data = inv.hotbar[i];
     const wrap = slot.querySelector(".slot-icon-wrap") as HTMLElement;
     const ct = slot.querySelector(".slot-count") as HTMLElement;
+    let dur = slot.querySelector(".slot-durability") as HTMLElement | null;
     if (data.id === 0 || data.count === 0) {
       wrap.innerHTML = "";
       ct.textContent = "";
+      if (dur) dur.remove();
     } else {
       const tile = getItemTile(data.id);
       const col = tile % 16, row = Math.floor(tile / 16);
@@ -283,6 +308,27 @@ function refreshHotbar() {
         background-position:-${col * 32}px -${row * 32}px;
       "></div>`;
       ct.textContent = data.count > 1 && data.count < 999 ? String(data.count) : "";
+      // Durability bar (tools only; only when damaged).
+      const item = ITEMS[data.id];
+      const damage = data.damage ?? 0;
+      if (item?.durability && damage > 0) {
+        const remaining = Math.max(0, item.durability - damage);
+        const pct = remaining / item.durability;
+        let color = "#5be17a";
+        if (pct < 0.5)  color = "#e1d05b";
+        if (pct < 0.25) color = "#e15b5b";
+        if (!dur) {
+          dur = document.createElement("div");
+          dur.className = "slot-durability";
+          dur.innerHTML = `<div class="fill"></div>`;
+          slot.appendChild(dur);
+        }
+        const fill = dur.querySelector(".fill") as HTMLElement;
+        fill.style.width = (pct * 100) + "%";
+        fill.style.background = color;
+      } else if (dur) {
+        dur.remove();
+      }
     }
     slot.classList.toggle("active", i === inv.selected);
   });
@@ -400,8 +446,21 @@ document.addEventListener("mousedown", (e) => {
     // swing animation plays. If nothing was hit, the click flows through to
     // block-mining (Player has its own LMB listener for that).
     const hitSomething = tryAttackInFront();
-    if (hitSomething) sound.hit();
-    else              sound.swing();
+    if (hitSomething) {
+      sound.hit();
+      // Hitting a mob or player damages the sword (if any) by 1.
+      if (inv && inv.gameMode !== "creative") {
+        const held = inv.getHeld();
+        const item = held && held.id > 0 ? ITEMS[held.id] : null;
+        if (item?.tool === "sword") {
+          const broke = damageTool(held, 1);
+          if (broke) syncHeldItem();
+          refreshHotbar();
+        }
+      }
+    } else {
+      sound.swing();
+    }
   } else if (e.button === 2) {
     fpArm?.triggerSwing(0.65);
   }
@@ -414,6 +473,25 @@ document.addEventListener("mousedown", (e) => {
   if (!document.pointerLockElement) return;
   if (e.button !== 2) return;
   if (!player) return;
+  // RMB on villager → open trade UI.
+  if (mp?.isConnected() && tradeUI) {
+    const origin = new THREE.Vector3(player.pos.x, player.pos.y + 1.62, player.pos.z);
+    const dir = new THREE.Vector3();
+    camera.getWorldDirection(dir);
+    for (const m of mp.getRemoteMobs()) {
+      if (m.kind !== "villager") continue;
+      const toM = new THREE.Vector3(m.x - origin.x, (m.y + 1) - origin.y, m.z - origin.z);
+      const t = toM.dot(dir);
+      if (t <= 0 || t > 4) continue;
+      const perp = toM.clone().sub(dir.clone().multiplyScalar(t));
+      if (perp.length() <= 0.9) {
+        tradeUI.show();
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
+    }
+  }
   const hit = player.raycast();
   if (!hit) return;
   const block = world.getBlock(hit.x, hit.y, hit.z);
@@ -533,6 +611,44 @@ function setWaterTint(on: boolean) {
   const el = document.getElementById("waterTint");
   if (!el) return;
   el.classList.toggle("active", on);
+}
+
+// ── Death screen ──────────────────────────────────────────────────────────
+let _deathWired = false;
+let _respawnPos = { x: 0, y: 64, z: 0 };
+function showDeathScreen() {
+  const el = document.getElementById("deathScreen");
+  if (!el) return;
+  document.exitPointerLock();
+  el.style.display = "flex";
+  if (!_deathWired) {
+    _deathWired = true;
+    document.getElementById("deathRespawnBtn")?.addEventListener("click", () => {
+      el.style.display = "none";
+      respawnLocalPlayer();
+      setTimeout(() => document.body.requestPointerLock(), 50);
+    });
+    document.getElementById("deathMenuBtn")?.addEventListener("click", () => {
+      // Reload to the main menu — simplest reset.
+      window.location.reload();
+    });
+  }
+}
+
+function respawnLocalPlayer() {
+  if (!player || !inv) return;
+  // Clear inventory on death (survival-style — creative keeps its loadout).
+  if (inv.gameMode !== "creative") {
+    for (const s of inv.hotbar) { s.id = 0; s.count = 0; s.damage = 0; }
+    for (const s of inv.main)   { s.id = 0; s.count = 0; s.damage = 0; }
+  }
+  player.health = player.maxHealth;
+  player.airSupply = player.maxAir;
+  player.onHealthChange?.(player.health);
+  player.spawnAt(_respawnPos.x, _respawnPos.y, _respawnPos.z);
+  if (mp?.isConnected()) mp.sendRespawn();
+  refreshHotbar();
+  syncHeldItem();
 }
 
 // ── Player list (TAB) ──────────────────────────────────────────────────────
@@ -670,26 +786,25 @@ function facingFromYaw(yaw: number): string {
 // ── Day/night cycle ─────────────────────────────────────────────────────────
 function applyDayNight() {
   // timeOfDay: 0 dawn → 6000 noon → 12000 dusk → 18000 midnight → 24000 dawn
-  // Convert to angle: 0..2PI where noon = top.
   const phase = (timeOfDay / 24000) * Math.PI * 2;
-  // Sun goes east→up→west
   const sunAngle = phase - Math.PI / 2;
   const r = 200;
   sun.position.set(Math.cos(sunAngle) * r, Math.sin(sunAngle) * r + 20, 50);
 
-  // Light intensity (1 at noon, 0.05 at midnight)
-  const dayness = Math.max(0.05, Math.sin(sunAngle));
-  sun.intensity = 0.1 + dayness * 0.9;
-  ambient.intensity = 0.25 + dayness * 0.6;
-  hemi.intensity = 0.15 + dayness * 0.3;
+  // Light intensity. dayness=1 at noon → 0 at midnight. Floor much lower
+  // than before so night actually feels dark.
+  const dayness = Math.max(0, Math.sin(sunAngle));
+  sun.intensity     = 0.02 + dayness * 0.95;
+  ambient.intensity = 0.10 + dayness * 0.65;
+  hemi.intensity    = 0.05 + dayness * 0.35;
 
-  // Sky color
+  // Sky / fog colour. Night now a much deeper blue-black so distant chunks
+  // fade properly into the dark.
   const dayCol = new THREE.Color(0x9bd2ff);
-  const dusk   = new THREE.Color(0xff8d4a);
-  const night  = new THREE.Color(0x05060f);
+  const dusk   = new THREE.Color(0xc46a3a);
+  const night  = new THREE.Color(0x010410);
   let col: THREE.Color;
-  // Smooth blend through dawn/dusk
-  if (timeOfDay < 5000)        col = night.clone().lerp(dayCol, timeOfDay / 5000);
+  if (timeOfDay < 4500)        col = night.clone().lerp(dayCol, timeOfDay / 4500);
   else if (timeOfDay < 12000)  col = dayCol;
   else if (timeOfDay < 13500)  col = dayCol.clone().lerp(dusk, (timeOfDay - 12000) / 1500);
   else if (timeOfDay < 15000)  col = dusk.clone().lerp(night, (timeOfDay - 13500) / 1500);
@@ -697,7 +812,12 @@ function applyDayNight() {
   else                          col = night.clone().lerp(dayCol, (timeOfDay - 22500) / 1500);
 
   scene.background = col;
-  (scene.fog as THREE.Fog).color.copy(col);
+  // Pull fog closer at night so the world reads as enclosed darkness rather
+  // than a uniform sky-coloured void. Cheap — Three.js Fog is one constant.
+  const fog = scene.fog as THREE.Fog;
+  fog.color.copy(col);
+  fog.near = 60;
+  fog.far  = 60 + dayness * 160 + 60; // 120 at midnight, 280 at noon
   renderer.setClearColor(col);
 }
 
@@ -743,6 +863,7 @@ async function startGame(serverAddr: string | null) {
   if (cfg.hotbar) {
     cfg.hotbar.forEach((id, i) => { inv.hotbar[i] = { id, count: cfg.isCreative ? 999 : 64 }; });
   }
+  _respawnPos = { x: spawnX, y: spawnY, z: spawnZ };
 
   player = new Player(camera, world);
   player.inv = inv;
@@ -754,6 +875,9 @@ async function startGame(serverAddr: string | null) {
   creativeInv = new CreativeInventory(inv);
   creativeInv.onClose = () => setTimeout(() => document.body.requestPointerLock(), 50);
   creativeInv.onChange = () => { refreshHotbar(); syncHeldItem(); };
+  tradeUI = new TradeUI(inv);
+  tradeUI.onClose = () => setTimeout(() => document.body.requestPointerLock(), 50);
+  tradeUI.onChange = () => { refreshHotbar(); syncHeldItem(); };
   craftingUI = new CraftingUI(inv);
   craftingUI.onCraft = () => { refreshHotbar(); sound.craft(); };
   craftingUI.onClose = () => {
@@ -778,9 +902,17 @@ async function startGame(serverAddr: string | null) {
     fpArm?.triggerSwing(1);
     sound.breakBlock(blockSurface(prevType));
     const def = BLOCKS[prevType];
-    // Real-Minecraft tool gating: drops only happen if the player held an
-    // adequate tool. Without a pickaxe, stone breaks but cobblestone does
-    // NOT drop. See Player.canHarvest().
+    // Durability cost: one use per block when the held tool is the right
+    // category for the block. Survival only.
+    if (!cfg.isCreative && def?.tool && def.tool !== "any") {
+      const held = inv.getHeld();
+      const item = held && held.id > 0 ? ITEMS[held.id] : null;
+      if (item && item.tool === def.tool) {
+        const broke = damageTool(held, 1);
+        if (broke) { sound.click(); refreshHotbar(); syncHeldItem(); }
+        else       refreshHotbar();
+      }
+    }
     const eligible = !cfg.isCreative && def && def.drop !== 0 && player.canHarvest(prevType);
     if (eligible) {
       const dropId = def!.drop ?? prevType;
@@ -803,7 +935,12 @@ async function startGame(serverAddr: string | null) {
   };
   player.onHealthChange = (hp) => {
     renderHearts(hp);
-    if (hp <= 0) sound.death(); else sound.hurt();
+    if (hp <= 0) {
+      sound.death();
+      showDeathScreen();
+    } else {
+      sound.hurt();
+    }
   };
   player.onJump = () => sound.jump();
   player.onLand = () => {
@@ -1043,8 +1180,10 @@ async function startGame(serverAddr: string | null) {
       if (cfg.isCreative) {
         player.spawnAt(spawnX, spawnY, spawnZ);
       } else {
+        // The takeDamage(20) will drop hp to 0 → onHealthChange shows the
+        // death screen. Don't teleport here — Respawn handles that.
         player.takeDamage(20);
-        player.spawnAt(spawnX, spawnY, spawnZ);
+        if (player.health > 0) player.spawnAt(spawnX, spawnY, spawnZ);
       }
     }
 

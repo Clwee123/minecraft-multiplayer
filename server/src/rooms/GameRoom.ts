@@ -68,8 +68,10 @@ export class GameState extends Schema {
 function uid(): string { return Math.random().toString(36).slice(2, 10); }
 function rnd(a: number, b: number) { return a + Math.random() * (b - a); }
 
-const MAX_MOBS  = 25;
-const MOB_TYPES = ["pig", "pig", "pig", "chicken", "chicken", "zombie", "cow", "cow", "sheep", "sheep", "creeper", "skeleton", "spider", "witherskeleton", "wolf", "cat", "phantom", "slime"] as const;
+const MAX_MOBS  = 30;
+// Tilted toward passive/friendly so worlds feel populated. Hostile mobs
+// will only actually chase the player at night (see tickMobs).
+const MOB_TYPES = ["pig", "pig", "pig", "chicken", "chicken", "cow", "cow", "sheep", "sheep", "villager", "villager", "zombie", "creeper", "skeleton", "spider", "wolf"] as const;
 
 // ── GameRoom ──────────────────────────────────────────────────────────────────
 
@@ -238,11 +240,11 @@ export class GameRoom extends Room<GameState> {
     // ── Spawn initial mobs & start AI loop ───────────────────────────────────
     this.spawnInitialMobs();
     this.mobLoop = setInterval(() => { try { this.tickMobs(0.2); } catch(e) { console.error("[GameRoom] mob tick error:", e); } }, 200);
-    // Time of day: 20 ticks/sec × 1200 s = 24000-tick day = 20-minute cycle,
-    // matching the client's local fallback rate. Replicated through state.
+    // 3-minute day/night cycle: 180 s × ~134 ticks/sec = 24000 tick day.
+    // Server-authoritative + replicated via state.timeOfDay.
     this.timeLoop = setInterval(() => {
-      this.state.timeOfDay = (this.state.timeOfDay + 20) % 24000;
-    }, 1000);
+      this.state.timeOfDay = (this.state.timeOfDay + 14) % 24000;
+    }, 100);
   }
 
   // ── Player lifecycle ──────────────────────────────────────────────────────
@@ -370,9 +372,12 @@ export class GameRoom extends Room<GameState> {
         if (d < nearestDist) { nearestDist = d; nearestPlayer = p; }
       });
 
-      const speed = mob.type === "zombie" ? 2.8 : mob.type === "chicken" ? 3.5 : mob.type === "cow" ? 2.0 : mob.type === "sheep" ? 2.2 : 2.5;
+      const speed = mob.type === "zombie" ? 2.8 : mob.type === "chicken" ? 3.5 : mob.type === "cow" ? 2.0 : mob.type === "sheep" ? 2.2 : mob.type === "villager" ? 1.4 : 2.5;
+      // Hostile mobs only chase at night (timeOfDay in 12500..23500 like MC).
+      const isNight = this.state.timeOfDay > 12500 && this.state.timeOfDay < 23500;
+      const isHostile = mob.type === "zombie" || mob.type === "creeper" || mob.type === "skeleton" || mob.type === "spider";
 
-      if (mob.type === "zombie" && nearestPlayer && nearestDist < 18) {
+      if (isHostile && isNight && nearestPlayer && nearestDist < 18) {
         // Chase
         mob.state = "chasing";
         const angle = Math.atan2(nearestPlayer.x - mob.x, nearestPlayer.z - mob.z);

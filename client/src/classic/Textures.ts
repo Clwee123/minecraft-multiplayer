@@ -189,30 +189,31 @@ export const BLOCKS: Record<number, BlockDef> = {
 };
 
 // ── Items (id >= 50 = items, not placeable blocks) ────────────────────────────
-export const ITEMS: Record<number, { name: string; tile: number; tool?: "axe" | "pickaxe" | "shovel" | "sword" | "shears"; toolTier?: number; food?: number }> = {
+export const ITEMS: Record<number, { name: string; tile: number; tool?: "axe" | "pickaxe" | "shovel" | "sword" | "shears"; toolTier?: number; food?: number; /** Tool durability — total uses before it breaks. */ durability?: number }> = {
   50: { name: "Coal",           tile: T_I_COAL },
   51: { name: "Diamond",        tile: T_I_DIAMOND },
   52: { name: "Iron Ingot",     tile: T_I_IRON_INGOT },
   53: { name: "Gold Ingot",     tile: T_I_GOLD_INGOT },
   54: { name: "Stick",          tile: T_I_STICK },
-  55: { name: "Wooden Pickaxe", tile: T_I_WOOD_PICK,   tool: "pickaxe", toolTier: 1 },
-  56: { name: "Wooden Axe",     tile: T_I_WOOD_AXE,    tool: "axe",     toolTier: 1 },
-  57: { name: "Wooden Shovel",  tile: T_I_WOOD_SHOVEL, tool: "shovel",  toolTier: 1 },
-  58: { name: "Wooden Sword",   tile: T_I_WOOD_SWORD,  tool: "sword",   toolTier: 1 },
-  59: { name: "Stone Pickaxe",  tile: T_I_STONE_PICK,  tool: "pickaxe", toolTier: 2 },
-  60: { name: "Stone Axe",      tile: T_I_STONE_AXE,   tool: "axe",     toolTier: 2 },
-  61: { name: "Stone Sword",    tile: T_I_STONE_SWORD, tool: "sword",   toolTier: 2 },
-  62: { name: "Iron Pickaxe",   tile: T_I_IRON_PICK,   tool: "pickaxe", toolTier: 3 },
-  63: { name: "Iron Sword",     tile: T_I_IRON_SWORD,  tool: "sword",   toolTier: 3 },
-  64: { name: "Diamond Sword",  tile: T_I_DIAM_SWORD,  tool: "sword",   toolTier: 4 },
+  // Durability values mirror Minecraft 1.9: wood=59, stone=131, iron=250, diamond=1561.
+  55: { name: "Wooden Pickaxe", tile: T_I_WOOD_PICK,   tool: "pickaxe", toolTier: 1, durability: 59   },
+  56: { name: "Wooden Axe",     tile: T_I_WOOD_AXE,    tool: "axe",     toolTier: 1, durability: 59   },
+  57: { name: "Wooden Shovel",  tile: T_I_WOOD_SHOVEL, tool: "shovel",  toolTier: 1, durability: 59   },
+  58: { name: "Wooden Sword",   tile: T_I_WOOD_SWORD,  tool: "sword",   toolTier: 1, durability: 59   },
+  59: { name: "Stone Pickaxe",  tile: T_I_STONE_PICK,  tool: "pickaxe", toolTier: 2, durability: 131  },
+  60: { name: "Stone Axe",      tile: T_I_STONE_AXE,   tool: "axe",     toolTier: 2, durability: 131  },
+  61: { name: "Stone Sword",    tile: T_I_STONE_SWORD, tool: "sword",   toolTier: 2, durability: 131  },
+  62: { name: "Iron Pickaxe",   tile: T_I_IRON_PICK,   tool: "pickaxe", toolTier: 3, durability: 250  },
+  63: { name: "Iron Sword",     tile: T_I_IRON_SWORD,  tool: "sword",   toolTier: 3, durability: 250  },
+  64: { name: "Diamond Sword",  tile: T_I_DIAM_SWORD,  tool: "sword",   toolTier: 4, durability: 1561 },
   65: { name: "Apple",          tile: T_I_APPLE,                                food: 4 },
   66: { name: "Bread",          tile: T_I_BREAD,                                food: 5 },
-  67: { name: "Stone Shovel",   tile: T_I_STONE_SHOVEL, tool: "shovel",  toolTier: 2 },
-  68: { name: "Iron Axe",       tile: T_I_IRON_AXE,    tool: "axe",     toolTier: 3 },
-  69: { name: "Iron Shovel",    tile: T_I_IRON_SHOVEL, tool: "shovel",  toolTier: 3 },
-  70: { name: "Diamond Pickaxe", tile: T_I_DIAM_PICK,  tool: "pickaxe", toolTier: 4 },
-  71: { name: "Diamond Axe",    tile: T_I_DIAM_AXE,    tool: "axe",     toolTier: 4 },
-  72: { name: "Diamond Shovel", tile: T_I_DIAM_SHOVEL, tool: "shovel",  toolTier: 4 },
+  67: { name: "Stone Shovel",   tile: T_I_STONE_SHOVEL, tool: "shovel",  toolTier: 2, durability: 131  },
+  68: { name: "Iron Axe",       tile: T_I_IRON_AXE,    tool: "axe",     toolTier: 3, durability: 250  },
+  69: { name: "Iron Shovel",    tile: T_I_IRON_SHOVEL, tool: "shovel",  toolTier: 3, durability: 250  },
+  70: { name: "Diamond Pickaxe", tile: T_I_DIAM_PICK,  tool: "pickaxe", toolTier: 4, durability: 1561 },
+  71: { name: "Diamond Axe",    tile: T_I_DIAM_AXE,    tool: "axe",     toolTier: 4, durability: 1561 },
+  72: { name: "Diamond Shovel", tile: T_I_DIAM_SHOVEL, tool: "shovel",  toolTier: 4, durability: 1561 },
   73: { name: "Wheat",          tile: T_I_WHEAT },
   74: { name: "String",         tile: T_I_STRING },
   75: { name: "Feather",        tile: T_I_FEATHER },
@@ -221,6 +222,7 @@ export const ITEMS: Record<number, { name: string; tile: number; tool?: "axe" | 
   78: { name: "Bone",           tile: T_I_BONE },
   79: { name: "Egg",            tile: T_I_EGG },
   80: { name: "Arrow",          tile: T_I_ARROW },
+  81: { name: "Emerald",        tile: T_I_DIAMOND /* fallback icon — atlas has no emerald yet */ },
 };
 
 export const BLOCK_NAMES: Record<number, string> = {

@@ -98,15 +98,11 @@ export class Player {
 
   takeDamage(dmg: number) {
     if (this.gameMode === "creative") return;
+    if (this.health <= 0) return; // already dead, waiting for respawn
     this.health = Math.max(0, this.health - dmg);
     this.onHealthChange?.(this.health);
-    if (this.health <= 0) {
-      // Respawn
-      setTimeout(() => {
-        this.health = this.maxHealth;
-        this.onHealthChange?.(this.health);
-      }, 800);
-    }
+    // No auto-respawn — main.ts shows the death screen on hp <= 0 and the
+    // player clicks Respawn to come back. While dead, takeDamage is a no-op.
   }
 
   private attachInput() {
