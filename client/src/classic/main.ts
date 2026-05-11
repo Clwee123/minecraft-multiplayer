@@ -12,7 +12,7 @@ import { TradeUI } from "./TradeUI";
 import { ServerFinder } from "./ServerFinder";
 import { ItemDrops } from "./ItemDrops";
 import { MODES, ModeId, buildBedwars, buildParkour, buildOneBlock, pickOneBlockNext } from "./Modes";
-import { preloadPlayerModel, buildFirstPersonArm, FirstPersonArm } from "./PlayerModel";
+import { preloadPlayerModel, buildFirstPersonArm, FirstPersonArm, applySkinToCharacter } from "./PlayerModel";
 import { BreakHighlight, BreakParticles } from "./BreakEffects";
 import { Legion, LegionUser, LegionFriend, readInstantJoinIntent } from "./Legion";
 import { sound, blockSurface } from "./Sound";
@@ -807,6 +807,9 @@ function applyDayNight() {
   sun.intensity     = 0.02 + dayness * 0.95;
   ambient.intensity = 0.10 + dayness * 0.65;
   hemi.intensity    = 0.05 + dayness * 0.35;
+  // Cross-shape sprites (flowers/tallgrass) use an unlit material so they
+  // don't pick up sun/ambient automatically — modulate their colour here.
+  world?.setSpriteBrightness(0.18 + dayness * 0.82);
 
   // Sky / fog colour. Night now a much deeper blue-black so distant chunks
   // fade properly into the dark.
@@ -843,10 +846,56 @@ async function startGame(serverAddr: string | null) {
   await preloadAtlas();
   preloadPlayerModel().catch(() => {});
 
+  // For multiplayer we need the SERVER's seed so every client generates the
+  // same terrain. Connect first, harvest state.seed, then create the world.
+  let serverSeed = 0;
+  if (cfg.isMultiplayer && serverAddr) {
+    (document.getElementById("loadingStatus") as HTMLElement).textContent =
+      pendingRoomId ? `Joining room ${pendingRoomId}…` : `Connecting to ${serverAddr}…`;
+    Legion.loadingStep(pendingRoomId ? `Joining room ${pendingRoomId}` : "Connecting to server");
+    mp = new Multiplayer(scene, playerName);
+    // Wire callbacks BEFORE connect so worldState / state changes during the
+    // join don't get dropped. `world` is null at this point; handlers that
+    // touch it check for that and bail. We'll replay block state below via
+    // mp.applyExistingBlockState() once the world is built.
+    mp.onConnected = () => addChatLine("", `Connected as ${playerName}`);
+    mp.onDisconnected = () => addChatLine("", "Disconnected from server");
+    mp.onError = (err) => addChatLine("", "Connect error: " + err);
+    mp.onChat = (sender, msg) => { addChatLine(sender, msg); sound.chat(); };
+    mp.onBlockUpdate = (x, y, z, type) => { if (world) world.setBlock(x, y, z, type); };
+    mp.onLocalDamage = (d) => player?.takeDamage(d);
+    mp.onLocalKnockback = (byX, _byY, byZ) => {
+      if (!player) return;
+      const dx = player.pos.x - byX;
+      const dz = player.pos.z - byZ;
+      const len = Math.hypot(dx, dz) || 1;
+      player.vel.x += (dx / len) * 4.5;
+      player.vel.z += (dz / len) * 4.5;
+      if (player.onGround) player.vel.y = Math.max(player.vel.y, 3.6);
+    };
+    const modeKey = mode === "creative_mp" ? "creative"
+                  : mode === "bedwars_mp"  ? "bedwars"
+                  : mode === "parkour_mp"  ? "parkour"
+                  : mode === "oneblock"    ? "oneblock"
+                  : "survival";
+    try {
+      await mp.connect(serverAddr, modeKey, pendingRoomId);
+      pendingRoomId = null;
+      serverSeed = mp.getSeed();
+    } catch (e) {
+      addChatLine("", "Could not connect, playing offline");
+      console.error(e);
+      mp = null;
+    }
+  }
+
   (document.getElementById("loadingStatus") as HTMLElement).textContent = "Generating world…";
   await new Promise(r => setTimeout(r, 30));
-  const seed = cfg.isMultiplayer ? 12345 : Math.floor(Math.random() * 100000);
+  // Server seed if MP, otherwise random. 0 falls through to a default.
+  const seed = serverSeed || Math.floor(Math.random() * 100000) || 12345;
   world = new World(scene, seed, { infinite: cfg.useDefaultWorld });
+  // Replay any block changes that happened in the room before we joined.
+  if (mp?.isConnected()) mp.applyExistingBlockState();
 
   let spawnX: number, spawnY: number, spawnZ: number;
   if (mode === "bedwars_mp") {
@@ -904,7 +953,12 @@ async function startGame(serverAddr: string | null) {
   await preloadPlayerModel().catch(() => {});
   scene.add(camera);
   fpArm = buildFirstPersonArm();
-  if (fpArm) camera.add(fpArm.group);
+  if (fpArm) {
+    camera.add(fpArm.group);
+    // Apply the local Legion user's skin to our own arm (guest → skin 0).
+    const avatar = Legion.getAvatar();
+    applySkinToCharacter(fpArm.group, String(avatar?.skinId || "0"));
+  }
 
   // Hooks
   player.onBreak = (x, y, z, prevType) => {
@@ -976,26 +1030,7 @@ async function startGame(serverAddr: string | null) {
     breakFx.setProgress(p);
   };
 
-  if (cfg.isMultiplayer && serverAddr) {
-    (document.getElementById("loadingStatus") as HTMLElement).textContent =
-      pendingRoomId ? `Joining room ${pendingRoomId}…` : `Connecting to ${serverAddr}…`;
-    Legion.loadingStep(pendingRoomId ? `Joining room ${pendingRoomId}` : "Connecting to server");
-    mp = new Multiplayer(scene, playerName);
-    mp.onConnected = () => addChatLine("", `Connected as ${playerName}`);
-    mp.onDisconnected = () => addChatLine("", "Disconnected from server");
-    mp.onError = (err) => addChatLine("", "Connect error: " + err);
-    mp.onChat = (sender, msg) => { addChatLine(sender, msg); sound.chat(); };
-    mp.onBlockUpdate = (x, y, z, type) => world.setBlock(x, y, z, type);
-    mp.onLocalDamage = (d) => player.takeDamage(d);
-    mp.onLocalKnockback = (byX, _byY, byZ) => {
-      // Small impulse away from the attacker + a little upward lift, real-MC style.
-      const dx = player.pos.x - byX;
-      const dz = player.pos.z - byZ;
-      const len = Math.hypot(dx, dz) || 1;
-      player.vel.x += (dx / len) * 4.5;
-      player.vel.z += (dz / len) * 4.5;
-      if (player.onGround) player.vel.y = Math.max(player.vel.y, 3.6);
-    };
+  if (mp?.isConnected()) {
     // ── Remote break-overlay sync ──
     // Maintain one BreakHighlight per remote sessionId. We dispose it on
     // breakStop OR after 1.5 s without an update (safety against dropped
@@ -1022,21 +1057,6 @@ async function startGame(serverAddr: string | null) {
     };
     // Stash on global so the game loop can sweep stale entries
     (window as any)._remoteBreakers = remoteBreakers;
-    try {
-      // Pass the room id from `?roomId=…` if Bloxity launched us with one.
-      // The Multiplayer.connect path falls back to joinOrCreate on failure.
-      const modeKey = mode === "creative_mp" ? "creative"
-                    : mode === "bedwars_mp"  ? "bedwars"
-                    : mode === "parkour_mp"  ? "parkour"
-                    : mode === "oneblock"    ? "oneblock"
-                    : "survival";
-      await mp.connect(serverAddr, modeKey, pendingRoomId);
-      pendingRoomId = null;
-    } catch (e) {
-      addChatLine("", "Could not connect, playing offline");
-      console.error(e);
-      mp = null;
-    }
   }
 
   buildHotbar();
@@ -1067,6 +1087,8 @@ async function startGame(serverAddr: string | null) {
   // Footstep / splash tracking
   let stepDist = 0;
   let lastInWater = false;
+  // FP arm bob/sway tracking
+  let lastYaw = player.yaw;
   // Break-progress sync state
   let lastSentBreakKey: string | null = null;
   let lastSentBreakProgress = -1;
@@ -1107,9 +1129,9 @@ async function startGame(serverAddr: string | null) {
 
     if (!cfg.isCreative) {
       drops.update(dt, player.pos, inv, (x, y, z) => world.isSolid(x, y, z));
-      // Hunger drain
+      // Hunger drain — one tick every ~60 s of walking (10× slower than before).
       hungerTimer += dt * (player.sprinting ? 2 : 1);
-      if (hungerTimer > 6) {
+      if (hungerTimer > 60) {
         hungerTimer = 0;
         if (hunger > 0) hunger--;
         else if (player.health > 0) player.takeDamage(1);
@@ -1120,12 +1142,19 @@ async function startGame(serverAddr: string | null) {
     tickWater(waterT);
     breakParticles.update(dt, (x, y, z) => world.isSolid(x, y, z));
 
-    // First-person arm: chop continuously while LMB held in survival
+    // First-person arm: chop continuously while LMB held in survival.
+    // Also pass walking speed + yaw delta so the arm bobs + sways like vanilla.
     if (fpArm) {
       if (lmbHeld && player.gameMode === "survival" && player.lastHit) {
         fpArm.triggerMineSwing();
       }
-      fpArm.update(dt);
+      const walkSpeed = Math.hypot(player.vel.x, player.vel.z);
+      // Wrap yaw delta into (-PI, PI] so a wrap-around doesn't spike the sway.
+      let yawDelta = player.yaw - lastYaw;
+      if (yawDelta > Math.PI)  yawDelta -= Math.PI * 2;
+      if (yawDelta < -Math.PI) yawDelta += Math.PI * 2;
+      lastYaw = player.yaw;
+      fpArm.update(dt, { walkSpeed, yawDelta, onGround: player.onGround });
     }
 
     // Day/night
@@ -1247,6 +1276,7 @@ Legion.init().then(() => {
   renderLegionPanel(Legion.getUser());
 
   Legion.onAvatarChanged((avatar) => {
+    if (fpArm) applySkinToCharacter(fpArm.group, String(avatar?.skinId || "0"));
     if (mp?.isConnected()) {
       const u = Legion.getUser();
       mp.sendAvatarUpdate(avatar, {

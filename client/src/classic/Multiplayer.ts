@@ -8,7 +8,7 @@
  */
 import * as Colyseus from "colyseus.js";
 import * as THREE from "three";
-import { spawnPlayer, buildFallbackPlayer, makeNameTag, PlayerInstance, attachHeldItem, detachHeldItem } from "./PlayerModel";
+import { spawnPlayer, buildFallbackPlayer, makeNameTag, PlayerInstance, attachHeldItem, detachHeldItem, applySkinToCharacter } from "./PlayerModel";
 import { Legion } from "./Legion";
 
 export interface RemotePlayer {
@@ -32,6 +32,8 @@ export interface RemotePlayer {
   heldId: number;
   /** Held-item mesh attached to the right-hand bone. */
   heldMesh: THREE.Object3D | null;
+  /** Bloxity skin id ("-1"/"" = guest default "0"). */
+  skinId: string;
 }
 
 export interface RemoteMob {
@@ -284,6 +286,21 @@ export class Multiplayer {
     this.room.send("updateAvatar", { ...avatar, ...extra });
   }
   getRoomId(): string | null { return this.room?.roomId ?? null; }
+  /** Server-picked world seed (set in onCreate). 0 means "not yet known". */
+  getSeed(): number {
+    const s = (this.room?.state as any)?.seed;
+    return typeof s === "number" ? s : 0;
+  }
+  /** Replay the room's accumulated block changes into the world via onBlockUpdate.
+   *  Called after we create the World (which is created AFTER connect so seed lines up). */
+  applyExistingBlockState() {
+    const state: any = this.room?.state;
+    if (!state?.blockChanges) return;
+    state.blockChanges.forEach((c: any) => {
+      const type = c.action === "remove" ? 0 : c.blockType;
+      this.onBlockUpdate?.(c.x, c.y, c.z, type);
+    });
+  }
 
   private ensureRemotePlayer(sessionId: string, player: any) {
     if (this.remotePlayers.has(sessionId)) return;
@@ -310,6 +327,11 @@ export class Multiplayer {
     tag.position.set(0, localTop + 0.35, 0);
     group.add(tag);
 
+    // Apply the player's Bloxity skin texture to the cloned GLB. Falls back
+    // to skin "0" for guests / new accounts.
+    const initialSkin = String(player?.skinId || "0");
+    applySkinToCharacter(group, initialSkin);
+
     this.remotePlayers.set(sessionId, {
       id: sessionId,
       name: userName,
@@ -327,6 +349,7 @@ export class Multiplayer {
       nameTag: tag,
       heldId: 0,
       heldMesh: null,
+      skinId: initialSkin,
     });
   }
 
@@ -458,6 +481,12 @@ export class Multiplayer {
           rp.heldId = newHeld;
           if (rp.heldMesh) { detachHeldItem(rp.mesh, rp.heldMesh); rp.heldMesh = null; }
           if (newHeld !== 0) rp.heldMesh = attachHeldItem(rp.mesh, newHeld);
+        }
+        // Skin texture: reload if the user picked a different one.
+        const newSkin = String(p.skinId || "0");
+        if (newSkin !== rp.skinId) {
+          rp.skinId = newSkin;
+          applySkinToCharacter(rp.mesh, newSkin);
         }
       });
       // Remove vanished players

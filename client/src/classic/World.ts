@@ -154,12 +154,22 @@ export class World {
       transparent: true, opacity: 0.78, depthWrite: false, color: 0x4477ff,
     });
     // Sprite material for cross-shape blocks (flowers, sapling, tallgrass).
-    // MeshBasicMaterial = unlit, so the sprite is always at full brightness
-    // regardless of normal direction. DoubleSide so both sides of each quad show.
+    // We keep MeshBasicMaterial (unlit) for crispness, but expose a `color`
+    // knob the day/night cycle modulates so sprites darken at night instead
+    // of glowing through the dark.
     this.spriteMat = new THREE.MeshBasicMaterial({
       map: atlas, side: THREE.DoubleSide,
       transparent: true, alphaTest: 0.5,
+      color: 0xffffff,
     });
+  }
+
+  /** Modulate sprite brightness (0..1) to match the time-of-day lighting. */
+  setSpriteBrightness(b: number) {
+    if (this.spriteMat && (this.spriteMat as any).color) {
+      const c = (this.spriteMat as THREE.MeshBasicMaterial).color;
+      c.setRGB(b, b, b);
+    }
   }
 
   // ── Public block access ────────────────────────────────────────────────────

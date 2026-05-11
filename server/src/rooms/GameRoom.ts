@@ -58,6 +58,9 @@ export class GameState extends Schema {
   @type("string")             mode       = "survival";
   /** World time in ticks (0..24000). Advances server-side every second. */
   @type("uint32")             timeOfDay  = 6000;
+  /** World generation seed. Picked once when the room is created so every
+   *  client in the room sees the same terrain. */
+  @type("uint32")             seed       = 0;
   @type({ map: PlayerState }) players    = new MapSchema<PlayerState>();
   @type([BlockChange])        blockChanges = new ArraySchema<BlockChange>();
   @type({ map: MobState })    mobs       = new MapSchema<MobState>();
@@ -85,13 +88,13 @@ export class GameRoom extends Room<GameState> {
 
   onCreate(options: any = {}) {
     this.setState(new GameState());
-    // Mode is part of the matchmaking key — see filterBy in index.ts. We
-    // also stash it in state + metadata so clients can verify they landed
-    // in the room they asked for.
     const mode = String(options.mode || "survival").toLowerCase();
     this.state.mode = mode;
-    this.setMetadata({ mode });
-    console.log(`[GameRoom] Created ${this.roomId} (mode=${mode})`);
+    // Pick a random world seed once per room so all clients here generate
+    // the same terrain. Replicated through state.seed.
+    this.state.seed = Math.floor(Math.random() * 0xfffffff) >>> 0;
+    this.setMetadata({ mode, seed: this.state.seed });
+    console.log(`[GameRoom] Created ${this.roomId} (mode=${mode}, seed=${this.state.seed})`);
 
     // ── Message handlers ─────────────────────────────────────────────────────
 

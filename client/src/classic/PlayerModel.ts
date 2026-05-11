@@ -136,15 +136,11 @@ const ARM_SWING_ARC = 1.6;          // radians at peak swing
 const ARM_TWIST = 0.25;             // a touch of Z-axis roll during swing
 
 export interface FirstPersonArm {
-  /** Add this to the camera (camera.add(arm.group)). */
   group: THREE.Group;
-  /** Trigger a single swing (0..1 animates over ~250 ms). */
   triggerSwing(strength?: number): void;
-  /** Trigger a mining swing — repeats while called continuously. */
   triggerMineSwing(): void;
-  /** Advance animation. */
-  update(dt: number): void;
-  /** Swap the item shown in the hand (0 = empty hand, no item mesh). */
+  /** Advance animation. `ctx` adds walking bob + yaw sway when provided. */
+  update(dt: number, ctx?: { walkSpeed: number; yawDelta: number; onGround: boolean }): void;
   setHeldItem(itemId: number): void;
 }
 
@@ -199,12 +195,18 @@ export function buildFirstPersonArm(): FirstPersonArm | null {
   group.add(cloned);
   group.renderOrder = 1000;
 
-  let swingT = 0;        // 0..1, decays over time
+  let swingT = 0;
   let swingStrength = 1;
-  let miningSwingPhase = 0; // continuous angle for the chop loop
+  let miningSwingPhase = 0;
   let miningActive = false;
   let heldMesh: THREE.Object3D | null = null;
   let currentHeldId = 0;
+  // Walking bob + yaw sway state (applied to `group` so they stack with
+  // the swing-only animation on the shoulder bone).
+  let walkPhase = 0;
+  let swayZ = 0;        // smoothed yaw-delta drives a Z-rotation sway
+  const groupBaseX = group.position.x;
+  const groupBaseY = group.position.y;
 
   return {
     group,
@@ -216,15 +218,15 @@ export function buildFirstPersonArm(): FirstPersonArm | null {
     triggerMineSwing() {
       miningActive = true;
     },
-    update(dt: number) {
+    update(dt: number, ctx?: { walkSpeed: number; yawDelta: number; onGround: boolean }) {
       if (!shoulder) return;
       const sh = shoulder as THREE.Object3D;
-      // One-shot swing
+      // ── Shoulder swing (one-shot or continuous mining) ──
       if (swingT > 0) {
-        const eased = Math.sin((1 - swingT) * Math.PI); // 0→1→0
+        const eased = Math.sin((1 - swingT) * Math.PI);
         sh.rotation.x = baseRotX - ARM_SHOULDER_FORWARD + eased * ARM_SWING_ARC * swingStrength;
         sh.rotation.z = baseRotZ + eased * ARM_TWIST * swingStrength;
-        swingT = Math.max(0, swingT - dt * 4); // ~0.25s total
+        swingT = Math.max(0, swingT - dt * 4);
       } else if (miningActive) {
         miningSwingPhase += dt * Math.PI * 3;
         const v = (Math.sin(miningSwingPhase) + 1) * 0.5;
@@ -235,6 +237,24 @@ export function buildFirstPersonArm(): FirstPersonArm | null {
         sh.rotation.x = baseRotX - ARM_SHOULDER_FORWARD;
         sh.rotation.z = baseRotZ;
         miningSwingPhase = 0;
+      }
+      // ── Walking bob + yaw sway on the whole arm ──
+      if (ctx) {
+        const moving = ctx.walkSpeed > 0.5 && ctx.onGround;
+        if (moving) walkPhase += Math.min(ctx.walkSpeed, 8) * dt * 1.6;
+        else        walkPhase *= 0.94; // ease out
+        const bobY = moving ? Math.sin(walkPhase * 2) * 0.025 : 0;
+        const bobX = moving ? Math.sin(walkPhase)     * 0.022 : 0;
+        // Smooth sway from rapid yaw changes — arms lag behind the camera.
+        const targetSway = Math.max(-0.6, Math.min(0.6, ctx.yawDelta * 25));
+        swayZ += (targetSway - swayZ) * Math.min(1, dt * 12);
+        group.position.x = groupBaseX + bobX + swayZ * 0.04;
+        group.position.y = groupBaseY + bobY;
+        group.rotation.z = -swayZ * 0.25;
+      } else {
+        group.position.x = groupBaseX;
+        group.position.y = groupBaseY;
+        group.rotation.z = 0;
       }
     },
     setHeldItem(itemId: number) {
@@ -363,6 +383,54 @@ export function detachHeldItem(_playerRoot: THREE.Object3D, mesh: THREE.Object3D
   const m = (mesh as THREE.Mesh).material as THREE.Material | undefined;
   m?.dispose?.();
   ((mesh as THREE.Mesh).geometry as THREE.BufferGeometry | undefined)?.dispose?.();
+}
+
+// ── Bloxity skin texture ───────────────────────────────────────────────────
+//
+// Bloxity ships per-user skin PNGs at static.bloxity.io/skins/<id>.png.
+// We apply the texture as `material.map` on every SkinnedMesh inside the
+// cloned GLB rig. Each clone has its own (cloned) materials thanks to
+// isolateMaterials() in spawnPlayer/buildFirstPersonArm, so changing one
+// player's skin won't leak to anybody else.
+const SKIN_CDN = "https://static.bloxity.io/skins";
+const _skinTextureCache: Map<string, THREE.Texture> = new Map();
+
+export function applySkinToCharacter(root: THREE.Object3D, skinId: string | null | undefined) {
+  // -1 / undefined / empty → default skin id "0".
+  const seg = (skinId && skinId !== "-1" && skinId !== "undefined") ? skinId : "0";
+  const url = `${SKIN_CDN}/${seg}.png`;
+
+  const apply = (tex: THREE.Texture) => {
+    root.traverse((o: any) => {
+      if (!(o.isSkinnedMesh || o.isMesh)) return;
+      // Skip the held-item mesh (we don't want to overwrite item textures).
+      if (o.userData?.isHeldItem) return;
+      const mats = Array.isArray(o.material) ? o.material : [o.material];
+      mats.forEach((m: any) => {
+        if (!m) return;
+        m.map = tex;
+        m.needsUpdate = true;
+      });
+    });
+  };
+
+  const cached = _skinTextureCache.get(url);
+  if (cached) { apply(cached); return; }
+
+  new THREE.TextureLoader().load(
+    url,
+    (tex) => {
+      tex.flipY = false;
+      tex.magFilter = THREE.NearestFilter;
+      tex.minFilter = THREE.NearestFilter;
+      tex.colorSpace = THREE.SRGBColorSpace;
+      tex.needsUpdate = true;
+      _skinTextureCache.set(url, tex);
+      apply(tex);
+    },
+    undefined,
+    (err) => console.warn(`[Skin] failed to load ${url}`, err),
+  );
 }
 
 /** Build a fallback box-humanoid mesh when the GLB isn't available. */
