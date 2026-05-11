@@ -80,7 +80,11 @@ export class Multiplayer {
   onConnected?: () => void;
   onDisconnected?: () => void;
   onError?: (err: string) => void;
+  /** Fired when the server-side health of OUR player drops (e.g. zombie hit us).
+   *  Delta is the positive damage amount. */
   onLocalDamage?: (dmg: number) => void;
+
+  private lastSelfHealth = -1;
 
   constructor(scene: THREE.Scene, playerName: string) {
     this.scene = scene;
@@ -216,7 +220,11 @@ export class Multiplayer {
   }
 
   sendSleep() { this.room?.send("sleep", {}); }
-  sendHit(targetId: string) { this.room?.send("hit", { id: targetId }); }
+  /** Damage a mob — server validates that it exists, decrements its health, broadcasts mobHit/mobKilled. */
+  sendAttackMob(mobId: string, damage = 5) {
+    this.room?.send("attackMob", { mobId, damage });
+  }
+  sendRespawn() { this.room?.send("playerRespawn", {}); }
   /** Push the locally-equipped avatar to the server (called when Legion fires onAvatarChanged). */
   sendAvatarUpdate(avatar: any, extra: { displayName?: string; pfp?: string } = {}) {
     if (!this.room) return;
@@ -335,6 +343,20 @@ export class Multiplayer {
     if (typeof state.timeOfDay === "number")      this.timeOfDay = state.timeOfDay;
     else if (typeof state.time === "number")      this.timeOfDay = state.time;
     else if (typeof state.dayTime === "number")   this.timeOfDay = state.dayTime;
+
+    // Own-health reconcile. Server tickMobs damages state.players[sid].health
+    // directly; we observe that and surface it as a local damage event so the
+    // existing HP HUD + takeDamage flow runs. This is the state-sync path —
+    // we never accept playerDamage messages.
+    if (state.players && this.sessionId) {
+      const me: any = state.players.get ? state.players.get(this.sessionId) : state.players[this.sessionId];
+      if (me && typeof me.health === "number") {
+        if (this.lastSelfHealth >= 0 && me.health < this.lastSelfHealth) {
+          this.onLocalDamage?.(this.lastSelfHealth - me.health);
+        }
+        this.lastSelfHealth = me.health;
+      }
+    }
 
     // Players. MapSchema.forEach is (value, key) — same shape as JS Map.
     // Bug we hit: had the args reversed, so every remote player saw the
@@ -472,9 +494,6 @@ function buildSimpleMob(kind: string): THREE.Group {
     new THREE.MeshLambertMaterial({ color: 0x2a2a1a }));
   legL.position.set(-0.15, 0.35, 0); legL.name = "leg"; g.add(legL);
   const legR = legL.clone(); legR.name = "leg"; legR.position.x = 0.15; g.add(legR);
-  // Nametag
-  const tag = makeNameTag(kind);
-  tag.position.set(0, 2.2, 0);
-  g.add(tag);
+  // No nametag on mobs — only players get name billboards.
   return g;
 }

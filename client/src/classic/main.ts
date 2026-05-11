@@ -131,6 +131,10 @@ function renderLegionPanel(user: LegionUser | null) {
 //
 // Only available while connected to a multiplayer room — inviting a friend
 // needs a roomId to make sense. We refresh on toggle-open so it stays current.
+/** Cached friend list — re-fetched on toggle-open, re-rendered on search input. */
+let _friendsCache: LegionFriend[] = [];
+let _friendsFilter = "";
+
 async function refreshIngameFriends() {
   const list = document.getElementById("ingameFriendsList");
   if (!list) return;
@@ -147,14 +151,42 @@ async function refreshIngameFriends() {
     list.innerHTML = `<div class="login-prompt">Not in a multiplayer room — friends can't join you yet.</div>`;
     return;
   }
-  list.innerHTML = `<div class="login-prompt">Loading friends…</div>`;
-  const friends = await Legion.getFriends();
-  if (friends.length === 0) {
-    list.innerHTML = `<div class="login-prompt">No friends yet. Add some on bloxity.io.</div>`;
+  list.innerHTML = `
+    <input id="friendSearch" type="text" placeholder="Search friends…" autocomplete="off"
+      style="width:100%;padding:6px 10px;margin-bottom:8px;background:rgba(0,0,0,0.4);
+             border:1px solid rgba(255,255,255,0.2);color:#fff;border-radius:4px;
+             font-family:inherit;font-size:12px;" />
+    <div id="friendRows" style="opacity:.6;font-size:12px;padding:8px;">Loading friends…</div>
+  `;
+  const search = document.getElementById("friendSearch") as HTMLInputElement;
+  search.value = _friendsFilter;
+  search.addEventListener("input", () => {
+    _friendsFilter = search.value;
+    renderFriendRows();
+  });
+  _friendsCache = await Legion.getFriends();
+  renderFriendRows();
+}
+
+function renderFriendRows() {
+  const rows = document.getElementById("friendRows");
+  if (!rows) return;
+  if (_friendsCache.length === 0) {
+    rows.innerHTML = `<div class="login-prompt">No friends yet. Add some on bloxity.io.</div>`;
     return;
   }
-  list.innerHTML = friends.map(renderFriendRow).join("");
-  list.querySelectorAll<HTMLButtonElement>(".friend-invite-btn").forEach(btn => {
+  const q = _friendsFilter.trim().toLowerCase();
+  const filtered = q
+    ? _friendsCache.filter(f =>
+        (f.username || "").toLowerCase().includes(q) ||
+        (f.displayName || "").toLowerCase().includes(q))
+    : _friendsCache;
+  if (filtered.length === 0) {
+    rows.innerHTML = `<div class="login-prompt">No friends match "${escapeHtml(q)}".</div>`;
+    return;
+  }
+  rows.innerHTML = filtered.map(renderFriendRow).join("");
+  rows.querySelectorAll<HTMLButtonElement>(".friend-invite-btn").forEach(btn => {
     btn.addEventListener("click", async () => {
       const userId = btn.dataset.userid!;
       const username = btn.dataset.username!;
@@ -175,9 +207,12 @@ function toggleIngameFriends(forceOpen?: boolean) {
   const opening = forceOpen ?? (panel.style.display !== "block");
   if (opening) {
     panel.style.display = "block";
+    // Release pointer lock so the user can actually click the friend list.
+    document.exitPointerLock();
     refreshIngameFriends();
   } else {
     panel.style.display = "none";
+    document.body.requestPointerLock();
   }
 }
 
@@ -336,6 +371,10 @@ document.addEventListener("mousedown", (e) => {
   if (e.button === 0) {
     lmbHeld = true;
     fpArm?.triggerSwing(1);
+    // Attempt mob attack on LMB. If a mob is in front of us within reach,
+    // tell the server; otherwise the click flows through to block-mining
+    // (handled by Player.attachInput which has its own LMB listener).
+    tryAttackMob();
   } else if (e.button === 2) {
     fpArm?.triggerSwing(0.65);
   }
@@ -486,6 +525,46 @@ function updateDebugOverlay(dt: number, fps: number) {
     <div><b>Mode:</b> ${mode}</div>
     <div><b>Multiplayer:</b> ${mp?.isConnected() ? "connected" : "offline"}</div>
   `;
+}
+
+// ── Mob attack (LMB raycast) ───────────────────────────────────────────────
+//
+// Real Three.js raycasting against the mob meshes would be ideal but
+// expensive. Mobs are small enough that a simple "is the mob inside a 0.7 m
+// cylinder along the camera-forward axis, within 4 m" test works fine.
+function tryAttackMob() {
+  if (!mp?.isConnected() || !player) return false;
+  const mobs = mp.getRemoteMobs();
+  if (mobs.length === 0) return false;
+  const origin = new THREE.Vector3(player.pos.x, player.pos.y + 1.62, player.pos.z);
+  const dir = new THREE.Vector3();
+  camera.getWorldDirection(dir);
+  const maxDist = 4.0;
+  const radius = 0.7;
+  let bestT = Infinity, bestId: string | null = null;
+  for (const m of mobs) {
+    const toMob = new THREE.Vector3(m.x - origin.x, (m.y + 1.0) - origin.y, m.z - origin.z);
+    const t = toMob.dot(dir);
+    if (t <= 0 || t > maxDist) continue;
+    const along = dir.clone().multiplyScalar(t);
+    const perp = toMob.clone().sub(along);
+    if (perp.length() <= radius && t < bestT) {
+      bestT = t; bestId = m.id;
+    }
+  }
+  if (bestId) {
+    // Damage scales with held sword tier (default 5). Cheap shortcut: any
+    // sword item id 58/61/63/64 → 7/9/11/13 damage.
+    const heldId = inv?.getHeld()?.id ?? 0;
+    let dmg = 4;
+    if (heldId === 58) dmg = 7;        // wood
+    else if (heldId === 61) dmg = 9;   // stone
+    else if (heldId === 63) dmg = 11;  // iron
+    else if (heldId === 64) dmg = 13;  // diamond
+    mp.sendAttackMob(bestId, dmg);
+    return true;
+  }
+  return false;
 }
 
 // ── Drop item (Q) ───────────────────────────────────────────────────────────

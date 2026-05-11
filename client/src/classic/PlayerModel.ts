@@ -20,20 +20,12 @@ export function preloadPlayerModel(): Promise<void> {
       (gltf) => {
         _template = gltf.scene;
         _animations = gltf.animations || [];
-        // Scale to ~1.8m tall regardless of source units. We'll measure on first use.
-        const box = new THREE.Box3().setFromObject(_template);
-        const size = new THREE.Vector3();
-        box.getSize(size);
-        if (size.y > 0.01) {
-          const scale = 1.8 / size.y;
-          _template.scale.setScalar(scale);
-        }
-        // Make sure materials don't cast/receive shadows (perf)
+        // Note: scaling is applied per-clone in spawnPlayer/buildFirstPersonArm
+        // so each instance can be normalised to the size it needs. We don't
+        // pre-scale the template (caused both remote players AND the FP arm
+        // to render way too big in earlier builds).
         _template.traverse((o: any) => {
-          if (o.isMesh) {
-            o.castShadow = false;
-            o.receiveShadow = false;
-          }
+          if (o.isMesh) { o.castShadow = false; o.receiveShadow = false; }
         });
         resolve();
       },
@@ -46,6 +38,43 @@ export function preloadPlayerModel(): Promise<void> {
     );
   });
   return _loadPromise;
+}
+
+/**
+ * Cloning a SkinnedMesh does NOT clone its material — by default the new
+ * mesh references the same `Material` instance. Three.js renders one
+ * material per state-bucket, so mutating depthTest/transparent for the FP
+ * arm leaks into every remote player too. We clone materials per instance
+ * so each clone owns its own state. Also forces opaque depth-test behaviour
+ * so remote players sort correctly against water and transparent leaves.
+ */
+function isolateMaterials(root: THREE.Object3D, opts: { transparent?: boolean; depthTest?: boolean; renderOrder?: number } = {}) {
+  root.traverse((o: any) => {
+    if (!(o.isMesh || o.isSkinnedMesh)) return;
+    if (o.material) {
+      o.material = Array.isArray(o.material)
+        ? o.material.map((m: any) => m.clone())
+        : o.material.clone();
+      const mats = Array.isArray(o.material) ? o.material : [o.material];
+      mats.forEach((m: any) => {
+        m.transparent = opts.transparent ?? false;
+        m.depthTest   = opts.depthTest   ?? true;
+        m.depthWrite  = !(opts.transparent ?? false);
+        m.alphaTest   = 0;
+      });
+    }
+    if (opts.renderOrder !== undefined) o.renderOrder = opts.renderOrder;
+    o.frustumCulled = false;
+  });
+}
+
+/** Rescale an object so its bounding box height matches `targetY` units. */
+function normalizeHeight(obj: THREE.Object3D, targetY: number) {
+  obj.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(obj);
+  const size = new THREE.Vector3();
+  box.getSize(size);
+  if (size.y > 0.01) obj.scale.setScalar(targetY / size.y);
 }
 
 export interface PlayerInstance {
@@ -63,6 +92,12 @@ export function spawnPlayer(): PlayerInstance | null {
   // skinning matrices stay at identity and the whole model renders at the
   // bind pose at the cloned tree's local origin (i.e. at world (0,0,0)).
   const root = skeletonClone(_template) as THREE.Group;
+  // Give this remote-player clone its own materials (so the FP arm can't
+  // mutate them) and force opaque rendering so the model sorts correctly
+  // against water and leaves.
+  isolateMaterials(root, { transparent: false, depthTest: true });
+  // Normalise to ~1.8 blocks tall regardless of GLB source units.
+  normalizeHeight(root, 1.8);
   let mixer: THREE.AnimationMixer | null = null;
   let walkAction: THREE.AnimationAction | null = null;
   let idleAction: THREE.AnimationAction | null = null;
@@ -115,23 +150,19 @@ export function buildFirstPersonArm(): FirstPersonArm | null {
   // Same SkeletonUtils story as spawnPlayer — must do a skeleton-aware clone.
   const cloned = skeletonClone(_template) as THREE.Object3D;
 
+  // Own materials so depthTest=false doesn't leak to remote players.
+  isolateMaterials(cloned, { transparent: true, depthTest: false, renderOrder: 1000 });
+  // Normalise to a sensible size, then `cloned.position` re-aligns the
+  // shoulder. Keep this a touch smaller than the world model since we only
+  // see the arm.
+  normalizeHeight(cloned, 1.8);
+
   // Hide everything except the right arm mesh. Use a name match so we don't
   // depend on mesh order. Common naming in this rig: `default_arm_R`.
   cloned.traverse((o: any) => {
     if (o.isMesh || o.isSkinnedMesh) {
       const keep = /arm_r$/i.test(o.name) || /^default_arm_r$/i.test(o.name);
       o.visible = keep;
-      o.frustumCulled = false;
-      if (o.material) {
-        const mats = Array.isArray(o.material) ? o.material : [o.material];
-        mats.forEach((m: any) => {
-          // Always draw on top of the world — no depth test against the scene.
-          m.depthTest = false;
-          m.depthWrite = false;
-          m.transparent = true;
-        });
-        o.renderOrder = 1000;
-      }
     }
   });
 
@@ -230,16 +261,19 @@ export function buildFallbackPlayer(): THREE.Group {
  * asynchronously and the canvas texture is refreshed once it arrives.
  */
 export function makeNameTag(name: string, pfpUrl?: string): THREE.Sprite {
-  const padding = 12;
-  const font = "bold 36px 'Segoe UI', sans-serif";
-  const pfpSize = 48;
+  // Truncate long names so the sprite doesn't stretch absurdly wide. 14 chars
+  // matches Bloxity's max username length and what you'd see in classic MC.
+  const trimmed = name.length > 14 ? name.slice(0, 13) + "…" : name;
+  const padding = 10;
+  const font = "bold 28px 'Segoe UI', sans-serif";
+  const pfpSize = 36;
   const measure = document.createElement("canvas").getContext("2d")!;
   measure.font = font;
-  const textWidth = Math.ceil(measure.measureText(name).width);
+  const textWidth = Math.ceil(measure.measureText(trimmed).width);
   const hasPfp = !!pfpUrl;
   const leftSpace = hasPfp ? pfpSize + padding : 0;
-  const w = Math.max(96, textWidth + padding * 2 + leftSpace);
-  const h = 60;
+  const w = Math.max(80, textWidth + padding * 2 + leftSpace);
+  const h = 48;
   const canvas = document.createElement("canvas");
   canvas.width = w; canvas.height = h;
   const ctx = canvas.getContext("2d")!;
@@ -260,9 +294,9 @@ export function makeNameTag(name: string, pfpUrl?: string): THREE.Sprite {
     const textX = padding + leftSpace;
     // Drop shadow then white text
     ctx.fillStyle = "#000";
-    ctx.fillText(name, textX + 2, h / 2 + 2);
+    ctx.fillText(trimmed, textX + 2, h / 2 + 2);
     ctx.fillStyle = "#ffffff";
-    ctx.fillText(name, textX, h / 2);
+    ctx.fillText(trimmed, textX, h / 2);
   };
   drawBase();
 
@@ -271,8 +305,12 @@ export function makeNameTag(name: string, pfpUrl?: string): THREE.Sprite {
   tex.magFilter = THREE.LinearFilter;
   const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false });
   const sprite = new THREE.Sprite(mat);
-  const scaleX = 1.8 * (w / h);
-  sprite.scale.set(scaleX, 0.5, 1);
+  // Sprite world size: keep height ~0.32 blocks, width preserves the canvas
+  // aspect ratio so the nametag never looks stretched. Cap the total width
+  // at 2 blocks so very long names don't take over the screen.
+  const baseHeight = 0.32;
+  const scaleX = Math.min(baseHeight * (w / h), 2.0);
+  sprite.scale.set(scaleX, baseHeight, 1);
   sprite.renderOrder = 999;
 
   if (hasPfp) {
@@ -280,7 +318,6 @@ export function makeNameTag(name: string, pfpUrl?: string): THREE.Sprite {
     img.crossOrigin = "anonymous";
     img.onload = () => {
       drawBase();
-      // Circular clip + pfp
       const cx = padding + pfpSize / 2, cy = h / 2;
       ctx.save();
       ctx.beginPath();
@@ -289,11 +326,10 @@ export function makeNameTag(name: string, pfpUrl?: string): THREE.Sprite {
       ctx.clip();
       ctx.drawImage(img, cx - pfpSize / 2, cy - pfpSize / 2, pfpSize, pfpSize);
       ctx.restore();
-      // Outline ring
       ctx.beginPath();
       ctx.arc(cx, cy, pfpSize / 2, 0, Math.PI * 2);
       ctx.strokeStyle = "#e94560";
-      ctx.lineWidth = 2;
+      ctx.lineWidth = 1.5;
       ctx.stroke();
       tex.needsUpdate = true;
     };

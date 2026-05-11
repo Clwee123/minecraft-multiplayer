@@ -20,19 +20,30 @@ import { BLOCKS, tileUV, getAtlasTexture } from "./Textures";
 
 const CRACK_STAGES = 10;
 
+/**
+ * Build the 10 crack-overlay textures. The key trick: each stage is the
+ * PREVIOUS stage's canvas with a few MORE cracks drawn on top, so as break
+ * progress increases the cracks *grow* instead of being shuffled into a new
+ * random pattern every frame. This matches how real Minecraft's destroy_0..9
+ * textures relate to each other.
+ */
 function generateCrackTextures(): THREE.Texture[] {
   const out: THREE.Texture[] = [];
+  // Use a single shared canvas where we accumulate strokes, copying its
+  // pixels into a fresh canvas after each stage so each texture has its own
+  // backing canvas (CanvasTexture re-reads the canvas every time).
+  const accum = document.createElement("canvas");
+  accum.width = accum.height = 32;
+  const ctx = accum.getContext("2d")!;
+  ctx.clearRect(0, 0, 32, 32);
+
   for (let stage = 0; stage < CRACK_STAGES; stage++) {
-    const canvas = document.createElement("canvas");
-    canvas.width = canvas.height = 32;
-    const ctx = canvas.getContext("2d")!;
-    // Background is transparent — only the crack lines are drawn.
-    ctx.clearRect(0, 0, 32, 32);
+    // How many NEW segments to add this stage. Early stages add a single
+    // crack; later stages add more so it ramps up toward full break.
+    const addLines = stage === 0 ? 1 : 1 + Math.floor(stage * 0.6);
     ctx.strokeStyle = "rgba(0,0,0,0.85)";
     ctx.lineWidth = 1;
-    // Density ramps up with stage. Stage 0 is essentially invisible.
-    const lineCount = 2 + stage * 3;
-    for (let i = 0; i < lineCount; i++) {
+    for (let i = 0; i < addLines; i++) {
       const x0 = Math.random() * 32;
       const y0 = Math.random() * 32;
       const segs = 2 + Math.floor(Math.random() * 3);
@@ -46,14 +57,16 @@ function generateCrackTextures(): THREE.Texture[] {
       }
       ctx.stroke();
     }
-    // A few isolated speckle pixels to look gritty
+    // A couple of new speckle pixels per stage
     ctx.fillStyle = "rgba(0,0,0,0.6)";
-    for (let i = 0; i < 4 + stage * 2; i++) {
-      const px = Math.floor(Math.random() * 32);
-      const py = Math.floor(Math.random() * 32);
-      ctx.fillRect(px, py, 1, 1);
+    for (let i = 0; i < 2 + stage; i++) {
+      ctx.fillRect(Math.floor(Math.random() * 32), Math.floor(Math.random() * 32), 1, 1);
     }
-    const tex = new THREE.CanvasTexture(canvas);
+    // Snapshot the accumulator into its own canvas → its own CanvasTexture.
+    const snap = document.createElement("canvas");
+    snap.width = snap.height = 32;
+    snap.getContext("2d")!.drawImage(accum, 0, 0);
+    const tex = new THREE.CanvasTexture(snap);
     tex.magFilter = THREE.NearestFilter;
     tex.minFilter = THREE.NearestFilter;
     tex.generateMipmaps = false;
