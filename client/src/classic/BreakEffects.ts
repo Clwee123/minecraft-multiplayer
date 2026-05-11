@@ -195,7 +195,7 @@ export class BreakParticles {
     }
   }
 
-  private buildParticleMat(tileIdx: number): THREE.MeshBasicMaterial {
+  private buildParticleMat(tileIdx: number): THREE.MeshLambertMaterial {
     const tex = getAtlasTexture().clone();
     tex.needsUpdate = true;
     const [u0, v0, u1, v1] = tileUV(tileIdx);
@@ -209,7 +209,9 @@ export class BreakParticles {
     tex.magFilter = THREE.NearestFilter;
     tex.minFilter = THREE.NearestFilter;
     tex.generateMipmaps = false;
-    return new THREE.MeshBasicMaterial({ map: tex });
+    // Lambert (lit) instead of Basic — Basic ignored sun/ambient so particles
+    // looked blinding-bright next to lit blocks, especially at night.
+    return new THREE.MeshLambertMaterial({ map: tex });
   }
 
   update(dt: number, isSolid: (x: number, y: number, z: number) => boolean) {
@@ -238,7 +240,7 @@ export class BreakParticles {
         m.dispose();
         this.particles.splice(i, 1);
       } else if (p.life < 0.3) {
-        const mat = p.mesh.material as THREE.MeshBasicMaterial;
+        const mat = p.mesh.material as THREE.MeshLambertMaterial;
         mat.transparent = true;
         mat.opacity = p.life / 0.3;
       }

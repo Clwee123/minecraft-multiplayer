@@ -82,6 +82,9 @@ export class Player {
   airSupply = MAX_AIR;
   maxAir = MAX_AIR;
   private drownTimer = 0;
+  /** Accumulates time while touching a cactus block — every full second
+   *  applies half a heart of damage (vanilla MC behaviour). */
+  private cactusTimer = 0;
 
   keys: Record<string, boolean> = {};
   /** Mouse look sensitivity (rad per pixel). Adjustable from Options. */
@@ -423,6 +426,37 @@ export class Player {
     // ── Fall damage ──
     if (this.gameMode === "survival" && this.vel.y === 0 && !this.flying) {
       // (Simplified — proper fall damage tracks airborne distance)
+    }
+
+    // ── Cactus contact damage ──
+    // Vanilla: touching a cactus (id 45) drains 1 hp (half a heart) every
+    // second. We check the cells that overlap the player AABB, plus the
+    // cell directly below (standing on top of a cactus counts too).
+    if (this.gameMode === "survival") {
+      const hw = PLAYER_W / 2 - 0.01;
+      const minX = Math.floor(this.pos.x - hw);
+      const maxX = Math.floor(this.pos.x + hw);
+      const minY = Math.floor(this.pos.y - 0.05);  // includes cell beneath feet
+      const maxY = Math.floor(this.pos.y + PLAYER_H - 0.001);
+      const minZ = Math.floor(this.pos.z - hw);
+      const maxZ = Math.floor(this.pos.z + hw);
+      let touchingCactus = false;
+      for (let bx = minX; bx <= maxX && !touchingCactus; bx++) {
+        for (let by = minY; by <= maxY && !touchingCactus; by++) {
+          for (let bz = minZ; bz <= maxZ && !touchingCactus; bz++) {
+            if (this.world.getBlock(bx, by, bz) === 45) touchingCactus = true;
+          }
+        }
+      }
+      if (touchingCactus) {
+        this.cactusTimer += dt;
+        if (this.cactusTimer >= 1) {
+          this.cactusTimer = 0;
+          this.takeDamage(1, "a cactus");
+        }
+      } else {
+        this.cactusTimer = 0;
+      }
     }
 
     // ── Camera follow ──

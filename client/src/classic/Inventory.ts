@@ -235,6 +235,9 @@ export const RECIPES: Recipe[] = [
   // Furnace
   { kind: "shaped", pattern: ["CCC", "C.C", "CCC"], key: { C: 9 }, result: 37, count: 1 },
 
+  // Chest — 8 oak planks surrounding empty center (vanilla recipe)
+  { kind: "shaped", pattern: ["PPP", "P.P", "PPP"], key: { P: 8 }, result: 171, count: 1 },
+
   // Glass (smelting; for now allow as recipe)
   { kind: "shapeless", items: { 4: 4 }, result: 11, count: 1 },
 

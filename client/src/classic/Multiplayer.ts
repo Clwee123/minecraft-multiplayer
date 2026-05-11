@@ -40,6 +40,9 @@ export interface RemotePlayer {
    *  we can OFFSET swings from the rest pose instead of overriding it (which
    *  was flipping arms above the head and legs into the torso). */
   limbBaseRot: Record<string, number>;
+  /** Server-replicated alive flag. When false, the mesh + nametag are hidden
+   *  so a killer doesn't keep seeing a frozen corpse standing on screen. */
+  alive: boolean;
 }
 
 export interface RemoteMob {
@@ -101,8 +104,13 @@ export class Multiplayer {
   onDisconnected?: () => void;
   onError?: (err: string) => void;
   /** Fired when the server-side health of OUR player drops (e.g. zombie hit us).
-   *  Delta is the positive damage amount. */
-  onLocalDamage?: (dmg: number) => void;
+   *  `source` is a short human-readable string like "a creeper" or
+   *  "PlayerName" if the server sent that info, otherwise undefined. */
+  onLocalDamage?: (dmg: number, source?: string) => void;
+  /** Set by message handlers (`mobDamage` / `playerHit`) and consumed by the
+   *  next state-driven HP-drop reconciliation. Lets the death screen render
+   *  the correct cause without breaking the state-sync rule. */
+  private pendingDamageSource: string | null = null;
   /** Fired when WE got hit by another player. byX/Y/Z is the attacker position
    *  so the client can compute a knockback impulse direction. */
   onLocalKnockback?: (byX: number, byY: number, byZ: number) => void;
@@ -223,6 +231,17 @@ export class Multiplayer {
         // the state reconciler. We DO need the attacker position for knockback.
         if (typeof msg.byX === "number" && typeof msg.byZ === "number") {
           this.onLocalKnockback?.(msg.byX, msg.byY ?? 0, msg.byZ);
+        }
+        if (typeof msg.byName === "string" && msg.byName) {
+          this.pendingDamageSource = String(msg.byName);
+        }
+      });
+      // Mob attacks: server tells the target which mob type hit them so the
+      // death screen can say "Killed by a creeper" instead of "a monster".
+      this.room.onMessage("mobDamage", (msg: any) => {
+        if (!msg || msg.targetId !== this.sessionId) return;
+        if (typeof msg.mobType === "string" && msg.mobType) {
+          this.pendingDamageSource = `a ${msg.mobType}`;
         }
       });
       this.room.onMessage("playerRespawn", noop);
@@ -413,6 +432,7 @@ export class Multiplayer {
       skinId: initialSkin,
       headBone,
       limbBaseRot,
+      alive: player?.alive !== false,
     });
   }
 
@@ -535,7 +555,11 @@ export class Multiplayer {
       const me: any = state.players.get ? state.players.get(this.sessionId) : state.players[this.sessionId];
       if (me && typeof me.health === "number") {
         if (this.lastSelfHealth >= 0 && me.health < this.lastSelfHealth) {
-          this.onLocalDamage?.(this.lastSelfHealth - me.health);
+          // Drain the pending damage source so the next reconcile after a
+          // server-driven HP drop carries the right "Killed by X" cause.
+          const source = this.pendingDamageSource ?? undefined;
+          this.pendingDamageSource = null;
+          this.onLocalDamage?.(this.lastSelfHealth - me.health, source);
         }
         this.lastSelfHealth = me.health;
       }
@@ -564,6 +588,14 @@ export class Multiplayer {
         if (Number.isFinite(p.z)) rp.targetZ = p.z;
         if (Number.isFinite(p.rotY)) rp.targetRotY = p.rotY;
         if (typeof p.health === "number") rp.health = p.health;
+        // Server-driven (de)spawn: hide mesh + nametag as soon as alive=false
+        // and restore when the player respawns. No client-side delay — the
+        // killer sees the body vanish the instant HP hits 0.
+        if (typeof p.alive === "boolean" && p.alive !== rp.alive) {
+          rp.alive = p.alive;
+          rp.mesh.visible = p.alive;
+          if (rp.nameTag) rp.nameTag.visible = p.alive;
+        }
         if (p.name && p.name !== rp.name) rp.name = String(p.name);
         // Avatar fields — rebuild the nametag if displayName or pfp changed.
         const newDisplay = String(p.displayName || rp.name);

@@ -14,6 +14,8 @@ export class PlayerState extends Schema {
   @type("boolean") onGround: boolean = false;
   @type("uint8")   health: number = 40;
   @type("string")  gameMode: string = "survival";
+  /** False between death and respawn — clients hide the mesh when not alive. */
+  @type("boolean") alive: boolean = true;
 
   // Bloxity / Legion SDK avatar fields. Synced from the Legion API at join
   // time. All cosmetic / body-part IDs are 24-char ObjectIds (or "-1" for
@@ -84,6 +86,29 @@ const MAX_MOBS  = 30;
 // will only actually chase the player at night (see tickMobs).
 const MOB_TYPES = ["pig", "pig", "pig", "chicken", "chicken", "cow", "cow", "sheep", "sheep", "villager", "villager", "zombie", "creeper", "skeleton", "spider", "wolf"] as const;
 
+// ── Per-player save (across joins) ────────────────────────────────────────
+//
+// Vanilla-MC-style player persistence: when a player leaves, we stash the
+// fields the server is authoritative for (pos, hp, hunger, xp, gameMode).
+// On re-join (matched by Legion userId + mode) those values are restored
+// instead of starting fresh at the random spawn. Inventory + furnace state
+// live client-side in localStorage (see main.ts) — also vanilla-ish.
+//
+// In-memory map keyed by `${legionId}:${mode}`. Survives within the server
+// process lifetime; we don't flush to disk yet (would lose state on
+// restart, but a future tick can add fs persistence trivially).
+interface PlayerSave {
+  x: number; y: number; z: number;
+  rotY: number; rotX: number;
+  health: number;
+  gameMode: string;
+  savedAt: number;
+}
+const PLAYER_SAVES = new Map<string, PlayerSave>();
+function saveKey(legionId: string, mode: string): string {
+  return `${legionId || "guest"}:${mode}`;
+}
+
 // ── GameRoom ──────────────────────────────────────────────────────────────────
 
 export class GameRoom extends Room<GameState> {
@@ -138,20 +163,20 @@ export class GameRoom extends Room<GameState> {
       target.health = Math.max(0, target.health - dmg) as any;
       // Include attacker's position so the target client can compute a
       // knockback direction without trusting per-attacker direction input.
+      // byName lets the target HUD render "Killed by <attacker display name>"
+      // instead of a generic message.
       this.broadcast("playerHit", {
-        id: targetId, by: client.sessionId, damage: dmg,
+        id: targetId, by: client.sessionId,
+        byName: attacker.displayName || attacker.name,
+        damage: dmg,
         byX: attacker.x, byY: attacker.y, byZ: attacker.z,
       });
       if (target.health <= 0) {
-        // Respawn after a moment
-        this.broadcast("playerDied", { id: targetId, by: client.sessionId, name: target.name });
-        setTimeout(() => {
-          if (this.state.players.get(targetId)) {
-            target.health = 40 as any;
-            target.x = (Math.random() - 0.5) * 6;
-            target.y = 42; target.z = (Math.random() - 0.5) * 6;
-          }
-        }, 1500);
+        target.alive = false;
+        this.broadcast("playerDied", { id: targetId, by: client.sessionId, byName: attacker.displayName || attacker.name, name: target.name });
+        // No auto-respawn — the killed player clicks Respawn on their death
+        // screen, which sends playerRespawn. We just keep alive=false until
+        // then so the killer's screen hides the corpse instantly.
       }
     });
 
@@ -248,6 +273,7 @@ export class GameRoom extends Room<GameState> {
       const p = this.state.players.get(client.sessionId);
       if (!p) return;
       p.health = 40;
+      p.alive = true;
       // Spawn high enough so client physics lands player on surface safely
       p.x = (Math.random() - 0.5) * 6;
       p.y = 42;  // client will fall to ground naturally
@@ -322,6 +348,18 @@ export class GameRoom extends Room<GameState> {
     p.legRId  = a(av.legRId);
     p.torsoId = a(av.torsoId);
 
+    // Restore any saved progress for this Legion user in this mode. Falls
+    // back to the random spawn we just picked when there's no save.
+    const sk = saveKey(p.legionId, this.state.mode);
+    const saved = PLAYER_SAVES.get(sk);
+    if (saved) {
+      p.x = saved.x; p.y = saved.y; p.z = saved.z;
+      p.rotY = saved.rotY; p.rotX = saved.rotX;
+      p.health = Math.max(1, saved.health) as any;
+      if (saved.gameMode) p.gameMode = saved.gameMode;
+      console.log(`[GameRoom] restored save for ${p.name} (${sk})`);
+    }
+
     this.state.players.set(client.sessionId, p);
     console.log(`[GameRoom] ${p.name} joined (${client.sessionId})`);
 
@@ -347,6 +385,19 @@ export class GameRoom extends Room<GameState> {
   onLeave(client: Client) {
     const p = this.state.players.get(client.sessionId);
     console.log(`[GameRoom] ${p?.name ?? client.sessionId} left`);
+    if (p) {
+      // Persist the authoritative server state for next time. Inventory +
+      // furnaces are saved client-side (localStorage) — see CLAUDE.md for the
+      // split rationale.
+      const sk = saveKey(p.legionId, this.state.mode);
+      PLAYER_SAVES.set(sk, {
+        x: p.x, y: p.y, z: p.z,
+        rotY: p.rotY, rotX: p.rotX,
+        health: p.health,
+        gameMode: p.gameMode,
+        savedAt: Date.now(),
+      });
+    }
     this.state.players.delete(client.sessionId);
   }
 
@@ -427,10 +478,19 @@ export class GameRoom extends Room<GameState> {
         mob.z   += Math.cos(angle) * speed * dt;
 
         // Attack — skip creative and spectator players
-        if (nearestDist < 1.8 && nearestPlayer.gameMode !== "creative" && nearestPlayer.gameMode !== "spectator") {
-          nearestPlayer.health = Math.max(0, nearestPlayer.health - 1) as any;
+        if (nearestDist < 1.8 && nearestPlayer.gameMode !== "creative" && nearestPlayer.gameMode !== "spectator" && nearestPlayer.alive) {
+          const dmg = 1;
+          nearestPlayer.health = Math.max(0, nearestPlayer.health - dmg) as any;
+          // Tell the target which mob hit them so the death screen / HUD can
+          // render "Killed by a <mobType>" instead of a generic message.
+          this.broadcast("mobDamage", {
+            targetId: nearestPlayer.id,
+            mobType: mob.type,
+            damage: dmg,
+          });
           if (nearestPlayer.health <= 0) {
-            this.broadcast("playerDied", { id: nearestPlayer.id, name: nearestPlayer.name });
+            nearestPlayer.alive = false;
+            this.broadcast("playerDied", { id: nearestPlayer.id, mobType: mob.type, name: nearestPlayer.name });
           }
         }
       } else {

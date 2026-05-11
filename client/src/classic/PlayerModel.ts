@@ -342,7 +342,8 @@ function tryBuildExtrudedItem(itemId: number, opts: { firstPerson?: boolean } = 
   if (!geo) return null;
   const mat = new THREE.MeshLambertMaterial({
     vertexColors: true,
-    transparent: false,
+    // Transparent queue when first-person — see comment in buildHeldBlock.
+    transparent: !!opts.firstPerson,
     depthTest: !opts.firstPerson,
     depthWrite: !opts.firstPerson,
   });
@@ -453,9 +454,15 @@ function buildHeldBlock(blockId: number, opts: { firstPerson?: boolean } = {}): 
     arr[base + 6] = u1; arr[base + 7] = v0;
   }
   uvAttr.needsUpdate = true;
+  // Force `transparent: true` for first-person so the mesh joins the
+  // transparent queue. Otherwise an opaque held block (e.g. oak plank,
+  // dirt, cobblestone) sits in the OPAQUE queue which always renders
+  // before water — water then drew on top because the held block had
+  // depthWrite off. Transparent queue is sorted by renderOrder, so our
+  // 1001 reliably draws after water's 2.
   const mat = new THREE.MeshLambertMaterial({
     map: getAtlasTexture(),
-    transparent: !!def.transparent || !!def.isLeaf,
+    transparent: opts.firstPerson ? true : (!!def.transparent || !!def.isLeaf),
     alphaTest: (def.transparent || def.isLeaf) ? 0.5 : 0,
     depthTest: !opts.firstPerson,
     depthWrite: !opts.firstPerson,

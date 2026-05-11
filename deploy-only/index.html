@@ -1,633 +1,1850 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
-  <title>Minecraft JS</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
+  <title>Minecraft 1.8 — Web</title>
   <style>
-    @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
-
-    *{margin:0;padding:0;box-sizing:border-box}
-
-    body{background:#000;overflow:hidden;font-family:'Segoe UI',sans-serif;touch-action:none}
-
-    canvas{display:block;touch-action:none}
-
-    /* Mobile: make login box scrollable/smaller on small screens */
-
-    @media (max-width:480px){
-      .login-box{min-width:unset;width:92vw;padding:24px 20px}
-      .mc-title{font-size:1.1rem}
-      #hotbar .hotbar-slot{width:38px;height:38px}
-      #hearts,#hunger{bottom:72px}
-      #hotbar{bottom:16px}
+    /* ── Pixel-perfect Minecraft font ────────────────────────────── */
+    @font-face {
+      font-family: 'Minecraft';
+      src: url('/Minecraft.ttf') format('truetype');
+      font-display: block;
     }
 
-    /* ── MENU ──────────────────────────────────────────────────────────── */
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0; padding: 0; width: 100%; height: 100%;
+      overflow: hidden; background: #87ceeb;
+      font-family: 'Minecraft', 'Segoe UI', sans-serif;
+      user-select: none; -webkit-user-select: none;
+      color: #fff;
+      letter-spacing: 0.4px;
+    }
+    canvas { display: block; }
 
-    #loginScreen{
-      position:fixed;inset:0;
-      background:linear-gradient(160deg,#0a1f0a 0%,#142814 40%,#0a1a0a 100%);
-      display:flex;align-items:center;justify-content:center;z-index:200;
+    /* ── Main menu ──────────────────────────────────────────────── */
+    #mainMenu {
+      position: fixed; inset: 0;
+      background: linear-gradient(160deg, #2c4a6a 0%, #1a2a3f 100%);
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      z-index: 1000; padding: 20px; overflow-y: auto;
+    }
+    #mainMenu::before {
+      content: ""; position: fixed; inset: 0;
+      background: url(/terrain_atlas.png?v=5) repeat;
+      background-size: 80px 80px;
+      image-rendering: pixelated;
+      opacity: 0.08; pointer-events: none;
+    }
+    #mainMenu h1 {
+      position: relative;
+      font-family: 'Minecraft', 'Courier New', monospace;
+      font-size: 3.5rem; font-weight: bold;
+      letter-spacing: 5px; margin: 0 0 0.3rem 0;
+      color: #ffffff;
+      text-shadow: 4px 4px 0 #2a2a2a, 8px 8px 12px rgba(0,0,0,0.5);
+    }
+    #mainMenu .subtitle {
+      position: relative;
+      font-family: 'Minecraft', 'Courier New', monospace;
+      font-size: 1rem; color: #ffe66d;
+      text-shadow: 2px 2px 0 #2a2a2a;
+      margin-bottom: 2rem;
+    }
+    .menu-panel {
+      position: relative;
+      background: rgba(0, 0, 0, 0.55);
+      padding: 22px; border: 2px solid rgba(255,255,255,0.2);
+      border-radius: 4px; min-width: 520px; max-width: 95vw;
+      box-shadow: 0 8px 30px rgba(0,0,0,0.5);
+    }
+    .menu-row { display: flex; gap: 8px; margin-bottom: 12px; }
+    .menu-row label {
+      font-family: 'Minecraft', 'Courier New', monospace;
+      font-size: 12px; color: #ddd;
+      min-width: 65px; display: flex; align-items: center;
+    }
+    .menu-row input {
+      flex: 1;
+      background: rgba(0,0,0,0.4);
+      border: 1px solid rgba(255,255,255,0.3);
+      color: #fff; padding: 6px 10px;
+      font-family: 'Minecraft', 'Courier New', monospace;
+      font-size: 12px; border-radius: 2px;
+    }
+    .menu-row input:focus {
+      outline: none; border-color: #7eb84c;
+      background: rgba(0,0,0,0.6);
+    }
+    /* ── Bloxd-style mode grid ──────────────────────────────────── */
+    .mode-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+      gap: 10px;
+      margin-top: 16px;
+    }
+    .menu-panel {
+      /* Definite width so the auto-fill mode-grid actually multi-columns.
+       * `align-items: center` on #mainMenu otherwise makes us shrink to
+       * content size, which collapsed the grid to a single column. */
+      width: min(1100px, 95vw);
+      min-width: 0;
+      max-width: 1100px;
+    }
+    .mode-grid { width: 100%; }
+    .mode-card {
+      position: relative;
+      aspect-ratio: 16 / 9;
+      border-radius: 6px;
+      overflow: hidden;
+      cursor: pointer;
+      border: 2px solid rgba(255,255,255,0.18);
+      box-shadow: 0 3px 0 rgba(0,0,0,0.4), 0 5px 12px rgba(0,0,0,0.5);
+      transition: transform 0.12s ease, border-color 0.12s ease;
+      background: #222;
+    }
+    .mode-card:hover {
+      transform: translateY(-2px);
+      border-color: #7eb84c;
+      box-shadow: 0 5px 0 rgba(0,0,0,0.4), 0 8px 16px rgba(126,184,76,0.35);
+    }
+    .mode-card:active { transform: translateY(1px); }
+    .mode-card.disabled {
+      filter: grayscale(0.6) brightness(0.6);
+      cursor: not-allowed;
+    }
+    .mode-card.disabled:hover {
+      transform: none;
+      border-color: rgba(255,255,255,0.18);
+      box-shadow: 0 3px 0 rgba(0,0,0,0.4), 0 5px 12px rgba(0,0,0,0.5);
+    }
+    .mc-cover {
+      position: absolute; inset: 0;
+      background-size: cover;
+      background-position: center;
+      image-rendering: auto;
+    }
+    .mc-cover::after {
+      /* Bottom gradient so the title is always legible over the screenshot. */
+      content: "";
+      position: absolute; inset: 0;
+      background: linear-gradient(180deg, transparent 50%, rgba(0,0,0,0.82) 100%);
+      pointer-events: none;
+    }
+    .mc-tag {
+      position: absolute; top: 0; left: 0;
+      font-family: 'Minecraft', 'Courier New', monospace;
+      font-size: 11px; font-weight: bold;
+      padding: 4px 8px;
+      color: #fff;
+      letter-spacing: 1px;
+      background: #f0a418;
+      box-shadow: 0 2px 0 rgba(0,0,0,0.3);
+      z-index: 2;
+    }
+    .mc-tag.updated { background: #4cae4c; }
+    .mc-tag.ranked  { background: #ffd14a; color: #5a3500; }
+    .mc-tag.limited { background: #e94560; }
+    .mc-tag.coming  { background: #888; color: #fff; }
+    .mc-ccu {
+      position: absolute; top: 6px; right: 6px;
+      font-family: 'Minecraft', 'Courier New', monospace;
+      font-size: 11px; font-weight: bold;
+      color: #fff;
+      background: rgba(0,0,0,0.55);
+      padding: 3px 8px;
+      border-radius: 4px;
+      display: flex; align-items: center; gap: 4px;
+      z-index: 2;
+      text-shadow: 1px 1px 0 #000;
+    }
+    .mc-ccu::before {
+      content: "👤";
+      font-size: 10px;
+      filter: grayscale(1) brightness(1.4);
+    }
+    .mc-title {
+      position: absolute; left: 0; right: 0; bottom: 0;
+      padding: 8px 10px 10px;
+      color: #fff;
+      font-family: 'Minecraft', 'Courier New', monospace;
+      z-index: 2;
+      pointer-events: none;
+    }
+    .mc-title .mc-name {
+      font-size: 13px;
+      font-weight: bold;
+      letter-spacing: 0.5px;
+      text-shadow: 2px 2px 0 #000;
+      line-height: 1.1;
+    }
+    .mc-title .mc-sub {
+      display: inline-block;
+      margin-top: 3px;
+      font-size: 10px;
+      padding: 1px 6px;
+      background: #5a8a3a;
+      color: #fff;
+      border-radius: 3px;
+      letter-spacing: 1px;
+      text-shadow: 1px 1px 0 #000;
+    }
+    .mc-title .mc-sub.offline { background: #5a5a5a; }
+    .mc-title .mc-sub.mp { background: #4a8aff; }
+    .mc-title .mc-sub.featured { background: #e94560; }
+    .menu-footer {
+      margin-top: 16px; text-align: center;
+      font-family: 'Minecraft', 'Courier New', monospace;
+      font-size: 11px; color: rgba(255,255,255,0.5);
     }
 
-    /* animated grass/dirt stripes at bottom */
-
-    #loginScreen::after{
-      content:'';position:absolute;bottom:0;left:0;right:0;height:60px;
-      background:repeating-linear-gradient(90deg,
-        #4a7c3f 0px,#4a7c3f 30px,
-        #3d6832 30px,#3d6832 60px,
-        #4a7c3f 60px,#4a7c3f 90px,
-        #3d6832 90px,#3d6832 120px
-      );
-      opacity:0.5;
+    /* ── Bloxity / Legion auth panel ─────────────────────────────── */
+    #legionBanner {
+      display: flex; align-items: center; gap: 14px;
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 10px;
+      padding: 10px 14px;
+      margin-bottom: 12px;
+    }
+    #legionBanner.logged-in {
+      background: linear-gradient(90deg, rgba(233,69,96,0.18), rgba(126,184,76,0.12));
+      border-color: rgba(233,69,96,0.5);
+    }
+    #legionUserBox {
+      display: none; align-items: center; gap: 12px; flex: 1;
+    }
+    #legionPfp {
+      width: 42px; height: 42px; border-radius: 50%;
+      border: 2px solid #e94560; object-fit: cover;
+    }
+    #legionName {
+      font-family: 'Minecraft', 'Courier New', monospace;
+      font-size: 14px; font-weight: bold; color: #fff;
+    }
+    #legionHandle {
+      font-family: 'Minecraft', 'Courier New', monospace;
+      font-size: 11px; color: rgba(255,255,255,0.55);
+    }
+    .legion-btn {
+      padding: 8px 14px;
+      border-radius: 6px;
+      border: 1px solid rgba(255,255,255,0.25);
+      background: linear-gradient(135deg, #e94560, #ff6b6b);
+      color: #fff; font-weight: bold;
+      font-family: 'Minecraft', 'Courier New', monospace;
+      font-size: 12px;
+      cursor: pointer;
+    }
+    .legion-btn:hover { transform: translateY(-1px); }
+    .legion-btn.secondary {
+      background: rgba(255,255,255,0.1);
     }
 
-    .login-box{
-      background:rgba(0,0,0,0.82);
-      border:3px solid #5a9c5a;
-      border-radius:12px;
-      padding:40px 48px;
-      text-align:center;
-      min-width:380px;
-      max-width:440px;
-      position:relative;
-      box-shadow:0 0 60px rgba(0,180,0,0.12), inset 0 0 40px rgba(0,0,0,0.5);
+    /* ── Death screen ───────────────────────────────────────────── */
+    #deathScreen {
+      position: fixed; inset: 0;
+      background: rgba(120, 0, 0, 0.55);
+      display: none; align-items: center; justify-content: center;
+      flex-direction: column;
+      z-index: 300;
+    }
+    .death-window {
+      background: rgba(20,10,10,0.92);
+      border: 3px solid rgba(255,80,80,0.7);
+      padding: 30px 50px;
+      display: flex; flex-direction: column; align-items: center; gap: 14px;
+      font-family: 'Minecraft', 'Courier New', monospace;
+    }
+    .death-window h1 {
+      margin: 0; color: #ff5050;
+      font-size: 36px; letter-spacing: 3px;
+      text-shadow: 3px 3px 0 #2a0000;
+    }
+    .death-cause {
+      color: #ffe66d; font-size: 13px; opacity: 0.9;
+    }
+    .death-window button {
+      padding: 8px 22px;
+      background: rgba(60,60,60,0.9);
+      border: 2px solid rgba(255,255,255,0.3);
+      color: #fff; font-family: inherit; font-size: 13px;
+      cursor: pointer;
+      min-width: 220px;
+    }
+    .death-window button:hover {
+      background: rgba(126,184,76,0.4); border-color: #7eb84c;
     }
 
-    /* Pixel-art dirt texture border effect */
-
-    .login-box::before{
-      content:'';position:absolute;inset:-3px;border-radius:14px;
-      background:linear-gradient(45deg,#5a9c5a,#3a6c3a,#5a9c5a,#3a6c3a);
-      z-index:-1;
+    /* ── Trade UI ────────────────────────────────────────────────── */
+    #tradeUI {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.6);
+      display: none; align-items: center; justify-content: center;
+      z-index: 200;
+    }
+    .trade-window {
+      background: rgba(30,30,40,0.96);
+      border: 3px solid #1a1a1a;
+      padding: 16px 20px;
+      width: 460px; max-width: 92vw;
+      display: flex; flex-direction: column;
+      font-family: 'Minecraft', 'Courier New', monospace;
+    }
+    .trade-header {
+      display: flex; justify-content: space-between; align-items: center;
+      margin-bottom: 10px;
+    }
+    .trade-header h2 {
+      margin: 0; color: #ffe66d;
+      font-size: 16px; letter-spacing: 2px;
+    }
+    #tradeClose {
+      background: rgba(180,60,60,0.7);
+      border: 1px solid rgba(255,255,255,0.3);
+      color: #fff; padding: 4px 10px;
+      cursor: pointer; border-radius: 2px; font-family: inherit;
+    }
+    .trade-row {
+      display: flex; align-items: center; gap: 12px;
+      padding: 10px;
+      background: rgba(0,0,0,0.35);
+      border: 1px solid rgba(255,255,255,0.08);
+      margin-bottom: 6px;
+    }
+    .trade-cost, .trade-result {
+      display: flex; align-items: center; gap: 4px;
+      font-size: 12px;
+    }
+    .trade-icon {
+      width: 24px; height: 24px;
+      background-size: 384px 384px;
+      image-rendering: pixelated;
+    }
+    .trade-arrow { color: #aaa; font-size: 18px; }
+    .trade-row button {
+      margin-left: auto;
+      padding: 6px 14px;
+      background: rgba(126,184,76,0.3);
+      border: 1px solid #7eb84c;
+      color: #fff; font-family: inherit; font-size: 12px;
+      cursor: pointer;
+    }
+    .trade-row button:disabled {
+      background: rgba(80,80,80,0.4); border-color: #555;
+      color: #888; cursor: not-allowed;
     }
 
-    .mc-title{
-      font-family:'Press Start 2P',monospace;
-      font-size:1.7rem;color:#7cfc00;
-      letter-spacing:2px;margin-bottom:4px;
-      text-shadow:3px 3px 0 #004400, 0 0 30px rgba(124,252,0,0.5);
-      line-height:1.3;
+    /* ── Furnace UI ─────────────────────────────────────────────── */
+    #furnaceUI {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.6);
+      display: none; align-items: center; justify-content: center;
+      z-index: 200;
+    }
+    .furnace-window {
+      background: rgba(40,40,46,0.97);
+      border: 3px solid #1a1a1a;
+      padding: 16px 20px;
+      width: 460px; max-width: 92vw;
+      display: flex; flex-direction: column; gap: 10px;
+      font-family: 'Minecraft', 'Courier New', monospace;
+    }
+    .furnace-header {
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    .furnace-header h2 {
+      margin: 0; color: #ffe66d;
+      font-size: 16px; letter-spacing: 2px;
+    }
+    #furnaceClose {
+      background: rgba(180,60,60,0.7);
+      border: 1px solid rgba(255,255,255,0.3);
+      color: #fff; padding: 4px 10px;
+      cursor: pointer; border-radius: 2px; font-family: inherit;
+    }
+    .furnace-machine {
+      display: grid;
+      grid-template-columns: 40px 60px 40px;
+      grid-template-rows: 40px 40px;
+      gap: 12px; align-items: center; justify-content: center;
+      padding: 12px;
+      background: rgba(0,0,0,0.4);
+      border: 1px solid #5a5a64;
+    }
+    .furnace-slot {
+      width: 40px; height: 40px;
+      background: #8b8b8b; border: 2px solid #373737;
+      box-shadow: inset 1px 1px 0 #555, inset -1px -1px 0 #c5c5c5;
+      position: relative; cursor: pointer;
+      image-rendering: pixelated;
+    }
+    .furnace-slot:hover { outline: 2px solid #ffffff80; }
+    #furnaceInput  { grid-column: 1; grid-row: 1; }
+    #furnaceFuel   { grid-column: 1; grid-row: 2; }
+    #furnaceOutput { grid-column: 3; grid-row: 1 / span 2; width: 44px; height: 44px; align-self: center; }
+    #furnaceFlame {
+      grid-column: 1; grid-row: 1 / span 2;
+      width: 14px; height: 100%;
+      justify-self: end; align-self: center;
+      background: linear-gradient(to top, rgba(0,0,0,0) 0%, rgba(0,0,0,0) calc(100% - var(--flame-h, 0%)), #ff8800 calc(100% - var(--flame-h, 0%)), #ffd24a 100%);
+      border: 1px solid #2a2a2a;
+      pointer-events: none;
+    }
+    #furnaceArrow {
+      grid-column: 2; grid-row: 1 / span 2;
+      align-self: center;
+      width: 60px; height: 18px;
+      background: #2a2a2a;
+      position: relative;
+      border: 1px solid #1a1a1a;
+    }
+    #furnaceArrow::before {
+      content: ""; position: absolute; inset: 0;
+      width: var(--arrow-w, 0%);
+      background: linear-gradient(to right, #f6d04a, #fff39a);
+    }
+    #furnaceArrow::after {
+      content: "▶"; position: absolute; right: -16px; top: -2px;
+      color: #f6d04a; font-size: 18px;
+    }
+    .furnace-inv {
+      display: flex; flex-direction: column; gap: 8px;
+      background: rgba(0,0,0,0.4);
+      border: 1px solid #5a5a64;
+      padding: 8px;
+    }
+    #furnaceInvMain {
+      display: grid; grid-template-columns: repeat(9, 36px); gap: 2px;
+      justify-content: center;
+    }
+    #furnaceInvHotbar {
+      display: grid; grid-template-columns: repeat(9, 36px); gap: 2px;
+      justify-content: center;
+      padding-top: 6px; border-top: 1px solid #555;
+    }
+    .furnace-inv-slot {
+      width: 36px; height: 36px;
+      background: #8b8b8b; border: 2px solid #373737;
+      box-shadow: inset 1px 1px 0 #555, inset -1px -1px 0 #c5c5c5;
+      position: relative; cursor: pointer;
+      image-rendering: pixelated;
+    }
+    .furnace-inv-slot:hover { outline: 2px solid #ffffff80; }
+    .furnace-inv-slot .slot-icon, .furnace-slot .slot-icon {
+      position: absolute; inset: 2px;
+      image-rendering: pixelated;
+    }
+    .furnace-inv-slot .slot-count, .furnace-slot .slot-count {
+      position: absolute; right: 2px; bottom: 0;
+      color: #fff; font-size: 12px;
+      text-shadow: 1px 1px 0 #000;
+    }
+    #furnaceCursor {
+      position: fixed; pointer-events: none;
+      width: 36px; height: 36px;
+      transform: translate(-50%, -50%);
+      z-index: 250;
     }
 
-    .mc-subtitle{
-      color:#8a9a8a;font-size:0.72rem;margin-bottom:28px;
-      letter-spacing:1px;
+    /* ── Chest UI ──────────────────────────────────────────────── */
+    #chestUI {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.6);
+      display: none; align-items: center; justify-content: center;
+      z-index: 200;
+    }
+    .chest-window {
+      background: rgba(40,40,46,0.97);
+      border: 3px solid #1a1a1a;
+      padding: 16px 20px;
+      width: 396px; max-width: 92vw;
+      display: flex; flex-direction: column; gap: 10px;
+      font-family: 'Minecraft', 'Courier New', monospace;
+    }
+    .chest-header {
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    .chest-header h2 {
+      margin: 0; color: #ffe66d;
+      font-size: 16px; letter-spacing: 2px;
+    }
+    #chestClose {
+      background: rgba(180,60,60,0.7);
+      border: 1px solid rgba(255,255,255,0.3);
+      color: #fff; padding: 4px 10px;
+      cursor: pointer; border-radius: 2px; font-family: inherit;
+    }
+    .chest-section {
+      background: rgba(0,0,0,0.4);
+      border: 1px solid #5a5a64;
+      padding: 8px;
+    }
+    .chest-section-label {
+      color: #c8c8c8; font-size: 11px; margin-bottom: 6px;
+    }
+    #chestGrid {
+      display: grid; grid-template-columns: repeat(9, 36px); gap: 2px;
+      justify-content: center;
+    }
+    #chestInvMain {
+      display: grid; grid-template-columns: repeat(9, 36px); gap: 2px;
+      justify-content: center;
+    }
+    #chestInvHotbar {
+      display: grid; grid-template-columns: repeat(9, 36px); gap: 2px;
+      justify-content: center;
+      padding-top: 6px; border-top: 1px solid #555;
+    }
+    .chest-slot {
+      width: 36px; height: 36px;
+      background: #8b8b8b; border: 2px solid #373737;
+      box-shadow: inset 1px 1px 0 #555, inset -1px -1px 0 #c5c5c5;
+      position: relative; cursor: pointer;
+      image-rendering: pixelated;
+    }
+    .chest-slot:hover { outline: 2px solid #ffffff80; }
+    .chest-slot .slot-icon {
+      position: absolute; inset: 2px;
+      image-rendering: pixelated;
+    }
+    .chest-slot .slot-count {
+      position: absolute; right: 2px; bottom: 0;
+      color: #fff; font-size: 12px;
+      text-shadow: 1px 1px 0 #000;
+    }
+    #chestCursor {
+      position: fixed; pointer-events: none;
+      width: 36px; height: 36px;
+      transform: translate(-50%, -50%);
+      z-index: 250;
     }
 
-    .mc-input{
-      width:100%;padding:12px 16px;margin-bottom:12px;
-      background:rgba(0,0,0,0.6);
-      border:2px solid #4a7c4a;
-      border-radius:6px;color:#fff;font-size:0.95rem;outline:none;
-      transition:border-color 0.2s, box-shadow 0.2s;
+    /* ── Server finder ──────────────────────────────────────────── */
+    #serverFinder {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.7);
+      display: none; align-items: center; justify-content: center;
+      z-index: 1100;
+    }
+    .finder-window {
+      background: rgba(20,22,32,0.98);
+      border: 3px solid #1a1a1a;
+      padding: 16px 20px;
+      width: 540px; max-width: 95vw; max-height: 80vh;
+      display: flex; flex-direction: column;
+      font-family: 'Minecraft', 'Courier New', monospace;
+    }
+    .finder-header {
+      display: flex; justify-content: space-between; align-items: center;
+      margin-bottom: 10px;
+    }
+    .finder-header h2 {
+      margin: 0; color: #ffe66d;
+      font-size: 16px; letter-spacing: 2px;
+    }
+    .finder-row {
+      display: flex; align-items: center; gap: 10px;
+      padding: 8px 10px;
+      background: rgba(0,0,0,0.4);
+      border: 1px solid rgba(255,255,255,0.1);
+      margin-bottom: 4px;
+      font-size: 12px;
+    }
+    .finder-row .mode { color: #ffe66d; min-width: 100px; }
+    .finder-row .players { color: #5be17a; min-width: 60px; }
+    .finder-row .roomid { color: #888; flex: 1; }
+    .finder-row button {
+      padding: 4px 12px;
+      background: linear-gradient(135deg, #e94560, #ff6b6b);
+      border: none; color: #fff; cursor: pointer;
+      font-family: inherit;
+    }
+    .finder-controls {
+      display: flex; gap: 8px; margin-bottom: 8px;
+    }
+    .finder-controls input, .finder-controls select {
+      flex: 1;
+      padding: 6px 10px;
+      background: rgba(0,0,0,0.4);
+      border: 1px solid rgba(255,255,255,0.25);
+      color: #fff;
+      font-family: inherit; font-size: 12px;
+    }
+    #finderClose {
+      background: rgba(180,60,60,0.7);
+      border: 1px solid rgba(255,255,255,0.3);
+      color: #fff; padding: 4px 10px;
+      cursor: pointer; border-radius: 2px; font-family: inherit;
     }
 
-    .mc-input:focus{
-      border-color:#7cfc00;
-      box-shadow:0 0 10px rgba(124,252,0,0.25);
+    /* ── Pause menu (ESC) ───────────────────────────────────────── */
+    #pauseMenu {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.55);
+      display: none;
+      align-items: center; justify-content: center;
+      gap: 30px;
+      z-index: 250;
+      flex-direction: row;
+    }
+    .pause-main {
+      display: flex; flex-direction: column;
+      gap: 6px;
+      width: 320px;
+      align-items: center;
+    }
+    .pause-title {
+      color: #fff;
+      font-family: 'Minecraft', 'Courier New', monospace;
+      font-size: 22px;
+      margin-bottom: 12px;
+      text-shadow: 2px 2px 0 #2a2a2a;
+    }
+    .pause-btn {
+      background: #6e6e6e;
+      border: 2px solid #1a1a1a;
+      box-shadow: inset -2px -2px 0 #4a4a4a, inset 2px 2px 0 #8a8a8a;
+      color: #fff;
+      font-family: 'Minecraft', 'Courier New', monospace;
+      font-size: 14px;
+      padding: 8px 16px;
+      cursor: pointer;
+      letter-spacing: 1px;
+      width: 100%;
+      transition: background 0.08s;
+    }
+    .pause-btn:hover {
+      background: #7e8e6e;
+      border-color: #1a3a1a;
+      box-shadow: inset -2px -2px 0 #5a6a4a, inset 2px 2px 0 #9eba8a;
+    }
+    .pause-btn.danger { background: #7e3e3e; }
+    .pause-btn.danger:hover { background: #8e4e4e; }
+    .pause-row { display: flex; gap: 6px; width: 100%; }
+    .pause-row .pause-btn { flex: 1; }
+
+    /* ── Generic modal frame used by Options / Keybinds / Controller ── */
+    .gm-modal {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.7);
+      display: none;
+      align-items: center; justify-content: center;
+      z-index: 270;
+    }
+    .gm-window {
+      background: rgba(30,30,40,0.96);
+      border: 3px solid #1a1a1a;
+      padding: 20px 24px;
+      min-width: 420px; max-width: 92vw;
+      font-family: 'Minecraft', 'Courier New', monospace;
+    }
+    .gm-window h2 {
+      margin: 0 0 14px 0;
+      color: #ffe66d;
+      letter-spacing: 2px;
+      font-size: 16px;
+    }
+    .gm-row {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 8px 0;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+      gap: 16px;
+    }
+    .gm-row label { color: #ddd; font-size: 12px; min-width: 150px; }
+    .gm-row input[type="range"] { flex: 1; }
+    .gm-row .gm-value { color: #ffe66d; min-width: 40px; text-align: right; font-size: 12px; }
+    .gm-close {
+      margin-top: 16px;
+      background: #6e6e6e;
+      border: 2px solid #1a1a1a;
+      color: #fff;
+      font-family: inherit;
+      padding: 6px 14px;
+      cursor: pointer;
+    }
+    .gm-key {
+      background: rgba(0,0,0,0.35);
+      border: 1px solid rgba(255,255,255,0.2);
+      color: #ffe66d;
+      padding: 2px 10px;
+      font-family: inherit;
+      font-size: 12px;
+    }
+    .gm-key.binding { color: #ff6b6b; border-color: #ff6b6b; }
+    .gp-status {
+      color: rgba(255,255,255,0.7);
+      font-size: 12px;
+      padding: 6px 10px;
+      background: rgba(0,0,0,0.3);
+      border-radius: 4px;
+    }
+    .gp-status.connected { color: #5be17a; border: 1px solid rgba(91,225,122,0.4); }
+    .tab-pfp {
+      width: 16px; height: 16px;
+      border-radius: 50%;
+      vertical-align: middle;
+      margin-right: 6px;
+      object-fit: cover;
     }
 
-    /* Mode buttons */
-
-    #menuModeRow{display:flex;gap:10px;margin-bottom:14px}
-
-    .mode-btn{
-      flex:1;padding:14px 8px;
-      border:2px solid #4a7c4a;border-radius:8px;
-      background:rgba(0,0,0,0.45);color:#ccc;
-      font-size:0.88rem;cursor:pointer;
-      transition:all 0.15s;
-      position:relative;overflow:hidden;
+    /* ── Creative inventory ─────────────────────────────────────── */
+    #creativeInv {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.7);
+      display: none; align-items: center; justify-content: center;
+      z-index: 110;
+    }
+    .creative-window {
+      background: rgba(20, 22, 32, 0.98);
+      border: 3px solid #1a1a1a;
+      padding: 14px 18px;
+      width: 720px; max-width: 95vw; max-height: 84vh;
+      display: flex; flex-direction: column;
+      font-family: 'Minecraft', 'Courier New', monospace;
+    }
+    .creative-header {
+      display: flex; justify-content: space-between; align-items: center;
+      margin-bottom: 10px;
+    }
+    .creative-header h2 {
+      margin: 0; color: #ffe66d;
+      font-size: 16px; letter-spacing: 2px;
+    }
+    #creativeInvClose {
+      background: rgba(180,60,60,0.7);
+      border: 1px solid rgba(255,255,255,0.3);
+      color: #fff; padding: 4px 10px;
+      cursor: pointer; border-radius: 2px;
+      font-family: inherit;
+    }
+    #creativeInvSearch {
+      width: 100%; padding: 8px 12px;
+      background: rgba(0,0,0,0.4);
+      border: 1px solid rgba(255,255,255,0.3);
+      color: #fff;
+      font-family: inherit; font-size: 13px;
+      margin-bottom: 10px;
+    }
+    #creativeInvSearch:focus { outline: none; border-color: #7eb84c; }
+    #creativeInvGrid {
+      flex: 1; overflow-y: auto;
+      display: grid;
+      grid-template-columns: repeat(9, 56px);
+      gap: 4px;
+      padding: 4px;
+      background: rgba(0,0,0,0.4);
+      border: 1px solid rgba(255,255,255,0.08);
+      justify-content: center;
+    }
+    .creative-cell {
+      position: relative;
+      width: 56px; height: 56px;
+      background: rgba(255,255,255,0.07);
+      border: 1px solid rgba(255,255,255,0.15);
+      cursor: pointer;
+      display: flex; flex-direction: column; align-items: center;
+      padding: 4px 2px 2px;
+      color: #ddd;
+      font-family: inherit;
+    }
+    .creative-cell:hover {
+      background: rgba(126,184,76,0.25);
+      border-color: #7eb84c;
+    }
+    .creative-icon {
+      width: 32px; height: 32px;
+      image-rendering: pixelated;
+      pointer-events: none;
+    }
+    .creative-label {
+      font-size: 8px; line-height: 1.1;
+      text-align: center;
+      margin-top: 2px;
+      pointer-events: none;
+      max-height: 14px; overflow: hidden;
     }
 
-    .mode-btn .mode-icon{font-size:1.5rem;display:block;margin-bottom:4px}
-
-    .mode-btn .mode-label{font-weight:bold;display:block;margin-bottom:2px}
-
-    .mode-btn .mode-sub{font-size:0.68rem;color:#888;display:block}
-
-    .mode-btn:hover{background:rgba(124,252,0,0.08);border-color:#7cfc00;color:#eee}
-
-    .mode-btn.selected{
-      background:rgba(124,252,0,0.15);
-      border-color:#7cfc00;color:#7cfc00;
-      box-shadow:0 0 12px rgba(124,252,0,0.2);
+    /* ── Friends list (vanilla MC stone-button look) ──────────────── */
+    /* Stone-gray panel with beveled borders, gold heading like the real MC
+     * server-list pane. Each row is a "stone button" you can hover/click. */
+    #ingameFriends {
+      width: 340px; max-height: 70vh;
+      background:
+        linear-gradient(rgba(0,0,0,0.55), rgba(0,0,0,0.55)),
+        repeating-linear-gradient(0deg, #6e6e6e 0 4px, #5e5e5e 4px 8px);
+      border-top:    3px solid #c6c6c6;
+      border-left:   3px solid #c6c6c6;
+      border-right:  3px solid #2d2d2d;
+      border-bottom: 3px solid #2d2d2d;
+      box-shadow: inset 0 0 0 1px #000, 0 0 0 1px #000;
+      padding: 12px;
+      display: none;
+      overflow-y: auto;
+      font-family: 'Minecraft', 'Courier New', monospace;
+      image-rendering: pixelated;
+    }
+    #ingameFriends h3 {
+      margin: 0 0 10px 0;
+      color: #ffd23f;
+      font-size: 14px; letter-spacing: 1px;
+      text-shadow: 2px 2px 0 #2a1c00;
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    #ingameFriends .login-prompt {
+      padding: 14px;
+      color: #dadada;
+      font-size: 11px;
+      text-align: center;
+      text-shadow: 1px 1px 0 #000;
+    }
+    #ingameFriends .login-prompt button {
+      margin-top: 10px;
+      padding: 8px 16px;
+      background:
+        linear-gradient(rgba(0,0,0,0.18), rgba(0,0,0,0.18)),
+        repeating-linear-gradient(0deg, #8a8a8a 0 3px, #7a7a7a 3px 6px);
+      border-top:    2px solid #d8d8d8;
+      border-left:   2px solid #d8d8d8;
+      border-right:  2px solid #3a3a3a;
+      border-bottom: 2px solid #3a3a3a;
+      color: #fff; text-shadow: 2px 2px 0 #2a2a2a;
+      cursor: pointer; font-family: inherit; font-size: 11px;
     }
 
-    .mode-btn.selected .mode-sub{color:#5acc5a}
-
-    /* Server row */
-
-    #serverRow{display:none;gap:8px;margin-bottom:12px;align-items:center}
-
-    #serverRow.visible{display:flex}
-
-    #serverRow span{color:#7a9a7a;font-size:0.82rem;white-space:nowrap}
-
-    #serverRow input{flex:1;margin-bottom:0}
-
-    /* Play button */
-
-    .play-btn{
-      width:100%;padding:14px;
-      background:linear-gradient(180deg,#3a8a3a,#2a6a2a);
-      border:2px solid #5aaa5a;border-radius:8px;
-      color:#fff;font-size:1rem;font-weight:bold;
-      cursor:pointer;letter-spacing:2px;
-      text-shadow:1px 1px 2px #000;
-      transition:all 0.15s;margin-top:4px;
-      box-shadow:0 4px 0 #1a4a1a;
+    #legionFriendsCard {
+      display: none;
+      margin-top: 12px;
+      padding: 10px;
+      background: rgba(0,0,0,0.5);
+      border-top:    2px solid #000;
+      border-left:   2px solid #000;
+      border-right:  2px solid #2a2a2a;
+      border-bottom: 2px solid #2a2a2a;
+      max-height: 240px;
+      overflow-y: auto;
+    }
+    #legionFriendsCard h3 {
+      margin: 0 0 8px 0;
+      color: #ffd23f;
+      font-family: 'Minecraft', 'Courier New', monospace;
+      font-size: 12px; letter-spacing: 1px;
+      text-shadow: 1px 1px 0 #2a1c00;
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    #legionFriendsCard h3 button {
+      background:
+        linear-gradient(rgba(0,0,0,0.18), rgba(0,0,0,0.18)),
+        repeating-linear-gradient(0deg, #8a8a8a 0 3px, #7a7a7a 3px 6px);
+      border-top:    2px solid #d8d8d8;
+      border-left:   2px solid #d8d8d8;
+      border-right:  2px solid #3a3a3a;
+      border-bottom: 2px solid #3a3a3a;
+      color: #fff; padding: 3px 8px;
+      font-size: 10px; cursor: pointer;
+      text-shadow: 1px 1px 0 #2a2a2a;
+    }
+    /* Each friend row = a stone button. Hover lights the bevel for the */
+    /* familiar "selected server" look. */
+    .friend-row {
+      display: flex; align-items: center; gap: 10px;
+      padding: 8px;
+      background:
+        linear-gradient(rgba(0,0,0,0.22), rgba(0,0,0,0.22)),
+        repeating-linear-gradient(0deg, #7a7a7a 0 3px, #6a6a6a 3px 6px);
+      border-top:    2px solid #c6c6c6;
+      border-left:   2px solid #c6c6c6;
+      border-right:  2px solid #2d2d2d;
+      border-bottom: 2px solid #2d2d2d;
+      margin-bottom: 4px;
+      transition: filter 0.1s;
+    }
+    .friend-row:hover {
+      filter: brightness(1.18);
+      border-top-color:  #e0e0e0;
+      border-left-color: #e0e0e0;
+    }
+    .friend-pfp {
+      width: 32px; height: 32px;
+      image-rendering: pixelated;
+      border: 2px solid #1a1a1a;
+      box-shadow: 0 0 0 1px #aaa;
+    }
+    .friend-meta { flex: 1; min-width: 0; }
+    .friend-name {
+      font-family: 'Minecraft', 'Courier New', monospace;
+      font-size: 13px; color: #fff;
+      text-shadow: 2px 2px 0 #2a2a2a;
+      white-space: nowrap; text-overflow: ellipsis; overflow: hidden;
+    }
+    .friend-status {
+      font-family: 'Minecraft', 'Courier New', monospace;
+      font-size: 10px;
+      text-shadow: 1px 1px 0 #000;
+    }
+    .friend-status.online  { color: #57e57c; }
+    .friend-status.in_game { color: #ffd23f; }
+    .friend-status.offline { color: #b0b0b0; }
+    /* Vanilla green "Join Server" button colour palette. */
+    .friend-invite-btn {
+      padding: 6px 12px;
+      background:
+        linear-gradient(rgba(0,0,0,0.18), rgba(0,0,0,0.18)),
+        repeating-linear-gradient(0deg, #2f7a37 0 3px, #266a2d 3px 6px);
+      border-top:    2px solid #54c25e;
+      border-left:   2px solid #54c25e;
+      border-right:  2px solid #1a3e1f;
+      border-bottom: 2px solid #1a3e1f;
+      color: #fff; text-shadow: 2px 2px 0 #1a3e1f;
+      font-size: 11px;
+      cursor: pointer;
+      font-family: 'Minecraft', 'Courier New', monospace;
+    }
+    .friend-invite-btn:hover { filter: brightness(1.2); }
+    .friend-invite-btn:disabled {
+      opacity: 0.55; cursor: default; filter: grayscale(0.6);
     }
 
-    .play-btn:hover{background:linear-gradient(180deg,#4a9a4a,#3a7a3a);transform:translateY(-1px)}
+    /* ── Loading ────────────────────────────────────────────────── */
+    #loadingScreen {
+      position: fixed; inset: 0;
+      background: linear-gradient(180deg, #87ceeb 0%, #b0e0f8 100%);
+      display: none; align-items: center; justify-content: center;
+      flex-direction: column; z-index: 900;
+    }
+    #loadingScreen h2 {
+      font-family: 'Minecraft', 'Courier New', monospace;
+      font-size: 2rem; color: #fff;
+      text-shadow: 3px 3px 0 #2a2a2a;
+      margin: 0 0 1rem 0;
+    }
+    #loadingStatus {
+      color: #fff;
+      font-family: 'Minecraft', 'Courier New', monospace;
+      font-size: 0.95rem;
+      text-shadow: 1px 1px 0 #2a2a2a;
+      margin-bottom: 1.2rem;
+    }
+    .spinner {
+      width: 40px; height: 40px;
+      border: 4px solid rgba(255,255,255,0.3);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
 
-    .play-btn:active{transform:translateY(2px);box-shadow:0 2px 0 #1a4a1a}
-
-    .help-hint{
-      color:#445544;font-size:0.67rem;margin-top:16px;
-      line-height:1.8;border-top:1px solid #2a4a2a;padding-top:12px;
+    #buildStamp {
+      position: fixed; bottom: 6px; left: 8px;
+      font-size: 11px; color: rgba(255,255,255,0.6);
+      font-family: monospace;
+      text-shadow: 1px 1px 0 rgba(0,0,0,0.5);
+      z-index: 50; pointer-events: none;
     }
 
-    .help-hint strong{color:#5a8a5a}
+    /* ── In-game HUD ────────────────────────────────────────────── */
+    #ingameUI { display: none; }
 
-    /* ── HUD ────────────────────────────────────────────────────────────── */
+    #crosshair {
+      position: fixed; top: 50%; left: 50%;
+      width: 20px; height: 20px;
+      transform: translate(-50%, -50%);
+      pointer-events: none; z-index: 10;
+    }
+    #crosshair::before, #crosshair::after {
+      content: ""; position: absolute;
+      background: #fff; mix-blend-mode: difference;
+    }
+    #crosshair::before { left: 9px; top: 0; width: 2px; height: 20px; }
+    #crosshair::after  { top: 9px; left: 0; height: 2px; width: 20px; }
 
-    #hud{position:fixed;inset:0;pointer-events:none;z-index:10;display:none}
-
-    /* Crosshair with break progress */
-
-    #crosshair{
-      position:absolute;top:50%;left:50%;
-      transform:translate(-50%,-50%);width:22px;height:22px;
-      transition:width 0.1s ease,height 0.1s ease;
+    #hotbar {
+      position: fixed; bottom: 16px; left: 50%;
+      transform: translateX(-50%);
+      display: flex; gap: 2px; padding: 3px;
+      background: rgba(0,0,0,0.55);
+      border: 2px solid rgba(0,0,0,0.7);
+      border-radius: 2px;
+      z-index: 20;
+    }
+    .hotbar-slot {
+      position: relative;
+      width: 40px; height: 40px;
+      background: rgba(255,255,255,0.08);
+      border: 2px solid rgba(255,255,255,0.15);
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .hotbar-slot.active {
+      border-color: #fff;
+      box-shadow: 0 0 0 1px rgba(255,255,255,0.5);
+    }
+    .slot-icon-wrap, .slot-icon {
+      width: 32px; height: 32px;
+      image-rendering: pixelated;
+      pointer-events: none;
+    }
+    .slot-icon { background-size: 512px 512px; }
+    .hotbar-slot .slot-num {
+      position: absolute; top: -1px; left: 2px;
+      font-size: 9px; font-family: monospace;
+      color: #fff; text-shadow: 1px 1px 0 #000;
+      pointer-events: none;
+    }
+    /* Durability bar drawn under tool icons in any slot. */
+    .slot-durability {
+      position: absolute; left: 3px; right: 3px; bottom: 1px;
+      height: 3px;
+      background: rgba(0,0,0,0.6);
+      pointer-events: none;
+    }
+    .slot-durability .fill {
+      height: 100%;
+      transition: width 0.15s ease, background-color 0.2s ease;
+    }
+    .hotbar-slot .slot-count, .inv-slot .slot-count {
+      position: absolute; bottom: -2px; right: 2px;
+      font-size: 11px; font-family: monospace;
+      color: #fff; text-shadow: 1px 1px 0 #000;
+      pointer-events: none; font-weight: bold;
     }
 
-    #crosshair.breaking{width:28px;height:28px}
-
-    #crosshair::before,#crosshair::after{
-      content:'';position:absolute;
-      background:rgba(255,255,255,0.9);
-      border-radius:1px;
+    /* ── Hearts (above hotbar, left-aligned to hotbar edge) ─────── */
+    #hearts {
+      position: fixed; bottom: 66px;
+      left: calc(50% - 191px);
+      display: none; gap: 1px;
+      z-index: 20;
+    }
+    .heart {
+      width: 14px; height: 14px;
+      background-repeat: no-repeat;
+      background-size: contain;
+      flex: 0 0 14px;
+      background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 9 9' shape-rendering='crispEdges'><path d='M0 1h2v1h1V1h3v1h1V1h2v3h-1v1h-1v1h-1v1h-1v1H4v-1H3v-1H2v-1H1V4H0Z' fill='%23333' stroke='%23000' stroke-width='1'/></svg>");
+    }
+    .heart.full {
+      background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 9 9' shape-rendering='crispEdges'><path d='M0 1h2v1h1V1h3v1h1V1h2v3h-1v1h-1v1h-1v1h-1v1H4v-1H3v-1H2v-1H1V4H0Z' fill='%23dd2020'/><path d='M1 2h1v1h1v1h1V3h1v1h1V3h1v1H6v1H5v1H4V5H3V4H2V3H1Z' fill='%23ff5050'/></svg>");
+    }
+    .heart.half {
+      background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 9 9' shape-rendering='crispEdges'><path d='M0 1h2v1h1V1h3v1h1V1h2v3h-1v1h-1v1h-1v1h-1v1H4v-1H3v-1H2v-1H1V4H0Z' fill='%23333'/><path d='M0 1h2v1h1V1h1v6H4v-1H3v-1H2v-1H1V4H0Z' fill='%23dd2020'/></svg>");
     }
 
-    #crosshair::before{width:2px;height:100%;left:50%;transform:translateX(-50%)}
-
-    #crosshair::after {width:100%;height:2px;top:50%;transform:translateY(-50%)}
-
-    #breakProgress{
-      position:absolute;top:50%;left:50%;
-      transform:translate(-50%,-50%);
-      width:30px;height:30px;
-      border-radius:50%;
-      border:2px solid transparent;
-      box-sizing:border-box;
-      pointer-events:none;
-      transition:opacity 0.15s;
+    /* ── XP bar (survival only) ─────────────────────────────────── */
+    /* XP bar sits ABOVE the hotbar (hotbar top is ~62 px). */
+    #xpBar {
+      position: fixed; bottom: 84px; left: 50%;
+      transform: translateX(-50%);
+      width: 364px; height: 6px;
+      background: rgba(0,0,0,0.55);
+      border: 1px solid rgba(0,0,0,0.7);
+      z-index: 19;
+      display: none;
     }
-
-    /* Hotbar */
-
-    #hotbar{
-      position:absolute;bottom:24px;left:50%;transform:translateX(-50%);
-      display:flex;gap:3px;
-      background:rgba(0,0,0,0.55);
-      border:2px solid rgba(255,255,255,0.2);
-      border-radius:4px;padding:3px;
+    #xpFill {
+      height: 100%;
+      background: #5be17a;
+      box-shadow: 0 0 4px rgba(91,225,122,0.6);
+      transition: width 0.18s ease;
+      width: 0%;
     }
-
-    .hotbar-slot{
-      width:50px;height:50px;
-      border:2px solid rgba(255,255,255,0.2);
-      border-radius:3px;
-      display:flex;flex-direction:column;align-items:center;justify-content:center;
-      font-size:0.55rem;color:#bbb;cursor:default;
-      background:rgba(0,0,0,0.4);
-      transition:border-color 0.1s, background 0.1s;
-    }
-
-    @keyframes slotGlow {
-      0%,100% { box-shadow:inset 0 0 8px rgba(255,255,255,0.1), 0 0 6px rgba(255,255,255,0.1); }
-      50% { box-shadow:inset 0 0 12px rgba(255,255,255,0.2), 0 0 10px rgba(255,255,255,0.15); }
-    }
-
-    .hotbar-slot.active{
-      border-color:#fff;background:rgba(255,255,255,0.18);
-      animation:slotGlow 2s ease-in-out infinite;
-    }
-
-    .slot-icon{width:26px;height:26px;border-radius:2px;margin-bottom:2px}
-
-    #hotbarTooltip{
-      position:absolute;bottom:90px;left:50%;transform:translateX(-50%);
-      background:rgba(0,0,0,0.8);border:1px solid rgba(255,255,255,0.3);
-      border-radius:4px;padding:4px 12px;color:#fff;font-size:0.75rem;
-      pointer-events:none;opacity:0;transition:opacity 0.2s ease;
-      white-space:nowrap;z-index:20;
-    }
-
-    /* Hearts */
-
-    #hearts{
-      position:absolute;bottom:82px;left:50%;
-      transform:translateX(calc(-50% - 60px));
-      display:flex;gap:2px;
-    }
-
-    .heart{width:18px;height:18px;font-size:15px;line-height:18px;text-align:center}
-
-    .heart.full::before {content:'❤';color:#e83333;filter:drop-shadow(0 0 3px #ff0000)}
-
-    .heart.half::before {content:'❤';color:#cc1111}
-
-    .heart.empty::before{content:'🖤';color:#441111}
-
-    /* Wave 9: Wither effect */
-
-    .heart.wither.full::before {content:'❤';color:#555555;filter:drop-shadow(0 0 3px #333333)}
-
-    .heart.wither.half::before {content:'❤';color:#444444}
-
-    .heart.wither.empty::before{content:'🖤';color:#333333}
-
-    /* Hunger */
-
-    #hunger{
-      position:absolute;bottom:82px;left:50%;
-      transform:translateX(calc(-50% + 60px));
-      display:flex;gap:2px;flex-direction:row-reverse;
-    }
-
-    .hunger-icon{width:18px;height:18px;font-size:15px;line-height:18px;text-align:center}
-
-    .hunger-icon.full::before {content:'🍗';filter:drop-shadow(0 0 2px #cc8800)}
-
-    .hunger-icon.half::before {content:'🍗';opacity:0.55}
-
-    .hunger-icon.empty::before{content:'🍗';opacity:0.2;filter:grayscale(1)}
-
-    /* Time display */
-
-    #timeDisplay{
-      position:absolute;top:10px;left:50%;transform:translateX(-50%);
-      color:#fff;font-size:0.72rem;
-      text-shadow:1px 1px 2px #000;
-      background:rgba(0,0,0,0.42);
-      padding:2px 12px;border-radius:10px;
-      letter-spacing:1px;
-      margin-top:28px;
-    }
-
-    /* Info panels */
-
-    #topLeft{
-      position:absolute;top:10px;left:12px;
-      color:#fff;font-size:0.73rem;line-height:2.0;
-      text-shadow:1px 1px 2px #000;
-    }
-
-    #topRight{
-      position:absolute;top:10px;right:12px;
-      color:#7cfc00;font-size:0.78rem;
-      text-shadow:1px 1px 2px #000;text-align:right;
-      line-height:1.8;
-    }
-
-    /* Gamemode badge */
-
-    .gamemode-badge{
-      position:absolute;top:56px;left:50%;transform:translateX(-50%);
-      padding:3px 14px;border-radius:12px;font-size:0.7rem;font-weight:bold;
-      pointer-events:none;letter-spacing:1px;
-    }
-
-    .gamemode-badge.creative{background:rgba(0,120,255,0.65);color:#fff;box-shadow:0 0 10px rgba(0,100,255,0.3)}
-
-    .gamemode-badge.survival{background:transparent;color:transparent}
-
-    /* Chat */
-
-    #chat{position:absolute;bottom:88px;left:12px;width:400px}
-
-    #chatMessages{
-      max-height:168px;overflow-y:auto;
-      padding:4px 6px;scrollbar-width:none;
-    }
-
-    .chat-msg{
-      color:#fff;font-size:0.76rem;
-      text-shadow:1px 1px 2px #000;
-      background:rgba(0,0,0,0.42);
-      padding:2px 6px;border-radius:2px;
-      margin-bottom:2px;
-      word-break:break-word;
-    }
-
-    .chat-msg .chat-name{color:#7cfc00;font-weight:bold}
-
-    .chat-msg.sys-msg{color:#aaffaa;font-style:italic}
-
-    #chatInput{
-      display:none;width:100%;padding:7px 11px;
-      background:rgba(0,0,0,0.78);
-      border:1px solid rgba(255,255,255,0.45);
-      border-radius:4px;color:#fff;font-size:0.83rem;
-      outline:none;pointer-events:all;
-    }
-
-    #chatInput.visible{display:block}
-
-    /* Connection status */
-
-    #connStatus{
-      position:absolute;bottom:132px;left:50%;transform:translateX(-50%);
-      padding:4px 14px;border-radius:12px;font-size:0.7rem;font-weight:bold;
-      transition:opacity 0.6s;letter-spacing:1px;
-    }
-
-    #connStatus.connected   {background:rgba(0,180,0,0.75);color:#fff}
-
-    #connStatus.connecting  {background:rgba(200,140,0,0.75);color:#fff}
-
-    #connStatus.disconnected{background:rgba(180,0,0,0.75);color:#fff}
-
-    /* Block name tooltip */
-
-    #blockName{
-      position:absolute;bottom:82px;left:50%;transform:translateX(-50%);
-      color:#fff;font-size:0.76rem;
-      text-shadow:1px 1px 2px #000;
-      background:rgba(0,0,0,0.5);
-      padding:2px 12px;border-radius:10px;
-    }
-
-    /* Minimap */
-
-    #minimap{
-      position:absolute;top:10px;right:12px;width:120px;height:120px;
-      border-radius:50%;border:2px solid rgba(255,255,255,0.4);
-      overflow:hidden;background-color:#1a1a1a;
-    }
-
-    #compassLabel{
-      position:absolute;top:132px;right:12px;
-      color:#7cfc00;font-size:0.75rem;font-weight:bold;
-      letter-spacing:2px;text-shadow:1px 1px 2px #000;
-    }
-
-    /* ── DEATH SCREEN ────────────────────────────────────────────────── */
-
-    @keyframes deathFadeIn {
-      from { opacity: 0; }
-      to { opacity: 1; }
-    }
-
-    @keyframes deathTitleSlide {
-      from { transform: translateY(-30px) scale(1.3); opacity: 0; }
-      to { transform: translateY(0) scale(1); opacity: 1; }
-    }
-
-    #deathScreen{
-      display:none;position:fixed;inset:0;
-      background:rgba(100,0,0,0.6);
-      flex-direction:column;align-items:center;justify-content:center;
-      z-index:150;pointer-events:all;
-      animation:deathFadeIn 0.5s ease-out;
-    }
-
-    #deathScreen h2{
-      color:#ff4444;margin-bottom:10px;
-      text-shadow:0 0 30px #ff0000, 2px 2px 0 #440000;
-      font-family:'Press Start 2P',monospace;font-size:2rem;
-      animation:deathTitleSlide 0.6s ease-out 0.2s both;
-    }
-
-    #deathScreen p{color:#ffaaaa;font-size:0.95rem;margin-bottom:30px}
-
-    #respawnBtn{
-      padding:14px 44px;
-      background:linear-gradient(180deg,#aa0000,#880000);
-      border:2px solid #ff4444;border-radius:6px;
-      color:#fff;font-size:1rem;font-weight:bold;cursor:pointer;
-      letter-spacing:1px;transition:all 0.15s;pointer-events:all;
-      box-shadow:0 4px 0 #440000;
-    }
-
-    #respawnBtn:hover{background:linear-gradient(180deg,#cc0000,#aa0000)}
-
-    #respawnBtn:active{transform:translateY(2px);box-shadow:0 2px 0 #440000}
-
-    /* Kill feed animation */
-
-    @keyframes fadeOut {
-      0% { opacity: 1; transform: translateX(0); }
-      80% { opacity: 1; }
-      100% { opacity: 0; transform: translateX(20px); }
-    }
-
-    #killfeed {
-      position: absolute;
-      top: 170px;
-      right: 12px;
-      width: 220px;
-      z-index: 500;
+    #xpLevel {
+      position: fixed; bottom: 90px; left: 50%;
+      transform: translateX(-50%);
+      color: #7fff9b;
+      font-family: 'Minecraft', 'Courier New', monospace;
+      font-size: 12px;
+      text-shadow: 1px 1px 0 #000;
+      z-index: 20;
+      display: none;
       pointer-events: none;
     }
 
-    /* Player list panel */
+    /* ── Bubbles (oxygen while underwater) ──────────────────────── */
+    #bubbles {
+      position: fixed; bottom: 86px;
+      right: calc(50% - 191px);
+      display: none; gap: 1px;
+      z-index: 20;
+    }
+    .bubble {
+      width: 14px; height: 14px;
+      background-repeat: no-repeat;
+      background-size: contain;
+      flex: 0 0 14px;
+      background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 9 9' shape-rendering='crispEdges'><circle cx='4.5' cy='4.5' r='3.5' fill='%23a8d8ff' stroke='%23000' stroke-width='1'/><circle cx='3' cy='3' r='1' fill='%23ffffff' opacity='0.8'/></svg>");
+    }
+    .bubble.pop {
+      background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 9 9' shape-rendering='crispEdges'><path d='M1 1 L4 4 M7 1 L4 4 M1 7 L4 4 M7 7 L4 4' stroke='%23a8d8ff' stroke-width='1' fill='none'/></svg>");
+    }
+    .bubble.empty { opacity: 0.2; }
 
-    #player-list {
-      pointer-events: all;
+    /* ── Underwater blue tint overlay ───────────────────────────── */
+    #waterTint {
+      position: fixed; inset: 0;
+      pointer-events: none;
+      background: rgba(40, 90, 170, 0.45);
+      opacity: 0;
+      transition: opacity 0.25s ease;
+      z-index: 8;
+    }
+    #waterTint.active { opacity: 1; }
+
+    /* ── Red damage overlay ─────────────────────────────────────── */
+    /* Vanilla MC: brief red vignette pulse on any HP loss, fading out. */
+    #hurtOverlay {
+      position: fixed; inset: 0;
+      pointer-events: none;
+      background: radial-gradient(ellipse at center,
+        rgba(255, 0, 0, 0) 30%,
+        rgba(180, 0, 0, 0.45) 75%,
+        rgba(120, 0, 0, 0.7) 100%);
+      opacity: 0;
+      transition: opacity 0.45s ease-out;
+      z-index: 9;
+    }
+    #hurtOverlay.active { opacity: 1; transition: opacity 0s; }
+
+    /* ── Hunger (above hotbar, right-aligned to hotbar edge) ────── */
+    #hunger {
+      position: fixed; bottom: 66px;
+      right: calc(50% - 191px);
+      display: none; gap: 1px;
+      z-index: 20;
+    }
+    .drumstick {
+      width: 14px; height: 14px;
+      background-repeat: no-repeat;
+      background-size: contain;
+      flex: 0 0 14px;
+      background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 9 9' shape-rendering='crispEdges'><path d='M2 1h4v1h1v1h1v1H7v1H6v1H5v1H4v1H3V7H2V6H1V5h1V4h1V3h1V2H2z' fill='%23333' stroke='%23000' stroke-width='0.5'/></svg>");
+    }
+    .drumstick.full {
+      background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 9 9' shape-rendering='crispEdges'><path d='M2 1h4v1h1v1h1v1H7v1H6v1H5v1H4v1H3V7H2V6H1V5h1V4h1V3h1V2H2z' fill='%238B4513'/><path d='M3 2h2v1h1v1h1v1H6v1H5v1H4V6H3V5H2V4h1V3h0V2z' fill='%23CD853F'/></svg>");
+    }
+    .drumstick.half {
+      background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 9 9' shape-rendering='crispEdges'><path d='M2 1h4v1h1v1h1v1H7v1H6v1H5v1H4v1H3V7H2V6H1V5h1V4h1V3h1V2H2z' fill='%23333'/><path d='M2 1h2v6H3V7H2V6H1V5h1V4h1V3h1V2H2z' fill='%238B4513'/></svg>");
     }
 
-    #player-list::-webkit-scrollbar {
-      width: 6px;
+    /* ── TAB player list ────────────────────────────────────────── */
+    #playerListPanel {
+      position: fixed; top: 60px; left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0,0,0,0.72);
+      border: 1px solid rgba(255,255,255,0.25);
+      padding: 10px 16px; border-radius: 4px;
+      color: #fff;
+      font-family: 'Minecraft', 'Courier New', monospace;
+      font-size: 13px;
+      z-index: 40;
+      display: none;
+      min-width: 280px;
+    }
+    #playerListPanel h3 {
+      margin: 0 0 6px 0;
+      color: #ffe66d;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+    #playerListPanel table {
+      width: 100%; border-collapse: collapse;
+    }
+    #playerListPanel td {
+      padding: 3px 8px;
+      border-top: 1px solid rgba(255,255,255,0.08);
+    }
+    #playerListPanel td:last-child {
+      text-align: right; color: #ff8888;
     }
 
-    #player-list::-webkit-scrollbar-track {
-      background: rgba(0, 0, 0, 0.4);
+    /* ── Recipe book ────────────────────────────────────────────── */
+    #recipeBookBtn {
+      width: 28px; height: 28px;
+      border-radius: 50%;
+      background: rgba(126,184,76,0.5);
+      border: 2px solid #fff;
+      color: #fff;
+      font-weight: bold; font-size: 16px;
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      margin-left: 8px;
+      align-self: flex-start;
+    }
+    #recipeBookBtn:hover { background: rgba(126,184,76,0.8); }
+    #recipeBook {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.7);
+      display: none; align-items: center; justify-content: center;
+      z-index: 200;
+    }
+    .recipe-book-window {
+      background: rgba(30,30,40,0.98);
+      border: 3px solid #1a1a1a;
+      padding: 16px 20px;
+      width: 540px; max-width: 92vw;
+      max-height: 80vh;
+      display: flex; flex-direction: column;
+      font-family: 'Minecraft', 'Courier New', monospace;
+    }
+    .recipe-book-header {
+      display: flex; justify-content: space-between; align-items: center;
+      margin-bottom: 10px;
+    }
+    .recipe-book-header h2 {
+      margin: 0; color: #ffe66d;
+      font-size: 16px; letter-spacing: 2px;
+    }
+    #recipeBookClose {
+      background: rgba(180,60,60,0.7);
+      border: 1px solid rgba(255,255,255,0.3);
+      color: #fff; padding: 4px 10px;
+      cursor: pointer; border-radius: 2px;
+    }
+    #recipeSearch {
+      width: 100%; padding: 8px 10px;
+      background: rgba(0,0,0,0.4);
+      border: 1px solid rgba(255,255,255,0.3);
+      color: #fff;
+      font-family: 'Minecraft', 'Courier New', monospace;
+      margin-bottom: 8px;
+    }
+    #recipeSearch:focus { outline: none; border-color: #7eb84c; }
+    #recipeList {
+      flex: 1; overflow-y: auto;
+      display: flex; flex-direction: column; gap: 6px;
+    }
+    .recipe-row {
+      display: flex; align-items: center; gap: 12px;
+      padding: 6px 8px;
+      background: rgba(0,0,0,0.35);
+      border: 1px solid rgba(255,255,255,0.08);
+    }
+    .recipe-grid {
+      display: grid; gap: 1px;
+      padding: 2px;
+      background: rgba(0,0,0,0.5);
+    }
+    .recipe-cell {
+      width: 24px; height: 24px;
+      background: rgba(255,255,255,0.08);
+      border: 1px solid rgba(255,255,255,0.12);
+    }
+    .recipe-icon {
+      width: 24px; height: 24px;
+      image-rendering: pixelated;
+    }
+    .recipe-arrow {
+      color: #aaa; font-size: 18px;
+    }
+    .recipe-out {
+      display: flex; align-items: center; gap: 8px;
+    }
+    .recipe-label {
+      color: #fff; font-size: 12px;
     }
 
-    #player-list::-webkit-scrollbar-thumb {
-      background: rgba(255, 255, 255, 0.3);
-      border-radius: 3px;
+    #blockName {
+      position: fixed; bottom: 108px; left: 50%;
+      transform: translateX(-50%);
+      color: #fff;
+      font-family: 'Minecraft', 'Courier New', monospace;
+      font-size: 14px;
+      text-shadow: 2px 2px 0 #000;
+      opacity: 0; transition: opacity 0.3s;
+      pointer-events: none; z-index: 15;
     }
 
-    #player-list::-webkit-scrollbar-thumb:hover {
-      background: rgba(255, 255, 255, 0.5);
+    #helpHud {
+      position: fixed; top: 10px; left: 12px;
+      color: rgba(255,255,255,0.85);
+      font-family: 'Minecraft', 'Courier New', monospace;
+      font-size: 12px;
+      text-shadow: 1px 1px 0 #000;
+      line-height: 1.5em;
+      z-index: 30; pointer-events: none;
+    }
+    #helpHud b { color: #ffe66d; }
+
+    #modeLabel {
+      position: fixed; top: 10px; left: 50%;
+      transform: translateX(-50%);
+      color: #ffe66d;
+      font-family: 'Minecraft', 'Courier New', monospace;
+      font-size: 13px;
+      text-shadow: 2px 2px 0 #000;
+      z-index: 30; pointer-events: none;
+    }
+
+    /* ── Mode-state banner (BuildBattle / HideAndSeek) ──────────── */
+    #modeStateBanner {
+      position: fixed; top: 32px; left: 50%;
+      transform: translateX(-50%);
+      padding: 6px 18px;
+      background: rgba(0,0,0,0.55);
+      border: 1px solid rgba(255,255,255,0.15);
+      border-radius: 4px;
+      color: #fff;
+      font-family: 'Minecraft', 'Courier New', monospace;
+      font-size: 15px;
+      text-shadow: 2px 2px 0 #000;
+      z-index: 31;
+      pointer-events: none;
+      display: none;
+      text-align: center;
+      max-width: 70vw;
+    }
+    #modeStateBanner .phase {
+      color: #ffe66d;
+      letter-spacing: 1px;
+    }
+    #modeStateBanner .timer {
+      color: #5be17a;
+      margin-left: 8px;
+    }
+    #modeStateBanner .help {
+      display: block;
+      font-size: 11px;
+      opacity: 0.75;
+      margin-top: 2px;
+    }
+
+    #fps {
+      position: fixed; top: 10px; right: 12px;
+      color: rgba(255,255,255,0.85);
+      font-family: 'Minecraft', 'Courier New', monospace;
+      font-size: 12px;
+      text-shadow: 1px 1px 0 #000;
+      z-index: 30; pointer-events: none;
+    }
+
+    /* ── Debug overlay (P key, F3-style) ────────────────────────── */
+    #debugOverlay {
+      position: fixed; top: 38px; left: 12px;
+      max-width: 360px;
+      background: rgba(0,0,0,0.5);
+      color: #fff;
+      font-family: 'Minecraft', 'Courier New', monospace;
+      font-size: 12px;
+      line-height: 1.4em;
+      padding: 8px 12px;
+      border-left: 3px solid #7eb84c;
+      text-shadow: 1px 1px 0 #000;
+      z-index: 35; pointer-events: none;
+      display: none;
+    }
+    #debugOverlay b { color: #ffe66d; }
+    #debugOverlay .dbg-title {
+      font-weight: bold;
+      color: #7eb84c;
+      margin-bottom: 4px;
+    }
+    #debugOverlay .dbg-sep {
+      margin-top: 6px;
+      color: #888;
+      font-style: italic;
+      font-size: 11px;
+    }
+
+    #chatLog {
+      position: fixed; bottom: 100px; left: 12px;
+      width: 360px; z-index: 25;
+      pointer-events: none;
+      font-family: 'Minecraft', 'Courier New', monospace; font-size: 13px;
+    }
+    .chat-line {
+      background: rgba(0,0,0,0.5);
+      padding: 3px 6px; margin-bottom: 2px;
+      color: #fff; text-shadow: 1px 1px 0 #000;
+      transition: opacity 1.5s;
+    }
+    .chat-line.fade { opacity: 0; }
+    .chat-sender { color: #ffe66d; font-weight: bold; }
+
+    #chatInput {
+      position: fixed; bottom: 70px; left: 12px;
+      width: 360px;
+      padding: 6px 10px;
+      background: rgba(0,0,0,0.7);
+      border: 1px solid rgba(255,255,255,0.4);
+      color: #fff;
+      font-family: 'Minecraft', 'Courier New', monospace;
+      font-size: 13px;
+      z-index: 26; display: none;
+    }
+    #chatInput:focus { outline: none; }
+
+    /* ── Inventory + Crafting panel ─────────────────────────────── */
+    #invPanel {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.55);
+      display: none; align-items: center; justify-content: center;
+      z-index: 100;
+    }
+    .inv-window {
+      background: rgba(30, 30, 40, 0.96);
+      border: 3px solid #1a1a1a;
+      padding: 18px 22px;
+      border-radius: 2px;
+      display: flex;
+      gap: 24px;
+      max-width: 92vw;
+      box-shadow: 0 8px 40px rgba(0,0,0,0.6);
+    }
+    .inv-section h3 {
+      margin: 0 0 6px 0;
+      font-family: 'Minecraft', 'Courier New', monospace;
+      font-size: 13px;
+      color: #fff;
+      text-shadow: 1px 1px 0 #000;
+      letter-spacing: 1px;
+    }
+    .inv-grid {
+      display: grid;
+      gap: 2px;
+      padding: 4px;
+      background: rgba(0,0,0,0.5);
+      border: 1px solid rgba(255,255,255,0.15);
+    }
+    #invMain    { grid-template-columns: repeat(9, 40px); }
+    #invHotbar  { grid-template-columns: repeat(9, 40px); margin-top: 8px; }
+    #invCraftGrid {
+      gap: 3px;
+      padding: 6px;
+      background: rgba(0,0,0,0.5);
+      border: 1px solid rgba(255,255,255,0.15);
+    }
+    .inv-slot {
+      position: relative;
+      width: 40px; height: 40px;
+      background: rgba(255,255,255,0.08);
+      border: 1px solid rgba(255,255,255,0.18);
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .inv-slot:hover {
+      background: rgba(255,255,255,0.16);
+      border-color: rgba(255,255,255,0.4);
+    }
+    .craft-row {
+      display: flex; align-items: center; gap: 12px;
+      margin-top: 8px;
+    }
+    .craft-arrow {
+      font-size: 24px;
+      color: #aaa;
+    }
+    #invOutput {
+      width: 44px; height: 44px;
+      background: rgba(80,80,80,0.5);
+      border: 2px solid rgba(255,255,255,0.3);
+      position: relative;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer;
+    }
+    #invOutput:hover {
+      background: rgba(126,184,76,0.3);
+      border-color: #7eb84c;
+    }
+
+    /* Cursor (held item while dragging) */
+    #invCursor {
+      position: fixed;
+      pointer-events: none;
+      transform: translate(-50%, -50%);
+      z-index: 110;
+      display: none;
+      width: 40px; height: 40px;
+    }
+    #invCursor .slot-icon {
+      width: 32px; height: 32px;
+    }
+    #invCursor .slot-count {
+      position: absolute; bottom: -2px; right: 2px;
+      font-size: 11px; font-family: monospace;
+      color: #fff; text-shadow: 1px 1px 0 #000;
+      font-weight: bold;
     }
   </style>
-  <script type="module" crossorigin src="/assets/index-B5g35d4m.js"></script>
+  <script type="module" crossorigin src="/assets/index-DjVaFR5X.js"></script>
 </head>
 <body>
+  <!-- ── Main menu ──────────────────────────────────────────────── -->
+  <div id="mainMenu">
+    <h1>MINECRAFT</h1>
+    <div class="subtitle">— Web Edition (1.8 style) · Powered by Bloxity —</div>
+    <div class="menu-panel">
 
-  <!-- ── MENU ─────────────────────────────────────────────────────── -->
-  <div id="loginScreen">
-    <div class="login-box">
-      <div class="mc-title">⛏ MINECRAFT JS</div>
-      <p class="mc-subtitle">Three.js · Colyseus · WebGL</p>
-      <p id="buildStamp" style="color:#556655;font-size:0.65rem;margin:2px 0 8px 0;font-family:monospace;letter-spacing:0.5px;">build: 2026-04-01 22:17 UTC</p>
-
-      <input id="nameInput" class="mc-input" type="text"
-             placeholder="Enter your username…" maxlength="24" autocomplete="off"/>
-
-      <div id="menuModeRow">
-        <button class="mode-btn selected" id="btnSP" onclick="selectMode('sp')">
-          <span class="mode-icon">🌍</span>
-          <span class="mode-label">Singleplayer</span>
-          <span class="mode-sub">Solo + mobs</span>
-        </button>
-        <button class="mode-btn" id="btnMP" onclick="selectMode('mp')">
-          <span class="mode-icon">🌐</span>
-          <span class="mode-label">Multiplayer</span>
-          <span class="mode-sub">Join a server</span>
-        </button>
-      </div>
-
-      <div id="seedRow" style="margin:4px 0;display:flex;align-items:center;gap:8px;">
-        <span style="color:#aaa;font-size:0.8rem;">Seed:</span>
-        <input id="seedInput" class="mc-input" type="text" style="width:140px;font-size:0.8rem;padding:4px 8px;"
-               placeholder="(random)" maxlength="20" autocomplete="off"/>
-      </div>
-
-      <div id="serverRow">
-        <span>Server:</span>
-        <input id="serverInput" class="mc-input" type="text"
-               value="localhost:8471" placeholder="host:port"/>
-      </div>
-
-      <button class="play-btn" id="playBtn">▶  PLAY</button>
-
-      <div id="loadingBar" style="display:none;margin:12px 0;">
-        <div style="background:rgba(255,255,255,0.1);border-radius:4px;height:6px;overflow:hidden;">
-          <div id="loadingProgress" style="width:0%;height:100%;background:linear-gradient(90deg,#4caf50,#8bc34a);transition:width 0.3s ease;border-radius:4px;"></div>
+      <!-- Bloxity / Legion login banner -->
+      <div id="legionBanner">
+        <div id="legionUserBox">
+          <img id="legionPfp" alt="" />
+          <div>
+            <div id="legionName"></div>
+            <div id="legionHandle"></div>
+          </div>
         </div>
-        <p id="loadingText" style="color:#8a9a8a;font-size:0.7rem;margin-top:6px;">Loading textures...</p>
+        <div style="margin-left:auto;display:flex;gap:8px;">
+          <button class="legion-btn" id="legionLoginBtn">Login with Bloxity</button>
+          <button class="legion-btn secondary" id="legionLogoutBtn" style="display:none;">Logout</button>
+        </div>
       </div>
 
-      <p class="help-hint">
-        <strong>Move</strong> WASD &nbsp;·&nbsp;
-        <strong>Jump</strong> Space &nbsp;·&nbsp;
-        <strong>Sprint</strong> Ctrl<br>
-        <strong>Break</strong> Left-click &nbsp;·&nbsp;
-        <strong>Place</strong> Right-click<br>
-        <strong>Chat</strong> T &nbsp;·&nbsp;
-        <strong>3rd person</strong> F5 &nbsp;·&nbsp;
-        <strong>Commands</strong> /help
-      </p>
+      <div class="menu-row">
+        <label>Name:</label>
+        <input id="nameInput" type="text" maxlength="20" placeholder="Player" />
+      </div>
+      <div class="menu-row">
+        <label>Server:</label>
+        <input id="serverInput" type="text" placeholder="159.223.140.36" />
+        <button id="browseServersBtn" class="legion-btn secondary" style="margin-left:6px;">Browse rooms</button>
+      </div>
+      <div class="mode-grid" id="modeGrid">
+        <div class="mode-card" data-mode="survival_mp">
+          <div class="mc-cover" style="background-image:url('/screenshots/survival.jpg');"></div>
+          <div class="mc-tag">POPULAR</div>
+          <div class="mc-ccu" data-mode-ccu="survival">0</div>
+          <div class="mc-title">
+            <div class="mc-name">Survival</div>
+            <span class="mc-sub mp">multi</span>
+          </div>
+        </div>
+        <div class="mode-card" data-mode="survival_offline">
+          <div class="mc-cover" style="background-image:url('/screenshots/survival.jpg');"></div>
+          <div class="mc-ccu" data-mode-ccu="survival_offline">·</div>
+          <div class="mc-title">
+            <div class="mc-name">Survival</div>
+            <span class="mc-sub offline">offline</span>
+          </div>
+        </div>
+        <div class="mode-card" data-mode="creative_mp">
+          <div class="mc-cover" style="background-image:url('/screenshots/creative.jpg');"></div>
+          <div class="mc-tag updated">UPDATED</div>
+          <div class="mc-ccu" data-mode-ccu="creative">0</div>
+          <div class="mc-title">
+            <div class="mc-name">Creative</div>
+            <span class="mc-sub mp">multi</span>
+          </div>
+        </div>
+        <div class="mode-card" data-mode="creative_offline">
+          <div class="mc-cover" style="background-image:url('/screenshots/creative.jpg');"></div>
+          <div class="mc-ccu" data-mode-ccu="creative_offline">·</div>
+          <div class="mc-title">
+            <div class="mc-name">Creative</div>
+            <span class="mc-sub offline">offline</span>
+          </div>
+        </div>
+        <div class="mode-card" data-mode="bedwars_mp">
+          <div class="mc-cover" style="background-image:url('/screenshots/bedwars.jpg');"></div>
+          <div class="mc-tag ranked">RANKED</div>
+          <div class="mc-ccu" data-mode-ccu="bedwars">0</div>
+          <div class="mc-title">
+            <div class="mc-name">Bedwars</div>
+            <span class="mc-sub mp">multi</span>
+          </div>
+        </div>
+        <div class="mode-card" data-mode="parkour_mp">
+          <div class="mc-cover" style="background-image:url('/screenshots/parkour.jpg');"></div>
+          <div class="mc-ccu" data-mode-ccu="parkour">0</div>
+          <div class="mc-title">
+            <div class="mc-name">Parkour</div>
+            <span class="mc-sub mp">multi</span>
+          </div>
+        </div>
+        <div class="mode-card" data-mode="oneblock">
+          <div class="mc-cover" style="background-image:url('/screenshots/oneblock.jpg');"></div>
+          <div class="mc-tag limited">FEATURED</div>
+          <div class="mc-ccu" data-mode-ccu="oneblock">·</div>
+          <div class="mc-title">
+            <div class="mc-name">One Block</div>
+            <span class="mc-sub featured">solo</span>
+          </div>
+        </div>
+        <div class="mode-card" data-mode="buildbattle_mp">
+          <div class="mc-cover" style="background-image:url('/screenshots/buildbattle.jpg');"></div>
+          <div class="mc-tag updated">NEW</div>
+          <div class="mc-ccu" data-mode-ccu="buildbattle">0</div>
+          <div class="mc-title">
+            <div class="mc-name">Build Battle</div>
+            <span class="mc-sub mp">multi</span>
+          </div>
+        </div>
+        <div class="mode-card" data-mode="hideandseek_mp">
+          <div class="mc-cover" style="background-image:url('/screenshots/hideandseek.jpg');"></div>
+          <div class="mc-tag updated">NEW</div>
+          <div class="mc-ccu" data-mode-ccu="hideandseek">0</div>
+          <div class="mc-title">
+            <div class="mc-name">Hide and Seek</div>
+            <span class="mc-sub mp">multi</span>
+          </div>
+        </div>
+      </div>
+      <div class="menu-footer">
+        <span id="buildStamp">build: …</span>
+      </div>
     </div>
   </div>
 
-  <!-- ── HUD ──────────────────────────────────────────────────────── -->
-  <div id="hud">
+  <!-- Server finder modal -->
+  <div id="serverFinder">
+    <div class="finder-window">
+      <div class="finder-header">
+        <h2>OPEN ROOMS</h2>
+        <button id="finderClose">close ✕</button>
+      </div>
+      <div class="finder-controls">
+        <input id="finderSearch" type="text" placeholder="Filter by room id…" autocomplete="off" />
+        <select id="finderModeFilter">
+          <option value="">All modes</option>
+          <option value="survival">Survival</option>
+          <option value="creative">Creative</option>
+          <option value="bedwars">Bedwars</option>
+          <option value="parkour">Parkour</option>
+          <option value="oneblock">One Block</option>
+        </select>
+        <button id="finderRefresh" class="legion-btn secondary" style="padding:6px 12px;">↻ refresh</button>
+      </div>
+      <div id="finderRows" style="flex:1;overflow-y:auto;"></div>
+    </div>
+  </div>
+
+  <!-- ── Loading ────────────────────────────────────────────────── -->
+  <div id="loadingScreen">
+    <h2>Loading…</h2>
+    <div id="loadingStatus">Preparing…</div>
+    <div class="spinner"></div>
+  </div>
+
+  <!-- ── In-game HUD ────────────────────────────────────────────── -->
+  <div id="ingameUI">
+    <div id="waterTint"></div>
+    <div id="hurtOverlay"></div>
     <div id="crosshair"></div>
-    <div id="breakProgress"></div>
     <div id="hotbar"></div>
-    <div id="hotbarTooltip"></div>
+    <div id="xpBar"><div id="xpFill"></div></div>
+    <div id="xpLevel"></div>
     <div id="hearts"></div>
-    <div id="airBubbles" style="display:none;position:absolute;bottom:62px;left:50%;transform:translateX(-50%);display:flex;gap:2px;"></div>
     <div id="hunger"></div>
-    <div id="timeDisplay"></div>
-    <div id="topLeft"></div>
-    <div id="topRight"></div>
-    <div id="gameModeEl" class="gamemode-badge survival"></div>
-    <div id="chat">
-      <div id="chatMessages"></div>
-      <input id="chatInput" type="text" placeholder="Type a message… (/ for commands)" maxlength="200"/>
-    </div>
-    <div id="connStatus" class="connecting" style="opacity:0"></div>
+    <div id="bubbles"></div>
     <div id="blockName"></div>
-    <div id="minimap"></div>
-    <div id="compassLabel">N</div>
+    <div id="playerListPanel">
+      <h3>Players (hold TAB)</h3>
+      <table><tbody id="playerListBody"></tbody></table>
+    </div>
+    <div id="modeLabel"></div>
+    <div id="modeStateBanner"><span class="phase"></span><span class="timer"></span><span class="help"></span></div>
+    <div id="helpHud">
+      <div><b>WASD</b> move · <b>Shift</b> sprint · <b>C</b> crouch · <b>Space</b> jump · <b>2×Space</b> fly</div>
+      <div><b>Mouse</b> look · <b>LMB</b> break (hold) · <b>RMB</b> place / open crafting table</div>
+      <div><b>1-9</b> / <b>scroll</b> select · <b>E</b> inventory · <b>Q</b> drop · <b>P</b> debug · <b>T</b> chat · <b>L</b> friends</div>
+    </div>
+
+    <!-- Death screen -->
+    <div id="deathScreen">
+      <div class="death-window">
+        <h1>You Died!</h1>
+        <div class="death-cause" id="deathCause">Score: 0</div>
+        <button id="deathRespawnBtn">Respawn</button>
+        <button id="deathMenuBtn">Title Screen</button>
+      </div>
+    </div>
+
+    <!-- Trade UI (right-click villager) -->
+    <div id="tradeUI">
+      <div class="trade-window">
+        <div class="trade-header">
+          <h2>VILLAGER TRADES</h2>
+          <button id="tradeClose">close ✕</button>
+        </div>
+        <div id="tradeList"></div>
+      </div>
+    </div>
+
+    <!-- Chest UI (RMB on a chest block) -->
+    <div id="chestUI">
+      <div class="chest-window">
+        <div class="chest-header">
+          <h2>CHEST</h2>
+          <button id="chestClose">close ✕</button>
+        </div>
+        <div class="chest-section">
+          <div class="chest-section-label">Chest</div>
+          <div id="chestGrid"></div>
+        </div>
+        <div class="chest-section">
+          <div class="chest-section-label">Inventory</div>
+          <div id="chestInvMain"></div>
+          <div id="chestInvHotbar"></div>
+        </div>
+        <div id="chestCursor"></div>
+      </div>
+    </div>
+
+    <!-- Furnace UI (RMB on a furnace block) -->
+    <div id="furnaceUI">
+      <div class="furnace-window">
+        <div class="furnace-header">
+          <h2>FURNACE</h2>
+          <button id="furnaceClose">close ✕</button>
+        </div>
+        <div class="furnace-machine">
+          <div id="furnaceInput"  class="furnace-slot" title="Ingredient"></div>
+          <div id="furnaceFlame"></div>
+          <div id="furnaceArrow"></div>
+          <div id="furnaceFuel"   class="furnace-slot" title="Fuel"></div>
+          <div id="furnaceOutput" class="furnace-slot" title="Result"></div>
+        </div>
+        <div class="furnace-inv">
+          <div id="furnaceInvMain"></div>
+          <div id="furnaceInvHotbar"></div>
+        </div>
+        <div id="furnaceCursor"></div>
+      </div>
+    </div>
+
+    <!-- Creative inventory (E in creative mode) -->
+    <div id="creativeInv">
+      <div class="creative-window">
+        <div class="creative-header">
+          <h2>CREATIVE INVENTORY</h2>
+          <button id="creativeInvClose">close ✕</button>
+        </div>
+        <input id="creativeInvSearch" type="text" placeholder="Search items…" autocomplete="off" />
+        <div id="creativeInvGrid"></div>
+      </div>
+    </div>
+
+    <!-- Pause menu (ESC) — main buttons + friends sidebar -->
+    <div id="pauseMenu">
+      <div class="pause-main">
+        <div class="pause-title">Game Menu</div>
+        <button class="pause-btn" id="pauseResumeBtn">Back to Game</button>
+        <div class="pause-row">
+          <button class="pause-btn" id="pauseOptionsBtn">Options…</button>
+          <button class="pause-btn" id="pauseKeybindsBtn">Keybinds</button>
+        </div>
+        <div class="pause-row">
+          <button class="pause-btn" id="pauseControllerBtn">Controller</button>
+          <button class="pause-btn" id="pauseFeedbackBtn">Give Feedback</button>
+        </div>
+        <button class="pause-btn danger" id="pauseLeaveBtn">Leave Game</button>
+      </div>
+      <div id="ingameFriends">
+        <h3>👥 Friends</h3>
+        <div id="ingameFriendsList"></div>
+      </div>
+    </div>
+
+    <!-- Options modal -->
+    <div id="optionsModal" class="gm-modal">
+      <div class="gm-window">
+        <h2>OPTIONS</h2>
+        <div class="gm-row">
+          <label>Master volume</label>
+          <input type="range" id="optVolume" min="0" max="100" value="35" />
+          <span class="gm-value" id="optVolumeVal">35</span>
+        </div>
+        <div class="gm-row">
+          <label>Render distance (chunks)</label>
+          <input type="range" id="optRender" min="2" max="10" step="1" value="5" />
+          <span class="gm-value" id="optRenderVal">5</span>
+        </div>
+        <div class="gm-row">
+          <label>Mouse sensitivity</label>
+          <input type="range" id="optMouse" min="5" max="50" step="1" value="25" />
+          <span class="gm-value" id="optMouseVal">2.5</span>
+        </div>
+        <div class="gm-row">
+          <label>FOV</label>
+          <input type="range" id="optFov" min="50" max="110" step="1" value="70" />
+          <span class="gm-value" id="optFovVal">70</span>
+        </div>
+        <button class="gm-close" id="optionsClose">Done</button>
+      </div>
+    </div>
+
+    <!-- Keybinds modal -->
+    <div id="keybindsModal" class="gm-modal">
+      <div class="gm-window" style="min-width:480px;">
+        <h2>KEYBINDS</h2>
+        <div id="keybindsList"></div>
+        <button class="gm-close" id="keybindsClose">Done</button>
+      </div>
+    </div>
+
+    <!-- Controller modal -->
+    <div id="controllerModal" class="gm-modal">
+      <div class="gm-window">
+        <h2>CONTROLLER</h2>
+        <div class="gp-status" id="gpStatus">No controller detected. Plug one in and press any button.</div>
+        <div style="margin-top:14px;font-size:12px;color:#bbb;line-height:1.6;">
+          <div><b>Left stick:</b> Move (WASD)</div>
+          <div><b>Right stick:</b> Look around</div>
+          <div><b>A / Cross:</b> Jump</div>
+          <div><b>B / Circle:</b> Crouch</div>
+          <div><b>X / Square:</b> Drop item</div>
+          <div><b>Y / Triangle:</b> Inventory</div>
+          <div><b>RT / R2:</b> Break / Attack</div>
+          <div><b>LT / L2:</b> Place / Use</div>
+          <div><b>LB / L1:</b> Previous hotbar slot</div>
+          <div><b>RB / R1:</b> Next hotbar slot</div>
+          <div><b>Start:</b> Pause menu</div>
+        </div>
+        <button class="gm-close" id="controllerClose">Done</button>
+      </div>
+    </div>
+
+    <div id="fps">— fps</div>
+    <div id="debugOverlay"></div>
+    <div id="chatLog"></div>
+    <input id="chatInput" type="text" maxlength="200" placeholder="Type a message…" />
+
+    <!-- Inventory + Crafting panel -->
+    <div id="invPanel">
+      <div class="inv-window">
+        <div class="inv-section">
+          <h3>Inventory</h3>
+          <div id="invMain" class="inv-grid"></div>
+          <div style="height:8px"></div>
+          <h3>Hotbar</h3>
+          <div id="invHotbar" class="inv-grid"></div>
+        </div>
+        <div class="inv-section">
+          <h3 style="display:flex;align-items:center;">Crafting <button id="recipeBookBtn" title="Recipe book">?</button></h3>
+          <div class="craft-row">
+            <div id="invCraftGrid" class="inv-grid"></div>
+            <span class="craft-arrow">→</span>
+            <div id="invOutput" class="inv-slot"></div>
+          </div>
+          <div style="margin-top:14px;font-size:11px;color:#bbb;font-family:monospace;max-width:200px;">
+            Click an item to pick it up.<br>
+            Right-click to grab half.<br>
+            <b>Hold right-click</b> to place one-by-one.<br>
+            Click the output to craft.<br><br>
+            Stand near a crafting table and right-click it for 3×3 recipes.<br>
+            <b>?</b> Recipe book with search.
+          </div>
+        </div>
+      </div>
+      <div id="invCursor"></div>
+    </div>
+
+    <!-- Recipe book modal -->
+    <div id="recipeBook">
+      <div class="recipe-book-window">
+        <div class="recipe-book-header">
+          <h2>RECIPE BOOK</h2>
+          <button id="recipeBookClose">close ✕</button>
+        </div>
+        <input id="recipeSearch" type="text" placeholder="Search recipes…" />
+        <div id="recipeList"></div>
+      </div>
+    </div>
   </div>
 
-  <!-- ── SCREEN OVERLAYS ──────────────────────────────────────────── -->
-  <div id="speedLines" style="
-    position:fixed;inset:0;z-index:8;pointer-events:none;
-    background:radial-gradient(ellipse at center,transparent 50%,rgba(255,255,255,0.08) 100%);
-    opacity:0;transition:opacity 0.3s ease;
-    mix-blend-mode:screen;
-  "></div>
-  <div id="screenFade" style="
-    position:fixed;inset:0;z-index:200;pointer-events:none;
-    background:#000;opacity:0;transition:opacity 0.5s ease;
-  "></div>
-  <div id="vignette" style="
-    position:fixed;inset:0;z-index:8;pointer-events:none;
-    background:radial-gradient(ellipse at center,transparent 55%,rgba(0,0,0,0.5) 100%);
-  "></div>
-  <div id="damageFlash" style="
-    position:fixed;inset:0;z-index:11;pointer-events:none;
-    background:radial-gradient(ellipse at center,rgba(180,0,0,0.3) 0%,rgba(120,0,0,0.6) 100%);
-    opacity:0;transition:opacity 0.08s ease-in;
-  "></div>
-  <div id="lowHealthVignette" style="
-    position:fixed;inset:0;z-index:9;pointer-events:none;
-    background:radial-gradient(ellipse at center,transparent 30%,rgba(120,0,0,0.6) 100%);
-    opacity:0;transition:opacity 0.5s ease;
-  "></div>
-  <div id="underwaterOverlay" style="
-    position:fixed;inset:0;z-index:9;pointer-events:none;
-    background:radial-gradient(ellipse at center,rgba(10,60,100,0.45) 0%,rgba(5,30,60,0.7) 100%);
-    opacity:0;transition:opacity 0.4s ease;
-  "></div>
-  <div id="portalOverlay" style="
-    position:fixed;inset:0;z-index:10;pointer-events:none;
-    opacity:0;transition:opacity 0.3s ease;
-    overflow:hidden;
-  ">
-    <div style="position:absolute;inset:-20%;width:140%;height:140%;
-      background:radial-gradient(ellipse at center,rgba(119,34,204,0.0) 20%,rgba(60,10,120,0.5) 60%,rgba(30,0,60,0.8) 100%);
-      animation:portalSwirl 3s linear infinite;
-    "></div>
-    <div style="position:absolute;inset:0;
-      background:radial-gradient(ellipse at center,rgba(153,51,255,0.15) 0%,transparent 50%);
-      animation:portalPulse 1.5s ease-in-out infinite alternate;
-    "></div>
-  </div>
-  <style>
-    @keyframes portalSwirl {
-      0% { transform:rotate(0deg) scale(1); }
-      50% { transform:rotate(180deg) scale(1.05); }
-      100% { transform:rotate(360deg) scale(1); }
-    }
-    @keyframes portalPulse {
-      0% { opacity:0.6; }
-      100% { opacity:1; }
-    }
-  </style>
-
-  <!-- ── DEATH SCREEN ─────────────────────────────────────────────── -->
-  <div id="deathScreen">
-    <h2>YOU DIED</h2>
-    <p class="death-message">Better luck next time…</p>
-    <p class="death-coords" style="font-size: 0.85rem; color: #aaaaaa; margin: 10px 0;"></p>
-    <p class="death-score" style="font-size: 0.85rem; color: #aaaaaa; margin: 10px 0 30px 0;"></p>
-    <button id="respawnBtn">↺  Respawn</button>
-  </div>
-
-  <script>
-    let selectedMode = 'sp';
-    function selectMode(mode) {
-      selectedMode = mode;
-      document.getElementById('btnSP').classList.toggle('selected', mode === 'sp');
-      document.getElementById('btnMP').classList.toggle('selected', mode === 'mp');
-      const row = document.getElementById('serverRow');
-      row.classList.toggle('visible', mode === 'mp');
-    }
-    window.__getSelectedMode = () => selectedMode;
-    // Default server addr: VPS when on Netlify domain, localhost in dev
-    // On VPS: nginx on port 80 proxies to Colyseus:8471 (avoids blocked ports + enables WSS later)
-    const _defaultAddr = (location.hostname === 'localhost' || location.hostname === '127.0.0.1')
-      ? 'localhost:8471'
-      : (location.protocol === 'https:' ? location.hostname : '159.223.140.36');
-    document.getElementById('serverInput').value = _defaultAddr;
-    window.__getServerAddr  = () => {
-      const v = document.getElementById('serverInput').value.trim();
-      return v || _defaultAddr;
-    };
-  </script>
+  <!-- Bloxity / Legion SDK — loads before our bundle so window.Legion is available -->
+  <script src="https://bloxity.io/legion-sdk.min.js"></script>
 </body>
 </html>

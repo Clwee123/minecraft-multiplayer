@@ -9,6 +9,8 @@ import { Inventory } from "./Inventory";
 import { CraftingUI } from "./CraftingUI";
 import { CreativeInventory } from "./CreativeInventory";
 import { TradeUI } from "./TradeUI";
+import { FurnaceUI } from "./FurnaceUI";
+import { ChestUI } from "./ChestUI";
 import { ServerFinder, listRooms } from "./ServerFinder";
 import { ItemDrops } from "./ItemDrops";
 import { MODES, ModeId, buildBedwars, buildParkour, buildOneBlock, pickOneBlockNext, buildBuildBattle, buildHideAndSeek } from "./Modes";
@@ -52,6 +54,8 @@ let inv: Inventory;
 let craftingUI: CraftingUI;
 let creativeInv: CreativeInventory;
 let tradeUI: TradeUI;
+let furnaceUI: FurnaceUI;
+let chestUI: ChestUI;
 let serverFinder: ServerFinder | null = null;
 let drops: ItemDrops;
 /** Chunk render distance — adjustable from the Options modal. */
@@ -673,6 +677,96 @@ function syncHeldItem() {
   }
 }
 
+// ── Persistent save / load ─────────────────────────────────────────────────
+//
+// Vanilla Minecraft servers save per-player state (inventory + position + hp
+// + xp + hunger + active furnaces) under the player's UUID. We mirror that
+// here in localStorage keyed by (mode, legionId) so a returning player picks
+// up exactly where they left off — even across browser sessions.
+//
+// For now, all save data is client-local; a real MP deployment would
+// authoritatively store this server-side. Client-local is sufficient for the
+// "I left the world, came back, I expect my stuff to still be there" UX.
+
+function _saveKey(): string {
+  const u = Legion.getUser();
+  const legionId = u?.userId || u?.username || "guest";
+  return `mc.save.${mode}.${legionId}`;
+}
+
+function savePersistentState() {
+  if (!player || !inv) return;
+  try {
+    const data = {
+      v: 1,
+      pos: { x: player.pos.x, y: player.pos.y, z: player.pos.z },
+      look: { yaw: player.yaw, pitch: player.pitch },
+      hp: player.health,
+      hunger,
+      air: player.airSupply,
+      xp: { level: player.xpLevel, progress: player.xpProgress },
+      gameMode: player.gameMode,
+      inv: {
+        selected: inv.selected,
+        hotbar: inv.hotbar.map(s => ({ id: s.id, count: s.count, damage: s.damage ?? 0 })),
+        main:   inv.main.map(s   => ({ id: s.id, count: s.count, damage: s.damage ?? 0 })),
+      },
+      furnaces: furnaceUI ? furnaceUI.serialize() : [],
+      chests:   chestUI   ? chestUI.serialize()   : [],
+      savedAt: Date.now(),
+    };
+    localStorage.setItem(_saveKey(), JSON.stringify(data));
+  } catch (e) {
+    console.warn("[Save] failed", e);
+  }
+}
+
+/** Returns true if a save was found + applied (so the caller can skip the
+ *  default spawn placement). All restoration happens against already-built
+ *  inv/player/furnaceUI — call after they exist. */
+function loadPersistentState(): boolean {
+  if (!player || !inv) return false;
+  try {
+    const raw = localStorage.getItem(_saveKey());
+    if (!raw) return false;
+    const data = JSON.parse(raw);
+    if (data.v !== 1) return false;
+    // Position + look
+    if (data.pos)  player.spawnAt(data.pos.x, data.pos.y, data.pos.z);
+    if (data.look) { player.yaw = data.look.yaw; player.pitch = data.look.pitch; }
+    if (typeof data.hp === "number")     player.health    = data.hp;
+    if (typeof data.air === "number")    player.airSupply = data.air;
+    if (typeof data.hunger === "number") hunger           = data.hunger;
+    if (data.xp) { player.xpLevel = data.xp.level | 0; player.xpProgress = +data.xp.progress || 0; }
+    if (data.gameMode === "creative" || data.gameMode === "survival") {
+      player.setGameMode(data.gameMode);
+      inv.gameMode = data.gameMode;
+    }
+    if (data.inv) {
+      inv.selected = (data.inv.selected | 0) % 9;
+      for (let i = 0; i < 9 && i < (data.inv.hotbar?.length || 0); i++) {
+        const s = data.inv.hotbar[i];
+        inv.hotbar[i] = { id: s.id | 0, count: s.count | 0, damage: s.damage | 0 };
+      }
+      for (let i = 0; i < 27 && i < (data.inv.main?.length || 0); i++) {
+        const s = data.inv.main[i];
+        inv.main[i] = { id: s.id | 0, count: s.count | 0, damage: s.damage | 0 };
+      }
+    }
+    if (data.furnaces && furnaceUI) furnaceUI.restore(data.furnaces);
+    if (data.chests   && chestUI)   chestUI.restore(data.chests);
+    console.log("[Save] restored from", new Date(data.savedAt).toISOString());
+    return true;
+  } catch (e) {
+    console.warn("[Save] load failed", e);
+    return false;
+  }
+}
+
+// Auto-save: every 10s while in-game and on tab close.
+setInterval(() => { if (pauseGameStarted) savePersistentState(); }, 10000);
+window.addEventListener("beforeunload", () => { if (pauseGameStarted) savePersistentState(); });
+
 window.addEventListener("keydown", (e) => {
   const inField = (document.activeElement as HTMLElement)?.tagName === "INPUT";
   if (inField) return;
@@ -793,7 +887,7 @@ document.addEventListener("mousedown", (e) => {
     camera.getWorldDirection(dir);
     for (const m of mp.getRemoteMobs()) {
       if (m.kind !== "villager") continue;
-      const toM = new THREE.Vector3(m.x - origin.x, (m.y + 1) - origin.y, m.z - origin.z);
+      const toM = new THREE.Vector3(m.mesh.position.x - origin.x, (m.mesh.position.y + 1) - origin.y, m.mesh.position.z - origin.z);
       const t = toM.dot(dir);
       if (t <= 0 || t > 4) continue;
       const perp = toM.clone().sub(dir.clone().multiplyScalar(t));
@@ -810,6 +904,15 @@ document.addEventListener("mousedown", (e) => {
   const block = world.getBlock(hit.x, hit.y, hit.z);
   if (block === 36) {
     craftingUI.show(true);
+    e.preventDefault();
+    e.stopPropagation();
+  } else if (block === 37 || block === 38) {
+    furnaceUI.show(hit.x, hit.y, hit.z);
+    e.preventDefault();
+    e.stopPropagation();
+  } else if (block === 171) {
+    chestUI.show(hit.x, hit.y, hit.z);
+    sound.click();
     e.preventDefault();
     e.stopPropagation();
   } else if (block === 44) {
@@ -924,6 +1027,25 @@ function setWaterTint(on: boolean) {
   const el = document.getElementById("waterTint");
   if (!el) return;
   el.classList.toggle("active", on);
+}
+
+// ── Hurt feedback (red vignette + screenshake) ────────────────────────────
+// Mirrors vanilla MC: any HP loss triggers a brief red pulse at the screen
+// edges plus a small camera shake. shakeT counts down each frame; the loop
+// applies the offset to the camera before rendering.
+let _shakeT = 0;
+let _shakeAmp = 0;
+function triggerHurt() {
+  const el = document.getElementById("hurtOverlay");
+  if (el) {
+    // toggle off-then-on so the .active class re-triggers the fade animation
+    el.classList.remove("active");
+    void (el as HTMLElement).offsetWidth;
+    el.classList.add("active");
+    setTimeout(() => el.classList.remove("active"), 50);
+  }
+  _shakeT = 0.32;
+  _shakeAmp = 0.07;
 }
 
 function renderXp(level: number, progress: number) {
@@ -1061,8 +1183,8 @@ function tryAttackInFront(): boolean {
   const origin = new THREE.Vector3(player.pos.x, player.pos.y + 1.62, player.pos.z);
   const dir = new THREE.Vector3();
   camera.getWorldDirection(dir);
-  const maxDist = 4.0;
-  const radius = 0.7;
+  const maxDist = 4.5;
+  const radius = 0.85;
   type Hit = { kind: "mob" | "player"; id: string; t: number };
   let best: Hit | null = null;
   const consider = (kind: "mob" | "player", id: string, mx: number, my: number, mz: number) => {
@@ -1072,8 +1194,13 @@ function tryAttackInFront(): boolean {
     const perp = toM.clone().sub(dir.clone().multiplyScalar(t));
     if (perp.length() <= radius && (!best || t < best.t)) best = { kind, id, t };
   };
-  for (const m of mp.getRemoteMobs())    consider("mob",    m.id, m.x, m.y, m.z);
-  for (const p of mp.getRemotePlayers()) consider("player", p.id, p.x, p.y, p.z);
+  // Use the VISIBLE mesh Y (ground-snapped locally) instead of the raw server
+  // Y — the server has no terrain knowledge and reports a y near 32, while
+  // the mob is actually drawn at whatever surface block we computed locally.
+  // Using raw y made the cylinder test fail for any mob standing on terrain
+  // above y=32, which was every mob in practice.
+  for (const m of mp.getRemoteMobs())    consider("mob",    m.id, m.mesh.position.x, m.mesh.position.y, m.mesh.position.z);
+  for (const p of mp.getRemotePlayers()) consider("player", p.id, p.mesh.position.x, p.mesh.position.y, p.mesh.position.z);
   if (!best) return false;
   const dmg = damageForHeld();
   if (best.kind === "mob") mp.sendAttackMob(best.id, dmg);
@@ -1113,8 +1240,10 @@ function tryShootBow(): boolean {
     if (perp.length() <= radius && (!best || t < best.t)) best = { kind, id, t };
   };
   if (mp?.isConnected()) {
-    for (const m of mp.getRemoteMobs())    consider("mob",    m.id, m.x, m.y, m.z);
-    for (const p of mp.getRemotePlayers()) consider("player", p.id, p.x, p.y, p.z);
+    // See tryAttackInFront — use mesh.position (locally ground-snapped) so
+    // the cylinder test matches what the player actually sees.
+    for (const m of mp.getRemoteMobs())    consider("mob",    m.id, m.mesh.position.x, m.mesh.position.y, m.mesh.position.z);
+    for (const p of mp.getRemotePlayers()) consider("player", p.id, p.mesh.position.x, p.mesh.position.y, p.mesh.position.z);
   }
   // Visible tracer
   spawnArrowTracer(origin, dir, best ? best.t : maxDist);
@@ -1196,9 +1325,12 @@ function applyDayNight() {
   // Light intensity. dayness=1 at noon → 0 at midnight. Floor much lower
   // than before so night actually feels dark.
   const dayness = Math.max(0, Math.sin(sunAngle));
-  sun.intensity     = 0.02 + dayness * 0.95;
-  ambient.intensity = 0.10 + dayness * 0.65;
-  hemi.intensity    = 0.05 + dayness * 0.35;
+  // Daylight cranked up to roughly match vanilla MC — the previous floor
+  // values gave a muddy, dusk-like look even at noon. Night floor kept low
+  // so it still feels meaningfully dark.
+  sun.intensity     = 0.05 + dayness * 1.30;
+  ambient.intensity = 0.18 + dayness * 0.95;
+  hemi.intensity    = 0.10 + dayness * 0.55;
   // Cross-shape sprites (flowers/tallgrass) use an unlit material so they
   // don't pick up sun/ambient automatically — modulate their colour here.
   world?.setSpriteBrightness(0.18 + dayness * 0.82);
@@ -1261,7 +1393,11 @@ async function startGame(serverAddr: string | null) {
       // and applied when generateChunk reaches it.
       if (world) world.setBlock(x, y, z, type, { autoCreate: false });
     };
-    mp.onLocalDamage = (d) => player?.takeDamage(d, "a monster");
+    mp.onLocalDamage = (d, source) => {
+      // Prefer the precise source from the server message ("a creeper" /
+      // "PlayerName"). Fall back to "a monster" only if no source arrived.
+      player?.takeDamage(d, source || "a monster");
+    };
     // Snap remote mobs to actual terrain — server uses a dumb y=32 floor.
     mp.groundLookup = (x, z) => {
       if (!world) return null;
@@ -1272,7 +1408,7 @@ async function startGame(serverAddr: string | null) {
       return null;
     };
     mp.onLocalKnockback = (byX, _byY, byZ) => {
-      if (player) player.lastDamageReason = "another player";
+      // Reason is now set by mp.onLocalDamage from the server's byName field.
       if (!player) return;
       const dx = player.pos.x - byX;
       const dz = player.pos.z - byZ;
@@ -1346,13 +1482,36 @@ async function startGame(serverAddr: string | null) {
   player.spawnAt(spawnX, spawnY, spawnZ);
 
   drops = new ItemDrops(scene);
-  drops.onPickup = () => sound.pickup();
+  drops.onPickup = () => {
+    sound.pickup();
+    // Picked-up item may have landed in the currently selected hotbar slot
+    // (e.g. selected slot was empty when we walked over a cactus). Refresh
+    // so the FP arm shows the new item without having to scroll away/back.
+    refreshHotbar();
+    syncHeldItem();
+  };
   creativeInv = new CreativeInventory(inv);
   creativeInv.onClose = () => setTimeout(() => document.body.requestPointerLock(), 50);
   creativeInv.onChange = () => { refreshHotbar(); syncHeldItem(); };
   tradeUI = new TradeUI(inv);
   tradeUI.onClose = () => setTimeout(() => document.body.requestPointerLock(), 50);
   tradeUI.onChange = () => { refreshHotbar(); syncHeldItem(); };
+  furnaceUI = new FurnaceUI(inv);
+  furnaceUI.onClose = () => { refreshHotbar(); syncHeldItem(); setTimeout(() => document.body.requestPointerLock(), 50); };
+  furnaceUI.onChange = () => { refreshHotbar(); syncHeldItem(); };
+  // Flip the world block 37 (unlit) ↔ 38 (lit) when a furnace lights/extinguishes.
+  furnaceUI.onBlockStateChange = (k, lit) => {
+    const [sx, sy, sz] = k.split(",").map(n => parseInt(n, 10));
+    const cur = world.getBlock(sx, sy, sz);
+    if (lit && cur === 37)      world.setBlock(sx, sy, sz, 38);
+    else if (!lit && cur === 38) world.setBlock(sx, sy, sz, 37);
+  };
+  // Persistence: save furnace state after every mutation.
+  furnaceUI.onSave = () => savePersistentState();
+  chestUI = new ChestUI(inv);
+  chestUI.onClose = () => { refreshHotbar(); syncHeldItem(); setTimeout(() => document.body.requestPointerLock(), 50); };
+  chestUI.onChange = () => { refreshHotbar(); syncHeldItem(); };
+  chestUI.onSave = () => savePersistentState();
   craftingUI = new CraftingUI(inv);
   craftingUI.onCraft = () => { refreshHotbar(); sound.craft(); };
   craftingUI.onClose = () => {
@@ -1402,6 +1561,20 @@ async function startGame(serverAddr: string | null) {
       const dropCount = def!.dropCount ?? 1;
       drops.spawn(dropId, dropCount, x, y, z);
     }
+    // Furnace mined: drop its contents back into the world and forget the state.
+    if (prevType === 37 || prevType === 38) {
+      const contents = furnaceUI?.destroy(x, y, z) ?? [];
+      for (const c of contents) drops.spawn(c.id, c.count, x, y, z);
+      // Always drop the furnace itself (id 37) so the player can pick it up
+      // regardless of which texture state it was mined in.
+      if (cfg.isCreative === false) drops.spawn(37, 1, x, y, z);
+    }
+    // Chest mined: dump contents at the chest position. The chest block
+    // itself is dropped via the normal eligibility check above.
+    if (prevType === 171) {
+      const contents = chestUI?.destroy(x, y, z) ?? [];
+      for (const c of contents) drops.spawn(c.id, c.count, x, y, z);
+    }
     // XP rewards: bigger amount for ores, small for everything else (vanilla-ish).
     if (!cfg.isCreative) {
       const xp = prevType === 18 ? 2 :       // coal ore
@@ -1425,9 +1598,17 @@ async function startGame(serverAddr: string | null) {
   player.onPlace = (x, y, z, type) => {
     if (mp?.isConnected()) mp.sendBlockUpdate(x, y, z, type);
     sound.place(blockSurface(type));
+    // After consumeHeld, the slot might have emptied (count→0, id→0). Refresh
+    // the hotbar count + the in-hand mesh so the player doesn't keep "seeing"
+    // a phantom block. syncHeldItem early-returns if the id is unchanged.
+    refreshHotbar();
+    syncHeldItem();
   };
+  let _lastHp = player.health;
   player.onHealthChange = (hp) => {
     renderHearts(hp);
+    if (hp < _lastHp) triggerHurt();
+    _lastHp = hp;
     if (hp <= 0) {
       sound.death();
       // Drop the player's whole inventory at the death position before the
@@ -1489,11 +1670,26 @@ async function startGame(serverAddr: string | null) {
     (window as any)._remoteBreakers = remoteBreakers;
   }
 
+  // Restore any saved progress for this (mode, legionId). Replaces the
+  // default spawn/inventory if a save was found. Furnace block textures
+  // (lit 38 vs unlit 37) are also re-applied so smelting that was active
+  // when the player left resumes visibly.
+  const restored = loadPersistentState();
+  if (restored && furnaceUI) {
+    // Re-apply lit-furnace block state for any furnace that was burning.
+    for (const { k, s } of furnaceUI.serialize()) {
+      if (s.fuelLeft > 0) {
+        const [sx, sy, sz] = k.split(",").map(n => parseInt(n, 10));
+        if (world.getBlock(sx, sy, sz) === 37) world.setBlock(sx, sy, sz, 38);
+      }
+    }
+  }
+
   buildHotbar();
-  selectSlot(0);
+  selectSlot(inv.selected);
   renderHearts(cfg.isCreative ? 20 : player.health);
-  renderHunger(20);
-  renderXp(0, 0);
+  renderHunger(hunger);
+  renderXp(player.xpLevel, player.xpProgress);
   const heartsEl = document.getElementById("hearts")!;
   const hungerEl = document.getElementById("hunger")!;
   const xpBar   = document.getElementById("xpBar")!;
@@ -1581,6 +1777,7 @@ async function startGame(serverAddr: string | null) {
     refreshHotbar();
     tickWater(waterT);
     breakParticles.update(dt, (x, y, z) => world.isSolid(x, y, z));
+    furnaceUI?.tick(dt);
 
     // First-person arm: chop continuously while LMB held in survival.
     // Also pass walking speed + yaw delta so the arm bobs + sways like vanilla.
@@ -1696,7 +1893,21 @@ async function startGame(serverAddr: string | null) {
       mp.update(dt, camera.position);
     }
 
-    renderer.render(scene, camera);
+    // Hurt screenshake — small random jitter that decays over ~0.3s. Saved
+    // pos restored after render so it doesn't drift the player's actual eye.
+    if (_shakeT > 0) {
+      _shakeT = Math.max(0, _shakeT - dt);
+      const k = _shakeAmp * (_shakeT / 0.32);
+      const ox = (Math.random() - 0.5) * k;
+      const oy = (Math.random() - 0.5) * k;
+      const oz = (Math.random() - 0.5) * k;
+      const sx = camera.position.x, sy = camera.position.y, sz = camera.position.z;
+      camera.position.set(sx + ox, sy + oy, sz + oz);
+      renderer.render(scene, camera);
+      camera.position.set(sx, sy, sz);
+    } else {
+      renderer.render(scene, camera);
+    }
     requestAnimationFrame(loop);
   }
   loop();
