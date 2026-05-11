@@ -26,3 +26,20 @@ Why: messages don't reconcile late joiners, are easy to drop, and produce consol
 ## Deploy
 
 `client` builds with Vite to `client/dist`. The Colyseus server lives on the VPS at `159.223.140.36` (room name `game_room`). HTTPS pages must use `wss://<ip>.nip.io` to avoid mixed-content blocking — the `resolveServerUrl()` helper in Multiplayer.ts handles the rewrite.
+
+**There is no auto-deploy** — no GitHub Actions, no Netlify auto-pull. Pushing to main does *not* update the live site at `https://159.223.140.36.nip.io`. Every change must be shipped explicitly via:
+
+```
+DEPLOY_PASSWORD='…' python scripts/deploy.py
+```
+
+VPS paths (verified, do not change without re-probing — earlier `vps-setup.sh` suggests `/opt/minecraft-multiplayer` but that is wrong):
+
+| Thing | Path |
+|---|---|
+| Repo on VPS | `/root/minecraft-repo/` |
+| nginx static root | `/var/www/minecraft/` (client/dist must be COPIED here — building in place is not enough) |
+| Server | `/root/minecraft-repo/server`, runs via `ts-node-dev` under pm2 process name `mc-server`, port 8471 |
+| nginx config | `/etc/nginx/sites-enabled/*` — proxies WS + `/matchmake` + `/colyseus` to localhost:8471, otherwise serves from /var/www/minecraft |
+
+`scripts/deploy.py` does: git pull → npm install + build client → copy dist to /var/www/minecraft → npm install server → `pm2 restart mc-server`. After it runs, the bundle hash in the served `index.html` changes (e.g. `index-DePyMSfV.js`); the build-stamp text in the bottom-left HUD is a quick visual check.

@@ -11,6 +11,7 @@ import { CreativeInventory } from "./CreativeInventory";
 import { TradeUI } from "./TradeUI";
 import { FurnaceUI } from "./FurnaceUI";
 import { ChestUI } from "./ChestUI";
+import { ArmDevPanel } from "./ArmDevPanel";
 import { ServerFinder, listRooms } from "./ServerFinder";
 import { ItemDrops } from "./ItemDrops";
 import { MODES, ModeId, buildBedwars, buildParkour, buildOneBlock, pickOneBlockNext, buildBuildBattle, buildHideAndSeek } from "./Modes";
@@ -299,6 +300,15 @@ function renderFriendRows() {
         (f.username || "").toLowerCase().includes(q) ||
         (f.displayName || "").toLowerCase().includes(q))
     : _friendsCache;
+  // Sort: in_game first, then online, then offline. Stable within each
+  // group so the user's display order from Bloxity is preserved.
+  const statusRank = (f: any) => {
+    const s = f.presence?.status;
+    if (s === "in_game") return 0;
+    if (s === "online")  return 1;
+    return 2;
+  };
+  filtered.sort((a, b) => statusRank(a) - statusRank(b));
   if (filtered.length === 0) {
     rows.innerHTML = `<div class="login-prompt">No friends match "${escapeHtml(q)}".</div>`;
     return;
@@ -352,6 +362,10 @@ document.addEventListener("pointerlockchange", () => {
   const blockingModals = [
     "invPanel", "creativeInv", "recipeBook", "tradeUI",
     "optionsModal", "keybindsModal", "controllerModal", "deathScreen",
+    // These two unlock the pointer when opened — without this guard the
+    // pointerlockchange handler interpreted that unlock as "user pressed
+    // ESC" and stacked the pause menu over the furnace/chest UI.
+    "furnaceUI", "chestUI",
   ];
   for (const id of blockingModals) {
     const el = document.getElementById(id);
@@ -559,13 +573,13 @@ function renderFriendRow(f: LegionFriend): string {
     status === "online"  ? "🟢 Online" :
                             "⚫ Offline";
   return `
-    <div class="friend-row">
+    <div class="friend-row status-${status}">
       <img class="friend-pfp" src="${pfp}" alt="" />
       <div class="friend-meta">
         <div class="friend-name">${escapeHtml(f.displayName || f.username)}</div>
         <div class="friend-status ${status}">${statusLabel}</div>
       </div>
-      <button class="friend-invite-btn" data-userid="${escapeHtml(f._id)}" data-username="${escapeHtml(f.username)}">✉ Invite</button>
+      <button class="friend-invite-btn" data-userid="${escapeHtml(f._id)}" data-username="${escapeHtml(f.username)}" ${status === "offline" ? "disabled" : ""}>✉ Invite</button>
     </div>
   `;
 }
@@ -1162,6 +1176,35 @@ function updateDebugOverlay(dt: number, fps: number) {
   `;
 }
 
+// ── Red hit-flash for entities ─────────────────────────────────────────────
+//
+// Walks every mesh under `root`, briefly multiplies its material color by a
+// red tint, then restores. Mirrors the vanilla "red hurt overlay" you see
+// when you punch a pig — except per-entity, not screen-wide.
+const _hitFlashRestore = new WeakMap<THREE.Object3D, () => void>();
+function flashHitFlash(root: THREE.Object3D, durationMs = 250) {
+  // If a flash is already active on this entity, don't stack — just extend.
+  const prev = _hitFlashRestore.get(root);
+  if (prev) prev();
+  const restorers: Array<() => void> = [];
+  root.traverse((o: any) => {
+    const m = o.material;
+    if (!m) return;
+    const mats = Array.isArray(m) ? m : [m];
+    for (const mm of mats) {
+      const c: THREE.Color | undefined = mm.color;
+      if (!c) continue;
+      const r = c.r, g = c.g, b = c.b;
+      // Mix toward red without going pure-red — keeps texture readable.
+      c.setRGB(Math.min(1, r * 0.55 + 0.85), g * 0.35, b * 0.35);
+      restorers.push(() => c.setRGB(r, g, b));
+    }
+  });
+  const restoreAll = () => { for (const r of restorers) r(); _hitFlashRestore.delete(root); };
+  _hitFlashRestore.set(root, restoreAll);
+  setTimeout(restoreAll, durationMs);
+}
+
 // ── Combat LMB raycast ─────────────────────────────────────────────────────
 //
 // One cheap cylinder-along-camera test, used for both mobs AND remote
@@ -1170,38 +1213,57 @@ function updateDebugOverlay(dt: number, fps: number) {
 function damageForHeld(): number {
   const heldId = inv?.getHeld()?.id ?? 0;
   switch (heldId) {
-    case 58: return 7;   // wood sword
-    case 61: return 9;   // stone sword
-    case 63: return 11;  // iron sword
-    case 64: return 13;  // diamond sword
-    default: return 4;   // fist
+    case 58: return 4;   // wood sword  (2 hearts)
+    case 61: return 5;   // stone sword (2.5)
+    case 63: return 6;   // iron sword  (3)
+    case 64: return 7;   // diamond sword (3.5)
+    // axes hit a bit harder than fists but less than swords
+    case 56: return 3;   // wood axe
+    case 60: return 4;   // stone axe
+    case 71: return 5;   // diamond axe
+    default: return 1;   // fist — half a heart (vanilla)
   }
 }
 
 function tryAttackInFront(): boolean {
   if (!mp?.isConnected() || !player) return false;
-  const origin = new THREE.Vector3(player.pos.x, player.pos.y + 1.62, player.pos.z);
+  const eye = new THREE.Vector3(player.pos.x, player.pos.y + 1.62, player.pos.z);
   const dir = new THREE.Vector3();
   camera.getWorldDirection(dir);
+  dir.normalize();
   const maxDist = 4.5;
-  const radius = 0.85;
-  type Hit = { kind: "mob" | "player"; id: string; t: number };
+  type Hit = { kind: "mob" | "player"; id: string; t: number; mesh: THREE.Object3D };
   let best: Hit | null = null;
-  const consider = (kind: "mob" | "player", id: string, mx: number, my: number, mz: number) => {
-    const toM = new THREE.Vector3(mx - origin.x, (my + 1.0) - origin.y, mz - origin.z);
-    const t = toM.dot(dir);
-    if (t <= 0 || t > maxDist) return;
-    const perp = toM.clone().sub(dir.clone().multiplyScalar(t));
-    if (perp.length() <= radius && (!best || t < best.t)) best = { kind, id, t };
+  // Proper ray-vs-AABB intersection (slab method). Each entity has a tight
+  // box centered on its mesh position; we hit if our look-ray pierces the
+  // box within maxDist. Cylinder was missing too often because mob mesh Y
+  // was ~ground-level while the look ray was at eye height.
+  const considerBox = (kind: "mob" | "player", id: string, mesh: THREE.Object3D, halfW: number, height: number) => {
+    const cx = mesh.position.x, cy = mesh.position.y, cz = mesh.position.z;
+    const min = new THREE.Vector3(cx - halfW, cy,         cz - halfW);
+    const max = new THREE.Vector3(cx + halfW, cy + height, cz + halfW);
+    let tMin = -Infinity, tMax = Infinity;
+    for (const axis of ["x", "y", "z"] as const) {
+      const o = eye[axis], d = dir[axis];
+      if (Math.abs(d) < 1e-6) {
+        if (o < min[axis] || o > max[axis]) return;
+        continue;
+      }
+      let t1 = (min[axis] - o) / d, t2 = (max[axis] - o) / d;
+      if (t1 > t2) [t1, t2] = [t2, t1];
+      if (t1 > tMin) tMin = t1;
+      if (t2 < tMax) tMax = t2;
+      if (tMin > tMax) return;
+    }
+    const t = tMin >= 0 ? tMin : tMax;
+    if (t < 0 || t > maxDist) return;
+    if (!best || t < best.t) best = { kind, id, t, mesh };
   };
-  // Use the VISIBLE mesh Y (ground-snapped locally) instead of the raw server
-  // Y — the server has no terrain knowledge and reports a y near 32, while
-  // the mob is actually drawn at whatever surface block we computed locally.
-  // Using raw y made the cylinder test fail for any mob standing on terrain
-  // above y=32, which was every mob in practice.
-  for (const m of mp.getRemoteMobs())    consider("mob",    m.id, m.mesh.position.x, m.mesh.position.y, m.mesh.position.z);
-  for (const p of mp.getRemotePlayers()) consider("player", p.id, p.mesh.position.x, p.mesh.position.y, p.mesh.position.z);
+  for (const m of mp.getRemoteMobs())    considerBox("mob",    m.id, m.mesh, 0.5, 1.8);
+  for (const p of mp.getRemotePlayers()) considerBox("player", p.id, p.mesh, 0.45, 1.85);
   if (!best) return false;
+  // Visual: red-flash whatever we hit for ~250 ms.
+  flashHitFlash(best.mesh);
   const dmg = damageForHeld();
   if (best.kind === "mob") mp.sendAttackMob(best.id, dmg);
   else                     mp.sendAttackPlayer(best.id, dmg);
@@ -1536,6 +1598,9 @@ async function startGame(serverAddr: string | null) {
     const avatar = Legion.getAvatar();
     applySkinToCharacter(fpArm.group, String(avatar?.skinId || "0"));
     if (avatar?.armRId) swapPart(fpArm.group, "arm_R", avatar.armRId);
+    // Dev panel — sliders to tune arm rest pose + swing. Hidden by default,
+    // shown when ?devarm=1 is in the URL or window.__armDev.show() is called.
+    new ArmDevPanel();
   }
 
   // Hooks
@@ -1594,6 +1659,14 @@ async function startGame(serverAddr: string | null) {
     if (filled.length > 0 && mp?.isConnected()) {
       for (const c of filled) mp.sendBlockUpdate(c.x, c.y, c.z, 7);
     }
+    // Cascade gravity for any sand/gravel column resting on the broken cell.
+    const fell = world.cascadeGravityAbove(x, y, z);
+    if (fell.length > 0 && mp?.isConnected()) {
+      for (const m of fell) {
+        mp.sendBlockUpdate(m.from.x, m.from.y, m.from.z, 0);
+        mp.sendBlockUpdate(m.to.x,   m.to.y,   m.to.z,   m.type);
+      }
+    }
   };
   player.onPlace = (x, y, z, type) => {
     if (mp?.isConnected()) mp.sendBlockUpdate(x, y, z, type);
@@ -1603,6 +1676,16 @@ async function startGame(serverAddr: string | null) {
     // a phantom block. syncHeldItem early-returns if the id is unchanged.
     refreshHotbar();
     syncHeldItem();
+    // Gravity for placed sand / gravel — fall to the first solid block below.
+    if (type === 4 || type === 10) {
+      const fell = world.applyGravity(x, y, z);
+      if (fell.length > 0 && mp?.isConnected()) {
+        for (const m of fell) {
+          mp.sendBlockUpdate(m.from.x, m.from.y, m.from.z, 0);
+          mp.sendBlockUpdate(m.to.x,   m.to.y,   m.to.z,   m.type);
+        }
+      }
+    }
   };
   let _lastHp = player.health;
   player.onHealthChange = (hp) => {

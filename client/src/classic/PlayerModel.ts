@@ -131,10 +131,22 @@ export function spawnPlayer(): PlayerInstance | null {
 // and align the right-shoulder bone (`ArmR1`) so the arm pokes into view
 // from the bottom-right of the camera.
 
-const ARM_OFFSET = new THREE.Vector3(0.35, -0.35, -0.55);
-const ARM_SHOULDER_FORWARD = 1.25; // radians, rotates arm to point forward
-const ARM_SWING_ARC = 1.6;          // radians at peak swing
-const ARM_TWIST = 0.25;             // a touch of Z-axis roll during swing
+// Mutable so the dev-mode tuner can live-edit them. Captured into closures
+// by buildFirstPersonArm, but we expose them on `window.__armTuner` for the
+// dev panel to twiddle. The defaults below mirror the values shipped in
+// production; export ARM_DEFAULTS to make "reset to default" easy.
+export const ARM_DEFAULTS = {
+  offsetX: 0.35,
+  offsetY: -0.35,
+  offsetZ: -0.55,
+  shoulderForward: 1.25,
+  swingArc: 1.6,
+  twist: 0.25,
+};
+const ARM_OFFSET = new THREE.Vector3(ARM_DEFAULTS.offsetX, ARM_DEFAULTS.offsetY, ARM_DEFAULTS.offsetZ);
+let ARM_SHOULDER_FORWARD = ARM_DEFAULTS.shoulderForward;
+let ARM_SWING_ARC        = ARM_DEFAULTS.swingArc;
+let ARM_TWIST            = ARM_DEFAULTS.twist;
 
 export interface FirstPersonArm {
   group: THREE.Group;
@@ -195,6 +207,31 @@ export function buildFirstPersonArm(): FirstPersonArm | null {
   group.name = "fp-arm";
   group.add(cloned);
   group.renderOrder = 1000;
+
+  // ── Dev-mode tuner ──
+  // Exposes live setters on window.__armTuner so a /devarm panel can
+  // re-apply values every drag tick. The closure captures `cloned`,
+  // `shoulder`, and `group`, so we don't need a re-mount to update them.
+  (window as any).__armTuner = {
+    get: () => ({
+      offsetX: cloned.position.x + (shoulder ? (shoulder as any).getWorldPosition(new THREE.Vector3()).x - cloned.position.x : 0),
+      // We don't reverse the shoulder math; just expose the raw running values
+      // the panel needs. The panel saves snapshots of ARM_DEFAULTS-shape data.
+      offsetY: ARM_OFFSET.y,
+      offsetZ: ARM_OFFSET.z,
+      shoulderForward: ARM_SHOULDER_FORWARD,
+      swingArc: ARM_SWING_ARC,
+      twist: ARM_TWIST,
+    }),
+    set: (k: string, v: number) => {
+      if (k === "offsetX") { ARM_OFFSET.x = v; if (shoulder) cloned.position.x = v - shoulderWorld.x; }
+      if (k === "offsetY") { ARM_OFFSET.y = v; if (shoulder) cloned.position.y = v - shoulderWorld.y; }
+      if (k === "offsetZ") { ARM_OFFSET.z = v; if (shoulder) cloned.position.z = v - shoulderWorld.z; }
+      if (k === "shoulderForward") ARM_SHOULDER_FORWARD = v;
+      if (k === "swingArc")        ARM_SWING_ARC = v;
+      if (k === "twist")           ARM_TWIST = v;
+    },
+  };
 
   let swingT = 0;
   let swingStrength = 1;

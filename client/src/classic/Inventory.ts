@@ -238,11 +238,138 @@ export const RECIPES: Recipe[] = [
   // Chest — 8 oak planks surrounding empty center (vanilla recipe)
   { kind: "shaped", pattern: ["PPP", "P.P", "PPP"], key: { P: 8 }, result: 171, count: 1 },
 
-  // Glass (smelting; for now allow as recipe)
-  { kind: "shapeless", items: { 4: 4 }, result: 11, count: 1 },
-
   // Bed: 3 red wool over 3 planks
   { kind: "shaped", pattern: ["RRR", "PPP"], key: { R: 15, P: 8 }, result: 44, count: 1 },
+
+  // ── Vanilla recipe expansion ───────────────────────────────────────────
+  // Codes added: F=feather, X=sand, K=coal, S=stick, T=string, B=blaze rod,
+  // E=ender pearl, R=red wool, W=white wool, U=sugarcane(none, use wheat 73),
+  // N=gunpowder(76), A=paper(131), L=leather(77), Y=clay(skip), Q=iron ingot(52),
+  // Z=gold ingot(53), V=redstone(112), I=iron, D=diamond, M=mushroom(34/35),
+  // O=cobblestone(9), G=glass(11), J=glowstone(22), H=wheat(73), p=pumpkin(166).
+
+  // Material → block (compress)
+  { kind: "shaped", pattern: ["III", "III", "III"], key: { I: 52 }, result: 39, count: 1 },  // iron block
+  { kind: "shaped", pattern: ["III", "III", "III"], key: { I: 53 }, result: 40, count: 1 },  // gold block
+  { kind: "shaped", pattern: ["III", "III", "III"], key: { I: 51 }, result: 41, count: 1 },  // diamond block
+  { kind: "shaped", pattern: ["III", "III", "III"], key: { I: 50 }, result: 170, count: 1 }, // coal block
+
+  // Bricks: 4 bricks → bricks block (need brick item; not yet — use clay reverse)
+  // (skipped — no brick ITEM id)
+
+  // Stone bricks: 4 stone → stone bricks
+  { kind: "shaped", pattern: ["OO", "OO"], key: { O: 3 }, result: 26, count: 4 },
+
+  // Sandstone: 4 sand → sandstone
+  { kind: "shaped", pattern: ["XX", "XX"], key: { X: 4 }, result: 27, count: 1 },
+
+  // Bookshelf: 3 books + 6 planks
+  { kind: "shaped", pattern: ["PPP", "BBB", "PPP"], key: { P: 8, B: 130 }, result: 13, count: 1 },
+
+  // Book: 3 paper + 1 leather
+  { kind: "shapeless", items: { 131: 3, 77: 1 }, result: 130, count: 1 },
+
+  // Paper: 3 wheat (closest stand-in for sugar cane in this build)
+  { kind: "shaped", pattern: ["HHH"], key: { H: 73 }, result: 131, count: 3 },
+
+  // Arrow: flint(none) → use stick + feather + iron-nugget(none) → use string+stick+feather
+  // Simplified: 1 stick + 1 feather → 1 arrow
+  { kind: "shapeless", items: { 54: 1, 75: 1 }, result: 80, count: 1 },
+
+  // Bow: 3 sticks + 3 strings
+  { kind: "shaped", pattern: [".SY", "S.Y", ".SY"], key: { S: 54, Y: 74 }, result: 102, count: 1 },
+
+  // Fishing Rod: 3 sticks (diagonal) + 2 string
+  { kind: "shaped", pattern: ["..S", ".SY", "S.Y"], key: { S: 54, Y: 74 }, result: 103, count: 1 },
+
+  // Flint and Steel: iron ingot + flint (no flint item) → iron + coal substitute
+  { kind: "shapeless", items: { 52: 1, 50: 1 }, result: 107, count: 1 },
+
+  // Shears: 2 iron ingots diagonal
+  { kind: "shaped", pattern: [".I", "I."], key: { I: 52 }, result: 104, count: 1 },
+
+  // Bucket: 3 iron ingots in V
+  { kind: "shaped", pattern: ["I.I", ".I."], key: { I: 52 }, result: 98, count: 1 },
+
+  // TNT: 4 sand + 5 gunpowder (checkered)
+  { kind: "shaped", pattern: ["NXN", "XNX", "NXN"], key: { N: 76, X: 4 }, result: 25, count: 1 },
+
+  // Ladder: 7 sticks in H pattern
+  { kind: "shaped", pattern: ["S.S", "SSS", "S.S"], key: { S: 54 }, result: 43, count: 3 },
+
+  // Snow block: 4 snowballs
+  { kind: "shaped", pattern: ["NN", "NN"], key: { N: 132 }, result: 23, count: 1 },
+
+  // Hay block: 9 wheat
+  { kind: "shaped", pattern: ["HHH", "HHH", "HHH"], key: { H: 73 }, result: 167, count: 1 },
+
+  // Pumpkin pie: 1 pumpkin + 1 sugar + 1 egg
+  { kind: "shapeless", items: { 166: 1, 97: 1, 79: 1 }, result: 90, count: 1 },
+
+  // Mushroom stew: 1 red mushroom + 1 brown mushroom + 1 bowl(none — use 94 directly)
+  // Need 94 (mushroom stew) recipe — use mushrooms 34 (red), 35 (brown)
+  { kind: "shapeless", items: { 34: 1, 35: 1 }, result: 94, count: 1 },
+
+  // Beetroot soup
+  { kind: "shapeless", items: { 197: 6 }, result: 199, count: 1 },
+
+  // Cake: 3 wheat (simplified — vanilla needs milk + sugar + egg too)
+  { kind: "shaped", pattern: ["HHH", "HHH"], key: { H: 73 }, result: 91, count: 1 },
+
+  // Cookie: 2 wheat + 1 cocoa (no cocoa item — use sugar)
+  { kind: "shapeless", items: { 73: 2, 97: 1 }, result: 91, count: 8 },
+
+  // Golden Apple: 8 gold + 1 apple (no apple — use carrot)
+  { kind: "shaped", pattern: ["ZZZ", "ZCZ", "ZZZ"], key: { Z: 53, C: 86 }, result: 85, count: 1 },
+
+  // Golden Carrot: 8 gold nuggets + 1 carrot
+  { kind: "shaped", pattern: ["NNN", "NCN", "NNN"], key: { N: 179, C: 86 }, result: 146, count: 1 },
+
+  // Gold Nuggets: 1 gold ingot → 9 nuggets
+  { kind: "shapeless", items: { 53: 1 }, result: 179, count: 9 },
+
+  // Gold ingot from 9 nuggets
+  { kind: "shaped", pattern: ["NNN", "NNN", "NNN"], key: { N: 179 }, result: 53, count: 1 },
+
+  // Glowstone block: 4 glowstone dust
+  { kind: "shaped", pattern: ["VV", "VV"], key: { V: 111 }, result: 22, count: 1 },
+
+  // Redstone block: 9 redstone dust
+  { kind: "shaped", pattern: ["VVV", "VVV", "VVV"], key: { V: 112 }, result: 172, count: 1 },
+
+  // Iron / Diamond / Gold leggings (T-shape using armor approximations)
+  // Iron full set:
+  { kind: "shaped", pattern: ["III", "I.I"],              key: { I: 52 }, result: 118, count: 1 }, // helmet
+  { kind: "shaped", pattern: ["I.I", "III", "III"],       key: { I: 52 }, result: 119, count: 1 }, // chestplate
+  { kind: "shaped", pattern: ["III", "I.I", "I.I"],       key: { I: 52 }, result: 120, count: 1 }, // leggings
+  { kind: "shaped", pattern: ["I.I", "I.I"],              key: { I: 52 }, result: 121, count: 1 }, // boots
+
+  // Leather armor:
+  { kind: "shaped", pattern: ["LLL", "L.L"],              key: { L: 77 }, result: 114, count: 1 },
+  { kind: "shaped", pattern: ["L.L", "LLL", "LLL"],       key: { L: 77 }, result: 115, count: 1 },
+  { kind: "shaped", pattern: ["LLL", "L.L", "L.L"],       key: { L: 77 }, result: 116, count: 1 },
+  { kind: "shaped", pattern: ["L.L", "L.L"],              key: { L: 77 }, result: 117, count: 1 },
+
+  // Diamond armor:
+  { kind: "shaped", pattern: ["DDD", "D.D"],              key: { D: 51 }, result: 126, count: 1 },
+  { kind: "shaped", pattern: ["D.D", "DDD", "DDD"],       key: { D: 51 }, result: 127, count: 1 },
+  { kind: "shaped", pattern: ["DDD", "D.D", "D.D"],       key: { D: 51 }, result: 128, count: 1 },
+  { kind: "shaped", pattern: ["D.D", "D.D"],              key: { D: 51 }, result: 129, count: 1 },
+
+  // ── Redstone family ────────────────────────────────────────────────────
+  // Codes: V=redstone dust(112), J=glowstone(22), O=cobblestone(9),
+  //        P=planks(8), I=iron ingot(52), S=stick(54).
+
+  // Piston: planks top, cobble sides, iron centre middle, redstone bottom centre
+  { kind: "shaped", pattern: ["PPP", "OIO", "OVO"],       key: { P: 8, O: 9, I: 52, V: 112 }, result: 220, count: 1 },
+  // Sticky piston: piston + slimeball(113)
+  { kind: "shapeless", items: { 220: 1, 113: 1 },                                              result: 221, count: 1 },
+  // Redstone lamp: 4 redstone around glowstone (vanilla)
+  { kind: "shaped", pattern: [".V.", "VJV", ".V."],       key: { V: 112, J: 22 },              result: 222, count: 1 },
+  // Lever: stick on cobblestone
+  { kind: "shaped", pattern: ["S", "O"],                  key: { S: 54, O: 9 },                result: 224, count: 1 },
+  // Redstone torch: redstone on stick
+  { kind: "shaped", pattern: ["V", "S"],                  key: { V: 112, S: 54 },              result: 225, count: 1 },
 ];
 
 /** Try to match the given crafting grid (2x2 or 3x3) against any recipe.

@@ -234,8 +234,26 @@ export const T_DEADBUSH        = T(10, 11);
 export const T_DRAGON_EGG      = T(11, 11);
 export const T_QUARTZ_ORE      = T(12, 11);
 export const T_LAPIS_BLOCK_2   = T(13, 11);
-export const T_CHEST_SIDE      = T(14, 11);
-export const T_CHEST_TOP_2     = T(15, 11);
+// Old chest constants — kept for any code still referencing them, but
+// we now use the freshly-baked chest textures at row 14 (12 = top, 14 =
+// front, 15 = side). See scripts/bake_textures.py.
+export const T_CHEST_SIDE      = T(15, 14);
+export const T_CHEST_TOP_2     = T(12, 14);
+export const T_CHEST_FRONT     = T(14, 14);
+
+// ── Row 15: piston / lever / redstone (baked from minecraft-assets-master) ─
+export const T_PISTON_SIDE     = T(0,  15);
+export const T_PISTON_TOP      = T(1,  15);
+export const T_PISTON_BOTTOM   = T(2,  15);
+export const T_PISTON_INNER    = T(3,  15);
+export const T_PISTON_TOP_STKY = T(4,  15);
+export const T_LEVER           = T(5,  15);
+export const T_REDSTONE_LAMP_O = T(6,  15);
+export const T_REDSTONE_LAMP_N = T(7,  15);
+export const T_REDSTONE_TORCH_N = T(8, 15);
+export const T_REDSTONE_TORCH_O = T(9, 15);
+export const T_REDSTONE_DOT    = T(10, 15);
+export const T_REDSTONE_LINE   = T(11, 15);
 
 // ── Rows 12-14: new item icons ────────────────────────────────────────────
 export const T_I_CHARCOAL      = T(0, 12);
@@ -361,13 +379,31 @@ export const BLOCKS: Record<number, BlockDef> = {
   168: { faces: all6(T_DEADBUSH), transparent: true, solid: false, crossShape: true, hardness: 0 },
   169: { faces: all6(T_DRAGON_EGG), hardness: 3.0, emissive: true },
   170: { faces: all6(T_COAL_BLOCK), hardness: 5.0, tool: "pickaxe" },
-  // Chest (uses chest placeholder tiles)
-  171: { faces: [T_CHEST_SIDE, T_CHEST_SIDE, T_CHEST_TOP_2, T_CHEST_TOP_2, T_CHEST_SIDE, T_CHEST_SIDE], hardness: 2.5, tool: "axe" },
+  // Chest. Face order: +X, -X, +Y (top), -Y (bottom), +Z, -Z (front).
+  // Front face uses the lock-bearing chest texture; sides + back share the
+  // plain-side texture; top + bottom share the lid/floor texture.
+  171: { faces: [T_CHEST_SIDE, T_CHEST_SIDE, T_CHEST_TOP_2, T_CHEST_TOP_2, T_CHEST_FRONT, T_CHEST_SIDE], hardness: 2.5, tool: "axe" },
   // Redstone block (uses already-atlas redstone-block tile T_REDSTONE_O at T(7,3))
   172: { faces: all6(T(7, 3)), hardness: 5.0, tool: "pickaxe" },
   // Redstone torch — just a regular emissive cross-shape; uses torch tile tinted red conceptually,
   // but we don't have a separate tile, so reuse the torch tile.
   173: { faces: all6(T_TORCH), transparent: true, solid: false, crossShape: true, emissive: true, hardness: 0 },
+  // ── Redstone family ────────────────────────────────────────────────────
+  // Mechanical block IDs at 220+ (174..211 are ITEM ids — keep the spaces
+  // separate so getItemTile/Name don't collide between BLOCKS and ITEMS).
+  // These render + break properly; signal propagation is a later milestone.
+  220: { faces: [T_PISTON_SIDE, T_PISTON_SIDE, T_PISTON_TOP, T_PISTON_BOTTOM, T_PISTON_SIDE, T_PISTON_SIDE], hardness: 0.5, tool: "pickaxe" },           // piston
+  221: { faces: [T_PISTON_SIDE, T_PISTON_SIDE, T_PISTON_TOP_STKY, T_PISTON_BOTTOM, T_PISTON_SIDE, T_PISTON_SIDE], hardness: 0.5, tool: "pickaxe" },     // sticky piston
+  222: { faces: all6(T_REDSTONE_LAMP_O), hardness: 0.3 },                                                                                                // redstone lamp (off)
+  223: { faces: all6(T_REDSTONE_LAMP_N), hardness: 0.3, emissive: true },                                                                                // redstone lamp (lit)
+  // Lever — flat cross-shape using the lever tile; not solid so player can pass.
+  224: { faces: all6(T_LEVER), transparent: true, solid: false, crossShape: true, hardness: 0.2 },
+  // Redstone torch (on) — emissive cross-shape, like the regular torch.
+  225: { faces: all6(T_REDSTONE_TORCH_N), transparent: true, solid: false, crossShape: true, emissive: true, hardness: 0 },
+  // Redstone dust laid on floor — visualized as a cross-shape for now (true
+  // vanilla shape is a flat decal on the ground; cross-shape is the cheapest
+  // 3D stand-in until we add billboarded floor decals).
+  226: { faces: all6(T_REDSTONE_LINE), transparent: true, solid: false, crossShape: true, hardness: 0 },
 };
 
 // ── Items (id >= 50 = items, not placeable blocks) ────────────────────────────
@@ -547,6 +583,8 @@ export const BLOCK_NAMES: Record<number, string> = {
   165: "Melon", 166: "Pumpkin", 167: "Hay Bale", 168: "Dead Bush",
   169: "Dragon Egg", 170: "Coal Block", 171: "Chest", 172: "Redstone Block",
   173: "Redstone Torch",
+  220: "Piston", 221: "Sticky Piston", 222: "Redstone Lamp", 223: "Redstone Lamp (Lit)",
+  224: "Lever", 225: "Redstone Torch (Lit)", 226: "Redstone Dust",
 };
 
 // Creative hotbar default

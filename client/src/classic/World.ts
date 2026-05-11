@@ -818,6 +818,51 @@ export class World {
 
     return filled;
   }
+
+  /**
+   * Sand / gravel gravity. If the block at (x, y, z) is a gravity-affected
+   * type (sand id 4, gravel id 10) and has air below, walk it down one cell
+   * at a time until it lands on solid ground or hits the world floor.
+   *
+   * Returns the moves it made so the caller can sync them across MP.
+   * No-ops if the source block isn't a gravity block.
+   */
+  applyGravity(x: number, y: number, z: number): Array<{ from: { x: number; y: number; z: number }; to: { x: number; y: number; z: number }; type: number }> {
+    const moves: Array<{ from: { x: number; y: number; z: number }; to: { x: number; y: number; z: number }; type: number }> = [];
+    const type = this.getBlock(x, y, z);
+    if (type !== 4 && type !== 10) return moves;
+    let cy = y;
+    while (cy > 0) {
+      const below = this.getBlock(x, cy - 1, z);
+      // Stop on anything solid or water (water blocks the fall but real MC
+      // washes sand away — we'll just stop on water for simplicity).
+      if (below !== 0) break;
+      cy--;
+    }
+    if (cy === y) return moves;
+    this.setBlock(x, y,  z, 0);
+    this.setBlock(x, cy, z, type);
+    moves.push({ from: { x, y, z }, to: { x, y: cy, z }, type });
+    return moves;
+  }
+
+  /** Trigger gravity for the column ABOVE (x, y, z) — call after a block at
+   *  (x, y, z) is removed so any sand/gravel resting on top falls. */
+  cascadeGravityAbove(x: number, y: number, z: number): Array<{ from: { x: number; y: number; z: number }; to: { x: number; y: number; z: number }; type: number }> {
+    const all: Array<{ from: { x: number; y: number; z: number }; to: { x: number; y: number; z: number }; type: number }> = [];
+    let cy = y + 1;
+    while (cy < 256) {
+      const t = this.getBlock(x, cy, z);
+      if (t !== 4 && t !== 10) break; // column ends at first non-gravity
+      const m = this.applyGravity(x, cy, z);
+      if (m.length === 0) break;
+      all.push(...m);
+      // After fall, the cell at `cy` is empty, but the next-up sand (if any)
+      // hasn't moved yet — continue scanning upward.
+      cy++;
+    }
+    return all;
+  }
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
