@@ -142,11 +142,25 @@ export const ARM_DEFAULTS = {
   shoulderForward: -1.92,
   swingArc: 1.6,
   twist: 0.25,
+  // Held-item offset (local to the hand bone) and tilt. Updated by the
+  // dev panel's "Held item" sliders.
+  itemX: 0.0,
+  itemY: -0.30,
+  itemZ: 0.0,
+  itemRotX: 0.18,
+  itemRotY: -0.55,
+  itemRotZ: 0.55,
 };
 const ARM_OFFSET = new THREE.Vector3(ARM_DEFAULTS.offsetX, ARM_DEFAULTS.offsetY, ARM_DEFAULTS.offsetZ);
 let ARM_SHOULDER_FORWARD = ARM_DEFAULTS.shoulderForward;
 let ARM_SWING_ARC        = ARM_DEFAULTS.swingArc;
 let ARM_TWIST            = ARM_DEFAULTS.twist;
+let ITEM_OFFSET_X = ARM_DEFAULTS.itemX;
+let ITEM_OFFSET_Y = ARM_DEFAULTS.itemY;
+let ITEM_OFFSET_Z = ARM_DEFAULTS.itemZ;
+let ITEM_ROT_X = ARM_DEFAULTS.itemRotX;
+let ITEM_ROT_Y = ARM_DEFAULTS.itemRotY;
+let ITEM_ROT_Z = ARM_DEFAULTS.itemRotZ;
 
 export interface FirstPersonArm {
   group: THREE.Group;
@@ -221,14 +235,14 @@ export function buildFirstPersonArm(): FirstPersonArm | null {
   // `shoulder`, and `group`, so we don't need a re-mount to update them.
   (window as any).__armTuner = {
     get: () => ({
-      offsetX: cloned.position.x + (shoulder ? (shoulder as any).getWorldPosition(new THREE.Vector3()).x - cloned.position.x : 0),
-      // We don't reverse the shoulder math; just expose the raw running values
-      // the panel needs. The panel saves snapshots of ARM_DEFAULTS-shape data.
+      offsetX: ARM_OFFSET.x,
       offsetY: ARM_OFFSET.y,
       offsetZ: ARM_OFFSET.z,
       shoulderForward: ARM_SHOULDER_FORWARD,
       swingArc: ARM_SWING_ARC,
       twist: ARM_TWIST,
+      itemX: ITEM_OFFSET_X, itemY: ITEM_OFFSET_Y, itemZ: ITEM_OFFSET_Z,
+      itemRotX: ITEM_ROT_X, itemRotY: ITEM_ROT_Y, itemRotZ: ITEM_ROT_Z,
     }),
     set: (k: string, v: number) => {
       if (k === "offsetX") { ARM_OFFSET.x = v; if (shoulder) cloned.position.x = v - shoulderWorld.x; }
@@ -237,6 +251,14 @@ export function buildFirstPersonArm(): FirstPersonArm | null {
       if (k === "shoulderForward") ARM_SHOULDER_FORWARD = v;
       if (k === "swingArc")        ARM_SWING_ARC = v;
       if (k === "twist")           ARM_TWIST = v;
+      // Held item — apply to the live mesh too so dragging the slider moves
+      // it in real time without having to re-equip.
+      if (k === "itemX") { ITEM_OFFSET_X = v; if (heldMesh) heldMesh.position.x = v; }
+      if (k === "itemY") { ITEM_OFFSET_Y = v; if (heldMesh) heldMesh.position.y = v; }
+      if (k === "itemZ") { ITEM_OFFSET_Z = v; if (heldMesh) heldMesh.position.z = v; }
+      if (k === "itemRotX") { ITEM_ROT_X = v; if (heldMesh) heldMesh.rotation.x = v; }
+      if (k === "itemRotY") { ITEM_ROT_Y = v; if (heldMesh) heldMesh.rotation.y = v; }
+      if (k === "itemRotZ") { ITEM_ROT_Z = v; if (heldMesh) heldMesh.rotation.z = v; }
     },
   };
 
@@ -325,9 +347,10 @@ export function buildFirstPersonArm(): FirstPersonArm | null {
       const inv = 1 / (cloned.scale.y || 1);
       heldMesh.scale.set(inv, inv, inv);
       // Offset down the forearm in the hand-bone's local space and tilt for
-      // the classic vanilla diagonal.
-      heldMesh.position.set(0, -0.30, 0);
-      heldMesh.rotation.set(0.18, -0.55, 0.55);
+      // the classic vanilla diagonal. Values are tuneable from the dev panel
+      // via window.__armTuner.set("itemX"/"itemY"/.../itemRotZ).
+      heldMesh.position.set(ITEM_OFFSET_X, ITEM_OFFSET_Y, ITEM_OFFSET_Z);
+      heldMesh.rotation.set(ITEM_ROT_X, ITEM_ROT_Y, ITEM_ROT_Z);
       const parent = (hand as THREE.Object3D | null) ?? group;
       parent.add(heldMesh);
     },
@@ -886,5 +909,47 @@ export function makeNameTag(name: string, pfpUrl?: string): THREE.Sprite {
     img.onerror = () => { /* fall back to text-only tag */ };
     img.src = pfpUrl!;
   }
+  return sprite;
+}
+
+/** Small heart-icon + HP/maxHP badge that floats below an entity's nametag.
+ *  Lets you see exactly what state the server thinks an entity is in —
+ *  useful for debugging "they're still alive but should be dead" issues. */
+export function makeHealthBadge(hp: number, maxHp: number): THREE.Sprite & { updateHp?: (hp: number, maxHp: number) => void } {
+  const canvas = document.createElement("canvas");
+  canvas.width = 120;
+  canvas.height = 30;
+  const ctx = canvas.getContext("2d")!;
+  const draw = (h: number, m: number) => {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    // Background pill
+    const w = canvas.width, hh = canvas.height;
+    ctx.fillStyle = "rgba(0,0,0,0.7)";
+    const r = 8;
+    ctx.beginPath();
+    ctx.moveTo(r, 0); ctx.lineTo(w - r, 0); ctx.quadraticCurveTo(w, 0, w, r);
+    ctx.lineTo(w, hh - r); ctx.quadraticCurveTo(w, hh, w - r, hh);
+    ctx.lineTo(r, hh); ctx.quadraticCurveTo(0, hh, 0, hh - r);
+    ctx.lineTo(0, r); ctx.quadraticCurveTo(0, 0, r, 0);
+    ctx.fill();
+    // Heart icon
+    ctx.fillStyle = h <= 0 ? "#666" : (h < m * 0.25 ? "#ff4040" : "#ff7878");
+    ctx.font = "bold 18px sans-serif";
+    ctx.textBaseline = "middle";
+    ctx.fillText("♥", 8, hh / 2);
+    // HP / maxHP text
+    ctx.font = "bold 16px 'Courier New', monospace";
+    ctx.fillStyle = h <= 0 ? "#888" : "#fff";
+    ctx.fillText(`${h}/${m}`, 30, hh / 2 + 1);
+  };
+  draw(hp, maxHp);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.minFilter = THREE.LinearFilter;
+  tex.magFilter = THREE.LinearFilter;
+  const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false });
+  const sprite = new THREE.Sprite(mat) as THREE.Sprite & { updateHp?: (hp: number, maxHp: number) => void };
+  sprite.scale.set(0.6, 0.15, 1);
+  sprite.renderOrder = 999;
+  sprite.updateHp = (h, m) => { draw(h, m); tex.needsUpdate = true; };
   return sprite;
 }

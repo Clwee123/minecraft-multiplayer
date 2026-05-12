@@ -8,7 +8,7 @@
  */
 import * as Colyseus from "colyseus.js";
 import * as THREE from "three";
-import { spawnPlayer, buildFallbackPlayer, makeNameTag, PlayerInstance, attachHeldItem, detachHeldItem, applySkinToCharacter, applyEquippedSet } from "./PlayerModel";
+import { spawnPlayer, buildFallbackPlayer, makeNameTag, makeHealthBadge, PlayerInstance, attachHeldItem, detachHeldItem, applySkinToCharacter, applyEquippedSet } from "./PlayerModel";
 import { Legion } from "./Legion";
 
 export interface RemotePlayer {
@@ -46,6 +46,10 @@ export interface RemotePlayer {
   /** Server-replicated crouch flag. When true the mesh is squashed + lowered
    *  to match the local-player crouch visual. */
   crouching: boolean;
+  /** HP/maxHP badge floating below the nametag. Helpful for debugging the
+   *  "they're not dying" issue — shows the exact server-replicated value. */
+  healthBadge: (THREE.Sprite & { updateHp?: (hp: number, maxHp: number) => void }) | null;
+  lastShownHealth: number;
 }
 
 export interface RemoteMob {
@@ -54,9 +58,12 @@ export interface RemoteMob {
   x: number; y: number; z: number;
   rotY: number;
   health: number;
+  maxHealth: number;
   mesh: THREE.Group;
   targetX: number; targetY: number; targetZ: number;
   targetRotY: number;
+  /** HP badge floating above the mob. */
+  healthBadge: (THREE.Sprite & { updateHp?: (hp: number, maxHp: number) => void }) | null;
 }
 
 type BlockUpdateHandler = (x: number, y: number, z: number, type: number) => void;
@@ -448,6 +455,12 @@ export class Multiplayer {
       limbBaseRot,
       alive: player?.alive !== false,
       crouching: !!player?.crouching,
+      healthBadge: (() => {
+        const b = makeHealthBadge(player?.health ?? 40, 40);
+        this.scene.add(b);
+        return b;
+      })(),
+      lastShownHealth: player?.health ?? 40,
     });
   }
 
@@ -475,6 +488,12 @@ export class Multiplayer {
       if (m.map) m.map.dispose();
       m.dispose();
     }
+    if (rp.healthBadge) {
+      this.scene.remove(rp.healthBadge);
+      const m = rp.healthBadge.material as THREE.SpriteMaterial;
+      if (m.map) m.map.dispose();
+      m.dispose();
+    }
     this.scene.remove(rp.mesh);
     rp.mesh.traverse((o: any) => {
       if (o.geometry) o.geometry.dispose();
@@ -495,18 +514,29 @@ export class Multiplayer {
     const mz = Number.isFinite(mob?.z) ? mob.z : 0;
     group.position.set(mx, my, mz);
     this.scene.add(group);
+    const maxHp = (mob?.maxHealth ?? mob?.health ?? 20);
+    const badge = makeHealthBadge(mob?.health ?? maxHp, maxHp);
+    this.scene.add(badge);
     this.remoteMobs.set(id, {
       id, kind,
       x: mx, y: my, z: mz, rotY: mob?.rotY ?? 0,
       health: mob?.health ?? 20,
+      maxHealth: maxHp,
       mesh: group,
       targetX: mx, targetY: my, targetZ: mz, targetRotY: mob?.rotY ?? 0,
+      healthBadge: badge,
     });
   }
 
   private removeRemoteMob(id: string) {
     const m = this.remoteMobs.get(id);
     if (!m) return;
+    if (m.healthBadge) {
+      this.scene.remove(m.healthBadge);
+      const mat = m.healthBadge.material as THREE.SpriteMaterial;
+      if (mat.map) mat.map.dispose();
+      mat.dispose();
+    }
     this.scene.remove(m.mesh);
     m.mesh.traverse((o: any) => {
       if (o.geometry) o.geometry.dispose();
@@ -602,7 +632,13 @@ export class Multiplayer {
         if (Number.isFinite(p.y)) rp.targetY = p.y;
         if (Number.isFinite(p.z)) rp.targetZ = p.z;
         if (Number.isFinite(p.rotY)) rp.targetRotY = p.rotY;
-        if (typeof p.health === "number") rp.health = p.health;
+        if (typeof p.health === "number") {
+          rp.health = p.health;
+          if (rp.healthBadge && rp.lastShownHealth !== p.health) {
+            rp.healthBadge.updateHp?.(p.health, 40);
+            rp.lastShownHealth = p.health;
+          }
+        }
         // Server-driven (de)spawn: hide mesh + nametag as soon as alive=false
         // and restore when the player respawns. No client-side delay — the
         // killer sees the body vanish the instant HP hits 0.
@@ -677,7 +713,10 @@ export class Multiplayer {
         if (Number.isFinite(m.y)) rm.targetY = m.y;
         if (Number.isFinite(m.z)) rm.targetZ = m.z;
         if (Number.isFinite(m.rotY)) rm.targetRotY = m.rotY;
-        if (typeof m.health === "number") rm.health = m.health;
+        if (typeof m.health === "number" && m.health !== rm.health) {
+          rm.health = m.health;
+          rm.healthBadge?.updateHp?.(m.health, rm.maxHealth);
+        }
       });
       for (const mid of [...this.remoteMobs.keys()]) {
         if (!seen.has(mid)) this.removeRemoteMob(mid);
@@ -716,15 +755,22 @@ export class Multiplayer {
 
       // Nametag follows the head bone's world position each frame so it
       // always lands above the head regardless of skinning / scaling.
+      let headWy = rp.y + 2.0;
       if (rp.nameTag) {
         if (rp.headBone) {
           rp.mesh.updateMatrixWorld(true);
           const wp = new THREE.Vector3();
           rp.headBone.getWorldPosition(wp);
           rp.nameTag.position.set(wp.x, wp.y + 0.4, wp.z);
+          headWy = wp.y + 0.4;
         } else {
           rp.nameTag.position.set(rp.x, rp.y + 2.0, rp.z);
         }
+      }
+      // Health badge sits just below the nametag.
+      if (rp.healthBadge) {
+        rp.healthBadge.position.set(rp.x, headWy - 0.22, rp.z);
+        rp.healthBadge.visible = rp.alive !== false;
       }
 
       if (rp.anim) {
@@ -767,6 +813,10 @@ export class Multiplayer {
       }
       rm.mesh.position.set(rm.x, drawY, rm.z);
       rm.mesh.rotation.y = rm.rotY;
+      if (rm.healthBadge) {
+        // Float ~2 m above the mob's feet (similar to mob nametag height).
+        rm.healthBadge.position.set(rm.x, drawY + 2.0, rm.z);
+      }
     }
   }
 }

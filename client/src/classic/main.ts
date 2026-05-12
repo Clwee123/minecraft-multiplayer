@@ -942,6 +942,15 @@ document.addEventListener("mousedown", (e) => {
 });
 document.addEventListener("mouseup", (e) => {
   if (e.button === 0) lmbHeld = false;
+  if (e.button === 2) { rmbHeld = false; eatProgress = 0; }
+});
+// Hold-RMB-to-eat tracker — accumulates `eatProgress` (seconds) while RMB
+// is held on a food item. Reset on release. The game loop advances it.
+let rmbHeld = false;
+let eatProgress = 0;
+const EAT_TIME = 1.6;  // seconds to fully eat one item (vanilla)
+document.addEventListener("mousedown", (e) => {
+  if (e.button === 2 && document.pointerLockElement) rmbHeld = true;
 });
 
 document.addEventListener("mousedown", (e) => {
@@ -1931,6 +1940,37 @@ async function startGame(serverAddr: string | null) {
         if (hunger > 0) hunger--;
         else if (player.health > 0) player.takeDamage(1, "starvation");
         renderHunger(hunger);
+      }
+      // ── Hold-RMB to eat ──
+      // Only count progress when RMB is actually held + the held item is a
+      // food (ITEMS[id].food > 0) + we're not at full hunger. Restores
+      // hunger + 2 saturation (modeled as a small heal) per vanilla.
+      if (rmbHeld && hunger < 20) {
+        const heldSlot = inv.getHeld();
+        const item = heldSlot && heldSlot.id > 0 ? ITEMS[heldSlot.id] : null;
+        if (item?.food && heldSlot.count > 0) {
+          eatProgress += dt;
+          if (eatProgress >= EAT_TIME) {
+            eatProgress = 0;
+            hunger = Math.min(20, hunger + item.food);
+            renderHunger(hunger);
+            // Heal a bit too (vanilla saturation behaviour, simplified).
+            if (player.health > 0 && player.health < player.maxHealth) {
+              player.health = Math.min(player.maxHealth, player.health + 1);
+              renderHearts(player.health);
+            }
+            heldSlot.count -= 1;
+            if (heldSlot.count <= 0) { heldSlot.id = 0; heldSlot.count = 0; }
+            sound.pickup();   // close-enough "burp"
+            refreshHotbar();
+            syncHeldItem();
+            savePersistentState();
+          }
+        } else {
+          eatProgress = 0;
+        }
+      } else {
+        eatProgress = 0;
       }
     }
     refreshHotbar();

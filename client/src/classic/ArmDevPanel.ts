@@ -19,6 +19,8 @@ import { ARM_DEFAULTS } from "./PlayerModel";
 type ArmState = {
   offsetX: number; offsetY: number; offsetZ: number;
   shoulderForward: number; swingArc: number; twist: number;
+  itemX: number; itemY: number; itemZ: number;
+  itemRotX: number; itemRotY: number; itemRotZ: number;
 };
 
 interface Keyframe {
@@ -26,13 +28,20 @@ interface Keyframe {
   pose: ArmState;
 }
 
-const SLIDER_DEF: Array<{ key: keyof ArmState; min: number; max: number; step: number; label: string }> = [
-  { key: "offsetX",         min: -1.5, max: 1.5,  step: 0.005, label: "Offset X (right)" },
-  { key: "offsetY",         min: -1.5, max: 0.5,  step: 0.005, label: "Offset Y (down)"  },
-  { key: "offsetZ",         min: -2.0, max: 0.5,  step: 0.005, label: "Offset Z (fwd)"   },
-  { key: "shoulderForward", min: -3.5, max: 3.5,  step: 0.01,  label: "Shoulder Forward" },
-  { key: "swingArc",        min:  0,   max: 4.0,  step: 0.01,  label: "Swing Arc"        },
-  { key: "twist",           min: -1.5, max: 1.5,  step: 0.01,  label: "Z-Twist"          },
+const SLIDER_DEF: Array<{ key: keyof ArmState; min: number; max: number; step: number; label: string; section?: string }> = [
+  { section: "Arm",  key: "offsetX",         min: -1.5, max: 1.5,  step: 0.005, label: "Offset X (right)" },
+  {                  key: "offsetY",         min: -1.5, max: 0.5,  step: 0.005, label: "Offset Y (down)"  },
+  {                  key: "offsetZ",         min: -2.0, max: 0.5,  step: 0.005, label: "Offset Z (fwd)"   },
+  {                  key: "shoulderForward", min: -3.5, max: 3.5,  step: 0.01,  label: "Shoulder Forward" },
+  {                  key: "swingArc",        min:  0,   max: 4.0,  step: 0.01,  label: "Swing Arc"        },
+  {                  key: "twist",           min: -1.5, max: 1.5,  step: 0.01,  label: "Z-Twist"          },
+  // ── Held item (hand-bone local) ──
+  { section: "Held item", key: "itemX",      min: -2.0, max: 2.0,  step: 0.005, label: "Item X" },
+  {                       key: "itemY",      min: -2.0, max: 2.0,  step: 0.005, label: "Item Y" },
+  {                       key: "itemZ",      min: -2.0, max: 2.0,  step: 0.005, label: "Item Z" },
+  {                       key: "itemRotX",   min: -3.5, max: 3.5,  step: 0.01,  label: "Rot X" },
+  {                       key: "itemRotY",   min: -3.5, max: 3.5,  step: 0.01,  label: "Rot Y" },
+  {                       key: "itemRotZ",   min: -3.5, max: 3.5,  step: 0.01,  label: "Rot Z" },
 ];
 
 export class ArmDevPanel {
@@ -65,13 +74,16 @@ export class ArmDevPanel {
   }
 
   private render() {
-    const slidersHtml = SLIDER_DEF.map(s => `
-      <label class="arm-row">
-        <span class="arm-label">${s.label}</span>
-        <input type="range" data-key="${s.key}" min="${s.min}" max="${s.max}" step="${s.step}" value="${this.current[s.key]}" />
-        <input type="number"  data-num="${s.key}" min="${s.min}" max="${s.max}" step="${s.step}" value="${this.current[s.key]}" />
-      </label>
-    `).join("");
+    const slidersHtml = SLIDER_DEF.map(s => {
+      const head = s.section ? `<div class="arm-section">${s.section}</div>` : "";
+      return head + `
+        <label class="arm-row">
+          <span class="arm-label">${s.label}</span>
+          <input type="range" data-key="${s.key}" min="${s.min}" max="${s.max}" step="${s.step}" value="${this.current[s.key]}" />
+          <input type="number"  data-num="${s.key}" min="${s.min}" max="${s.max}" step="${s.step}" value="${this.current[s.key]}" />
+        </label>
+      `;
+    }).join("");
     const kfHtml = this.keyframes.map((k, i) =>
       `<div class="arm-kf"><span>${i}.</span> <span>t=${k.t.toFixed(2)}s</span>
         <button data-kf="${i}" data-act="apply">load</button>
@@ -176,6 +188,7 @@ export class ArmDevPanel {
       #armDevPanel .arm-hdr b { color: #ffd23f; letter-spacing: 1px; }
       #armDevPanel .arm-hdr button { background: rgba(0,0,0,0.5); color: #fff; border: 1px solid #555; cursor: pointer; padding: 0 8px; }
       #armDevPanel .arm-body { padding-top: 8px; }
+      #armDevPanel .arm-section { margin: 10px 0 4px; padding-bottom: 2px; border-bottom: 1px solid #444; color: #ffd23f; font-weight: bold; letter-spacing: 1px; }
       #armDevPanel .arm-row { display: grid; grid-template-columns: 110px 1fr 60px; align-items: center; gap: 6px; margin-bottom: 6px; }
       #armDevPanel .arm-label { color: #ccc; }
       #armDevPanel input[type=range] { width: 100%; }
