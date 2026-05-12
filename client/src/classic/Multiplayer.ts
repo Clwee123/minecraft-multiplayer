@@ -662,6 +662,14 @@ export class Multiplayer {
       };
       iterate((mid: string, m: any) => {
         if (!m) return;
+        // Dead mobs (alive === false) despawn IMMEDIATELY on the client even
+        // if the server keeps the entry in state.mobs for a short cleanup
+        // delay. Previously the corpse hung around for ~4 seconds, which
+        // looked like the mob hadn't died at all.
+        if (m.alive === false) {
+          if (this.remoteMobs.has(mid)) this.removeRemoteMob(mid);
+          return; // don't add to `seen` — falls through to removal sweep
+        }
         seen.add(mid);
         if (!this.remoteMobs.has(mid)) this.ensureRemoteMob(mid, m);
         const rm = this.remoteMobs.get(mid)!;

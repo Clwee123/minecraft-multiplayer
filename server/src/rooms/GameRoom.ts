@@ -253,7 +253,11 @@ export class GameRoom extends Room<GameState> {
         // Filter zero-count entries before sending.
         const real = drops.filter(d => d.count > 0);
         this.broadcast("mobKilled", { mobId: data.mobId, type: mob.type, x: mob.x, y: mob.y, z: mob.z, drops: real });
-        setTimeout(() => { this.state.mobs.delete(String(data.mobId)); }, 4000);
+        // Clean up shortly after broadcast. Clients despawn immediately on
+        // alive=false (Multiplayer.ts reconcile), so we don't need to keep
+        // the corpse in state for any real time — 250 ms is just buffer for
+        // the alive=false replication tick to reach laggy clients.
+        setTimeout(() => { this.state.mobs.delete(String(data.mobId)); }, 250);
       } else {
         this.broadcast("mobHit", { mobId: data.mobId, health: mob.health });
       }
