@@ -743,12 +743,18 @@ export class Multiplayer {
       // Crouch visual: 0.78× vertical scale + drop the mesh by 0.12 m so the
       // feet stay planted. Lerp toward the target so the squat eases in
       // instead of popping. Stored on the mesh as `__crouchT` (0=stand,1=crouch).
+      //
+      // BUG (fixed): we used to do `rp.mesh.scale.y = yScale` which clobbered
+      // the per-mesh normalize-to-1.8m scale (e.g. ~0.4×) — so non-crouching
+      // players ballooned to ~2.5× the right height. Always multiply against
+      // a stashed base scale captured the first time we see the mesh.
+      const baseY = (rp.mesh as any).__baseScaleY ?? (((rp.mesh as any).__baseScaleY = rp.mesh.scale.y) as number);
       const targetT = rp.crouching ? 1 : 0;
       const curT = (rp.mesh as any).__crouchT ?? 0;
       const newT = curT + (targetT - curT) * Math.min(1, dt * 10);
       (rp.mesh as any).__crouchT = newT;
-      const yScale = 1 - newT * 0.22;
-      const yDrop  = -newT * 0.04; // a little extra droop relative to the position
+      const yScale = baseY * (1 - newT * 0.22);
+      const yDrop  = -newT * 0.04;
       rp.mesh.scale.y = yScale;
       rp.mesh.position.set(rp.x, rp.y + yDrop, rp.z);
       rp.mesh.rotation.y = rp.rotY + Math.PI;
