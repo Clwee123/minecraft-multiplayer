@@ -484,11 +484,18 @@ export class GameRoom extends Room<GameState> {
       if (mob.y < floorY) { mob.y = floorY; velY = 0; }
       this.mobVelY.set(id, velY);
 
-      // Find nearest player
+      // Find nearest player using a 3D distance, so a mob 20 m below the
+      // player doesn't path-find toward them. We also reject candidates with
+      // |dy| > 4 — a mob has no way to climb that high in our simplified AI
+      // and the old 2D distance check was making them "teleport" toward
+      // trees and attack from below.
       let nearestDist  = Infinity;
       let nearestPlayer: PlayerState | null = null;
       this.state.players.forEach(p => {
-        const d = Math.hypot(p.x - mob.x, p.z - mob.z);
+        if (!p.alive) return;
+        const dy = p.y - mob.y;
+        if (Math.abs(dy) > 4) return;
+        const d = Math.hypot(p.x - mob.x, dy, p.z - mob.z);
         if (d < nearestDist) { nearestDist = d; nearestPlayer = p; }
       });
 
@@ -505,8 +512,9 @@ export class GameRoom extends Room<GameState> {
         mob.x   += Math.sin(angle) * speed * dt;
         mob.z   += Math.cos(angle) * speed * dt;
 
-        // Attack — skip creative and spectator players
-        if (nearestDist < 1.8 && nearestPlayer.gameMode !== "creative" && nearestPlayer.gameMode !== "spectator" && nearestPlayer.alive) {
+        // Attack — skip creative and spectator players. 3D distance gate
+        // so a mob can't damage a player flying just above it.
+        if (nearestDist < 1.8 && Math.abs(nearestPlayer.y - mob.y) < 2 && nearestPlayer.gameMode !== "creative" && nearestPlayer.gameMode !== "spectator" && nearestPlayer.alive) {
           const dmg = 1;
           nearestPlayer.health = Math.max(0, nearestPlayer.health - dmg) as any;
           // Tell the target which mob hit them so the death screen / HUD can

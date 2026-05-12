@@ -47,6 +47,32 @@ export class ChestUI {
       this.cursorEl.style.left = e.clientX + "px";
       this.cursorEl.style.top  = e.clientY + "px";
     });
+    // Event delegation — same fix as FurnaceUI. Per-slot el.onclick was
+    // unreliable across re-renders; one mousedown listener on the panel
+    // routes every slot via data-* attributes.
+    this.panel.addEventListener("mousedown", (e) => {
+      if (!this.open) return;
+      const target = (e.target as HTMLElement).closest<HTMLElement>("[data-slot]");
+      if (!target) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const kind = target.dataset.slot!;
+      const idx  = parseInt(target.dataset.idx || "0", 10);
+      const shift = e.shiftKey;
+      const right = e.button === 2;
+      if (kind === "chest") {
+        // Slots 0..26 = active chest; 27..53 = partner (double chest)
+        const slotsA = this.slotsFor(this.active!);
+        const arr = idx < CHEST_SLOTS ? slotsA : this.slotsFor(this.activePartner!);
+        const i = idx < CHEST_SLOTS ? idx : idx - CHEST_SLOTS;
+        this.handleSlotClick(arr, i, shift, right, "chest");
+      } else if (kind === "inv-main") {
+        this.handleSlotClick(this.inv.main, idx, shift, right, "inv");
+      } else if (kind === "inv-hotbar") {
+        this.handleSlotClick(this.inv.hotbar, idx, shift, right, "inv");
+      }
+    });
+    this.panel.addEventListener("contextmenu", (e) => { if (this.open) e.preventDefault(); });
   }
 
   /** Get-or-create the slot array for the chest at this block. */
@@ -150,11 +176,11 @@ export class ChestUI {
     // Single chest = 27 slots; double chest = 54 slots (top half from active,
     // bottom half from partner). Click handlers route to the correct array.
     for (let i = 0; i < CHEST_SLOTS; i++) {
-      chestGrid.appendChild(this.makeSlotEl(slotsA, i, "chest"));
+      chestGrid.appendChild(this.makeSlotEl(slotsA[i], "chest", i));
     }
     if (slotsB) {
       for (let i = 0; i < CHEST_SLOTS; i++) {
-        chestGrid.appendChild(this.makeSlotEl(slotsB, i, "chest"));
+        chestGrid.appendChild(this.makeSlotEl(slotsB[i], "chest", CHEST_SLOTS + i));
       }
     }
     // Update the header to reflect single vs double.
@@ -163,20 +189,21 @@ export class ChestUI {
     const main = document.getElementById("chestInvMain")!;
     main.innerHTML = "";
     for (let i = 0; i < this.inv.main.length; i++) {
-      main.appendChild(this.makeSlotEl(this.inv.main, i, "inv"));
+      main.appendChild(this.makeSlotEl(this.inv.main[i], "inv-main", i));
     }
     const bar = document.getElementById("chestInvHotbar")!;
     bar.innerHTML = "";
     for (let i = 0; i < this.inv.hotbar.length; i++) {
-      bar.appendChild(this.makeSlotEl(this.inv.hotbar, i, "inv"));
+      bar.appendChild(this.makeSlotEl(this.inv.hotbar[i], "inv-hotbar", i));
     }
     this.renderCursor();
   }
 
-  private makeSlotEl(arr: InvSlot[], i: number, kind: "chest" | "inv"): HTMLElement {
+  private makeSlotEl(s: InvSlot, kind: string, idx: number): HTMLElement {
     const el = document.createElement("div");
     el.className = "chest-slot";
-    const s = arr[i];
+    el.dataset.slot = kind;
+    el.dataset.idx  = String(idx);
     if (s.id !== 0 && s.count > 0) {
       el.innerHTML = `
         <div class="slot-icon" style="${iconStyleFor(s.id)}"></div>
@@ -184,8 +211,6 @@ export class ChestUI {
       `;
       el.title = getItemName(s.id);
     }
-    el.onclick = (e) => { this.handleSlotClick(arr, i, e.shiftKey, false, kind); };
-    el.oncontextmenu = (e) => { e.preventDefault(); this.handleSlotClick(arr, i, false, true, kind); };
     return el;
   }
 

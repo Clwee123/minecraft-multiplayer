@@ -1,4 +1,4 @@
-import { Inventory, InvSlot, matchRecipe, consumeGrid, emptySlot, RECIPES, Recipe } from "./Inventory";
+import { Inventory, InvSlot, matchRecipe, consumeGrid, emptySlot, RECIPES, Recipe, armorSlotFor } from "./Inventory";
 import { getItemTile, getItemName } from "./Textures";
 import { sound } from "./Sound";
 import { blockIconCache, shouldRenderAsBlock } from "./BlockIconCache";
@@ -151,7 +151,129 @@ export class CraftingUI {
     }
     // Output slot
     this.renderOutput();
+    // Armor slots (helmet / chestplate / leggings / boots — 1.8 style)
+    this.renderArmor();
+    this.renderCharPreview();
     this.renderCursor();
+  }
+
+  /** Draw a tiny pixel-style player to the preview canvas, with armor items
+   *  overlaid as colored bands where they sit on the body. Real 3D would
+   *  need its own scene + camera; a 2D placeholder gets the 1.8 inventory
+   *  look across without the complexity. */
+  private renderCharPreview() {
+    const canvas = document.getElementById("invCharPreview") as HTMLCanvasElement | null;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.imageSmoothingEnabled = false;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    // Background mat
+    ctx.fillStyle = "#191c24";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    // Steve silhouette in 2D — head + body + arms + legs
+    const skin   = "#c69b7b";   // skin tone
+    const shirt  = "#3a82c4";
+    const pants  = "#3a4a99";
+    const cx = canvas.width / 2;
+    const headSize = 28;
+    const headY = 18;
+    // Head
+    ctx.fillStyle = skin;
+    ctx.fillRect(cx - headSize / 2, headY, headSize, headSize);
+    // Eyes
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(cx - 9, headY + 11, 4, 4);
+    ctx.fillRect(cx + 5, headY + 11, 4, 4);
+    ctx.fillStyle = "#5a4a8a";
+    ctx.fillRect(cx - 7, headY + 12, 2, 3);
+    ctx.fillRect(cx + 7, headY + 12, 2, 3);
+    // Body
+    const bodyY = headY + headSize;
+    ctx.fillStyle = shirt;
+    ctx.fillRect(cx - 14, bodyY, 28, 36);
+    // Arms
+    ctx.fillRect(cx - 22, bodyY, 8, 36);
+    ctx.fillRect(cx + 14, bodyY, 8, 36);
+    // Legs
+    const legY = bodyY + 36;
+    ctx.fillStyle = pants;
+    ctx.fillRect(cx - 12, legY, 10, 36);
+    ctx.fillRect(cx +  2, legY, 10, 36);
+    // Equipped-armor overlays (tinted bands at the appropriate Y range).
+    const drawArmor = (id: number, y: number, h: number) => {
+      if (!id) return;
+      // Different tints per material — leather/chain/iron/gold/diamond.
+      let color = "#888";
+      // helmet/chestplate/leggings/boots ids per material
+      if ([114, 115, 116, 117].includes(id)) color = "#7c4d2c";       // leather
+      else if ([118, 119, 120, 121].includes(id)) color = "#cccccc";  // iron
+      else if ([122, 123, 124, 125].includes(id)) color = "#f5c842";  // gold
+      else if ([126, 127, 128, 129].includes(id)) color = "#5dd9d1";  // diamond
+      else if ([192, 193, 194, 195].includes(id)) color = "#6a6a6a";  // chain
+      ctx.fillStyle = color;
+      ctx.globalAlpha = 0.78;
+      ctx.fillRect(cx - 24, y, 48, h);
+      ctx.globalAlpha = 1.0;
+    };
+    drawArmor(this.inv.armor.helmet.id,     headY - 2, headSize + 2);
+    drawArmor(this.inv.armor.chestplate.id, bodyY,     36);
+    drawArmor(this.inv.armor.leggings.id,   legY,      20);
+    drawArmor(this.inv.armor.boots.id,      legY + 24, 12);
+  }
+
+  private renderArmor() {
+    const slots: Array<["helmet" | "chestplate" | "leggings" | "boots", string]> = [
+      ["helmet",     "armorHelmet"],
+      ["chestplate", "armorChestplate"],
+      ["leggings",   "armorLeggings"],
+      ["boots",      "armorBoots"],
+    ];
+    for (const [kind, id] of slots) {
+      const el = document.getElementById(id);
+      if (!el) continue;
+      const s = this.inv.armor[kind];
+      el.innerHTML = "";
+      if (s.id !== 0 && s.count > 0) {
+        el.innerHTML = `
+          <div class="slot-icon" style="${iconStyleFor(s.id)}"></div>
+        `;
+        el.title = getItemName(s.id);
+      } else {
+        el.title = `${kind} slot`;
+      }
+      // Wire clicks (re-bind every render — cheap, only 4 slots).
+      el.onclick = () => { this.handleArmorClick(kind); };
+      el.oncontextmenu = (e) => { e.preventDefault(); this.handleArmorClick(kind); };
+    }
+  }
+
+  /** Click on an armor slot — only accepts the matching item type. */
+  private handleArmorClick(kind: "helmet" | "chestplate" | "leggings" | "boots") {
+    const slot = this.inv.armor[kind];
+    // Pick up: cursor empty + slot has armor → grab.
+    if (this.cursor.id === 0) {
+      if (slot.id !== 0) {
+        this.cursor = { id: slot.id, count: slot.count };
+        this.inv.armor[kind] = emptySlot();
+      }
+    } else {
+      // Place: only accept matching type. Otherwise swap if cursor is matching.
+      const fits = armorSlotFor(this.cursor.id) === kind;
+      if (!fits) return;
+      if (slot.id === 0) {
+        this.inv.armor[kind] = { id: this.cursor.id, count: 1 };
+        this.cursor = this.cursor.count > 1 ? { id: this.cursor.id, count: this.cursor.count - 1 } : emptySlot();
+      } else {
+        // Swap
+        const old = { id: slot.id, count: slot.count };
+        this.inv.armor[kind] = { id: this.cursor.id, count: 1 };
+        this.cursor = old;
+      }
+    }
+    sound.click();
+    this.render();
+    this.onCraft?.();
   }
 
   private renderOutput() {
@@ -213,6 +335,21 @@ export class CraftingUI {
     (el as any)._slotRef = { arr, i };
     el.addEventListener("mousedown", (e) => {
       e.preventDefault();
+      // Shift-click on an armor item moves it directly into the matching
+      // armor slot — vanilla "quick equip" behaviour.
+      if (e.shiftKey && (source === "main" || source === "hotbar")) {
+        const sl = arr[i];
+        const kind = sl.id !== 0 ? armorSlotFor(sl.id) : null;
+        if (kind && this.inv.armor[kind].id === 0) {
+          this.inv.armor[kind] = { id: sl.id, count: 1 };
+          sl.count -= 1;
+          if (sl.count <= 0) { sl.id = 0; sl.count = 0; }
+          sound.click();
+          this.render();
+          this.onCraft?.();
+          return;
+        }
+      }
       this.handleSlotClick(arr, i, e.button === 2, source);
       sound.click();
       if (e.button === 2) this.startRepeat(arr, i);

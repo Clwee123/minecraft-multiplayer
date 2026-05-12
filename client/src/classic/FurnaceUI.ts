@@ -104,6 +104,29 @@ export class FurnaceUI {
       this.cursorEl.style.left = e.clientX + "px";
       this.cursorEl.style.top  = e.clientY + "px";
     });
+    // Event delegation: one listener on the panel handles every slot click.
+    // The earlier per-slot `el.onclick = ...` approach was unreliable — each
+    // render() rebuilt the slot DOM and sometimes the handler binding got
+    // lost during the swap, especially when innerHTML was reassigned during
+    // a render that fired between mousedown and click. mousedown + data
+    // attributes on each slot fixes that for good.
+    this.panel.addEventListener("mousedown", (e) => {
+      if (!this.open) return;
+      const target = (e.target as HTMLElement).closest<HTMLElement>("[data-slot]");
+      if (!target) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const kind = target.dataset.slot!;
+      const idx  = parseInt(target.dataset.idx || "0", 10);
+      const right = e.button === 2;
+      if (kind === "furnace-input")  this.handleClick(this.active_state()!, "input",  right);
+      else if (kind === "furnace-fuel")   this.handleClick(this.active_state()!, "fuel",   right);
+      else if (kind === "furnace-output") this.handleClick(this.active_state()!, "output", right);
+      else if (kind === "inv-main")   this.handleInvClick(this.inv.main,   idx, right);
+      else if (kind === "inv-hotbar") this.handleInvClick(this.inv.hotbar, idx, right);
+    });
+    // Right-click on the panel itself must not show the browser context menu.
+    this.panel.addEventListener("contextmenu", (e) => { if (this.open) e.preventDefault(); });
   }
 
   /** Returns (creating if needed) the state for the furnace at this block. */
@@ -219,10 +242,10 @@ export class FurnaceUI {
   private render() {
     const s = this.active_state();
     if (!s) return;
-    // Slots
-    this.renderSlot("furnaceInput",  s.input,  () => { this.handleClick(s, "input"); }, (e) => { e.preventDefault(); this.handleClick(s, "input", true); });
-    this.renderSlot("furnaceFuel",   s.fuel,   () => { this.handleClick(s, "fuel"); },  (e) => { e.preventDefault(); this.handleClick(s, "fuel", true); });
-    this.renderSlot("furnaceOutput", s.output, () => { this.handleClick(s, "output"); }, (e) => { e.preventDefault(); this.handleClick(s, "output", true); });
+    // Slots — data-slot attributes drive the delegated panel listener.
+    this.renderSlot("furnaceInput",  s.input,  "furnace-input",  0);
+    this.renderSlot("furnaceFuel",   s.fuel,   "furnace-fuel",   0);
+    this.renderSlot("furnaceOutput", s.output, "furnace-output", 0);
 
     // Flame + arrow indicators
     const flame = document.getElementById("furnaceFlame")!;
@@ -237,18 +260,20 @@ export class FurnaceUI {
     const bar  = document.getElementById("furnaceInvHotbar")!;
     main.innerHTML = "";
     for (let i = 0; i < this.inv.main.length; i++) {
-      main.appendChild(this.invSlotEl(this.inv.main, i));
+      main.appendChild(this.invSlotEl(this.inv.main, i, "inv-main"));
     }
     bar.innerHTML = "";
     for (let i = 0; i < this.inv.hotbar.length; i++) {
-      bar.appendChild(this.invSlotEl(this.inv.hotbar, i));
+      bar.appendChild(this.invSlotEl(this.inv.hotbar, i, "inv-hotbar"));
     }
     this.renderCursor();
   }
 
-  private renderSlot(id: string, slot: InvSlot, onClick: () => void, onContext: (e: Event) => void) {
+  private renderSlot(id: string, slot: InvSlot, kind: string, idx: number) {
     const el = document.getElementById(id);
     if (!el) return;
+    el.dataset.slot = kind;
+    el.dataset.idx  = String(idx);
     el.innerHTML = "";
     if (slot.id !== 0 && slot.count > 0) {
       el.innerHTML = `
@@ -259,13 +284,13 @@ export class FurnaceUI {
     } else {
       el.title = "";
     }
-    el.onclick = onClick;
-    el.oncontextmenu = onContext;
   }
 
-  private invSlotEl(arr: InvSlot[], i: number): HTMLElement {
+  private invSlotEl(arr: InvSlot[], i: number, kind: "inv-main" | "inv-hotbar"): HTMLElement {
     const el = document.createElement("div");
     el.className = "furnace-inv-slot";
+    el.dataset.slot = kind;
+    el.dataset.idx  = String(i);
     const s = arr[i];
     if (s.id !== 0 && s.count > 0) {
       el.innerHTML = `
@@ -274,8 +299,6 @@ export class FurnaceUI {
       `;
       el.title = getItemName(s.id);
     }
-    el.onclick = () => this.handleInvClick(arr, i, false);
-    el.oncontextmenu = (e) => { e.preventDefault(); this.handleInvClick(arr, i, true); };
     return el;
   }
 

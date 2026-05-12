@@ -21,6 +21,17 @@ function maxStackFor(id: number): number {
   return MAX_STACK;
 }
 
+/** Which armor slot (if any) accepts an item id. Maps the four armor
+ *  categories the inventory has (helmet / chestplate / leggings / boots) to
+ *  the item-id ranges already defined in Textures.ts. */
+export function armorSlotFor(id: number): "helmet" | "chestplate" | "leggings" | "boots" | null {
+  if (id === 114 || id === 118 || id === 122 || id === 126 || id === 192) return "helmet";
+  if (id === 115 || id === 119 || id === 123 || id === 127 || id === 193) return "chestplate";
+  if (id === 116 || id === 120 || id === 124 || id === 128 || id === 194) return "leggings";
+  if (id === 117 || id === 121 || id === 125 || id === 129 || id === 195) return "boots";
+  return null;
+}
+
 /** Damage a tool slot by `amount` uses. Returns true if the tool broke. */
 export function damageTool(slot: InvSlot, amount = 1): boolean {
   if (slot.id === 0) return false;
@@ -41,6 +52,13 @@ export class Inventory {
   main:   InvSlot[] = Array.from({ length: INV_SLOTS },    emptySlot);
   craft2x2: InvSlot[] = Array.from({ length: 4 },          emptySlot);
   craft3x3: InvSlot[] = Array.from({ length: 9 },          emptySlot);
+  /** Equipped armor — MC 1.8 has helmet/chestplate/leggings/boots slots. */
+  armor: { helmet: InvSlot; chestplate: InvSlot; leggings: InvSlot; boots: InvSlot } = {
+    helmet:     emptySlot(),
+    chestplate: emptySlot(),
+    leggings:   emptySlot(),
+    boots:      emptySlot(),
+  };
   selected = 0;
   gameMode: "survival" | "creative" = "survival";
 

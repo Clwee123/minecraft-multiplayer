@@ -765,6 +765,12 @@ function savePersistentState() {
         selected: inv.selected,
         hotbar: inv.hotbar.map(s => ({ id: s.id, count: s.count, damage: s.damage ?? 0 })),
         main:   inv.main.map(s   => ({ id: s.id, count: s.count, damage: s.damage ?? 0 })),
+        armor: {
+          helmet:     { id: inv.armor.helmet.id,     count: inv.armor.helmet.count,     damage: inv.armor.helmet.damage ?? 0 },
+          chestplate: { id: inv.armor.chestplate.id, count: inv.armor.chestplate.count, damage: inv.armor.chestplate.damage ?? 0 },
+          leggings:   { id: inv.armor.leggings.id,   count: inv.armor.leggings.count,   damage: inv.armor.leggings.damage ?? 0 },
+          boots:      { id: inv.armor.boots.id,      count: inv.armor.boots.count,      damage: inv.armor.boots.damage ?? 0 },
+        },
       },
       furnaces: furnaceUI ? furnaceUI.serialize() : [],
       chests:   chestUI   ? chestUI.serialize()   : [],
@@ -806,6 +812,13 @@ function loadPersistentState(): boolean {
       for (let i = 0; i < 27 && i < (data.inv.main?.length || 0); i++) {
         const s = data.inv.main[i];
         inv.main[i] = { id: s.id | 0, count: s.count | 0, damage: s.damage | 0 };
+      }
+      if (data.inv.armor) {
+        const slots: Array<"helmet" | "chestplate" | "leggings" | "boots"> = ["helmet", "chestplate", "leggings", "boots"];
+        for (const k of slots) {
+          const a = data.inv.armor[k];
+          if (a) inv.armor[k] = { id: a.id | 0, count: a.count | 0, damage: a.damage | 0 };
+        }
       }
     }
     if (data.furnaces && furnaceUI) furnaceUI.restore(data.furnaces);
@@ -1758,6 +1771,12 @@ async function startGame(serverAddr: string | null) {
         const dx = player.pos.x, dy = player.pos.y, dz = player.pos.z;
         for (const s of [...inv.hotbar, ...inv.main]) {
           if (s.id !== 0 && s.count > 0) drops.spawn(s.id, s.count, dx, dy, dz);
+        }
+        // Equipped armor also drops on death (vanilla).
+        for (const k of ["helmet", "chestplate", "leggings", "boots"] as const) {
+          const a = inv.armor[k];
+          if (a.id !== 0 && a.count > 0) drops.spawn(a.id, a.count, dx, dy, dz);
+          inv.armor[k] = { id: 0, count: 0, damage: 0 };
         }
         for (const s of inv.hotbar) { s.id = 0; s.count = 0; s.damage = 0; }
         for (const s of inv.main)   { s.id = 0; s.count = 0; s.damage = 0; }
