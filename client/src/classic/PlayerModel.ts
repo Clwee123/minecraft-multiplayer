@@ -162,6 +162,87 @@ let ITEM_ROT_X = ARM_DEFAULTS.itemRotX;
 let ITEM_ROT_Y = ARM_DEFAULTS.itemRotY;
 let ITEM_ROT_Z = ARM_DEFAULTS.itemRotZ;
 
+/** Per-animation parameters. Exposed via window.__armAnim so the studio
+ *  can tune them live. Each value used to be a hard-coded magic number
+ *  inside FpArm.update(); pulling them out here makes them editable. */
+export const ANIM_DEFAULTS = {
+  // Mining loop (LMB held in survival): the head bobs back and forth.
+  miningArcMul:   0.8,   // fraction of ARM_SWING_ARC at full swing
+  miningTwistMul: 0.7,
+  miningSpeed:    9.42,  // radians/s — was Math.PI * 3
+  // One-shot swing (LMB click on entity or place block):
+  swingDecay:     4.0,   // higher = faster snap-back
+  // Eating pose (hold RMB on food):
+  eatLift:        0.9,   // fraction of ARM_SWING_ARC the shoulder rises by
+  eatShakeAmp:    0.08,  // peak shake amplitude when fully eaten
+  eatShakeFreq:   0.028, // wave frequency (radians per ms)
+  eatTwist:       0.25,  // extra Z-roll while eating
+  // Walking bob + sway:
+  bobAmpY:        0.012,
+  bobAmpX:        0.010,
+  bobFreq:        0.6,
+  swayMul:        18,    // yaw-delta multiplier feeding the sway target
+};
+let MINING_ARC_MUL   = ANIM_DEFAULTS.miningArcMul;
+let MINING_TWIST_MUL = ANIM_DEFAULTS.miningTwistMul;
+let MINING_SPEED     = ANIM_DEFAULTS.miningSpeed;
+let SWING_DECAY      = ANIM_DEFAULTS.swingDecay;
+let EAT_LIFT         = ANIM_DEFAULTS.eatLift;
+let EAT_SHAKE_AMP    = ANIM_DEFAULTS.eatShakeAmp;
+let EAT_SHAKE_FREQ   = ANIM_DEFAULTS.eatShakeFreq;
+let EAT_TWIST        = ANIM_DEFAULTS.eatTwist;
+let BOB_AMP_Y        = ANIM_DEFAULTS.bobAmpY;
+let BOB_AMP_X        = ANIM_DEFAULTS.bobAmpX;
+let BOB_FREQ         = ANIM_DEFAULTS.bobFreq;
+let SWAY_MUL         = ANIM_DEFAULTS.swayMul;
+
+const ANIM_OVERRIDES_KEY = "mc.animOverrides.v1";
+try {
+  const raw = localStorage.getItem(ANIM_OVERRIDES_KEY);
+  if (raw) {
+    const d = JSON.parse(raw);
+    if (typeof d.miningArcMul === "number")   MINING_ARC_MUL   = d.miningArcMul;
+    if (typeof d.miningTwistMul === "number") MINING_TWIST_MUL = d.miningTwistMul;
+    if (typeof d.miningSpeed === "number")    MINING_SPEED     = d.miningSpeed;
+    if (typeof d.swingDecay === "number")     SWING_DECAY      = d.swingDecay;
+    if (typeof d.eatLift === "number")        EAT_LIFT         = d.eatLift;
+    if (typeof d.eatShakeAmp === "number")    EAT_SHAKE_AMP    = d.eatShakeAmp;
+    if (typeof d.eatShakeFreq === "number")   EAT_SHAKE_FREQ   = d.eatShakeFreq;
+    if (typeof d.eatTwist === "number")       EAT_TWIST        = d.eatTwist;
+    if (typeof d.bobAmpY === "number")        BOB_AMP_Y        = d.bobAmpY;
+    if (typeof d.bobAmpX === "number")        BOB_AMP_X        = d.bobAmpX;
+    if (typeof d.bobFreq === "number")        BOB_FREQ         = d.bobFreq;
+    if (typeof d.swayMul === "number")        SWAY_MUL         = d.swayMul;
+  }
+} catch {}
+export function getAnimOverrides() {
+  return {
+    miningArcMul: MINING_ARC_MUL, miningTwistMul: MINING_TWIST_MUL, miningSpeed: MINING_SPEED,
+    swingDecay: SWING_DECAY,
+    eatLift: EAT_LIFT, eatShakeAmp: EAT_SHAKE_AMP, eatShakeFreq: EAT_SHAKE_FREQ, eatTwist: EAT_TWIST,
+    bobAmpY: BOB_AMP_Y, bobAmpX: BOB_AMP_X, bobFreq: BOB_FREQ, swayMul: SWAY_MUL,
+  };
+}
+export function setAnimOverride(k: string, v: number) {
+  switch (k) {
+    case "miningArcMul":   MINING_ARC_MUL = v; break;
+    case "miningTwistMul": MINING_TWIST_MUL = v; break;
+    case "miningSpeed":    MINING_SPEED = v; break;
+    case "swingDecay":     SWING_DECAY = v; break;
+    case "eatLift":        EAT_LIFT = v; break;
+    case "eatShakeAmp":    EAT_SHAKE_AMP = v; break;
+    case "eatShakeFreq":   EAT_SHAKE_FREQ = v; break;
+    case "eatTwist":       EAT_TWIST = v; break;
+    case "bobAmpY":        BOB_AMP_Y = v; break;
+    case "bobAmpX":        BOB_AMP_X = v; break;
+    case "bobFreq":        BOB_FREQ = v; break;
+    case "swayMul":        SWAY_MUL = v; break;
+  }
+}
+export function saveAnimOverrides() {
+  try { localStorage.setItem(ANIM_OVERRIDES_KEY, JSON.stringify(getAnimOverrides())); } catch {}
+}
+
 /** Per-item override for the held mesh's local transform. Without an entry
  *  we fall back to ITEM_OFFSET_* / ITEM_ROT_*. The studio panel writes here
  *  and persists the map via localStorage. */
@@ -345,24 +426,21 @@ export function buildFirstPersonArm(): FirstPersonArm | null {
       const sh = shoulder as THREE.Object3D;
       // ── Shoulder swing (one-shot or continuous mining) ──
       if (eatProgress > 0) {
-        // Eating pose: rotate the shoulder upward so the held item rises to
-        // the mouth, plus a fast nibble shake. The shake amplitude builds
-        // with eat progress so it's subtle at the start, busier near the
-        // last bite — feels like chewing.
-        const lift = ARM_SWING_ARC * 0.9;
-        const shake = Math.sin(performance.now() * 0.028) * 0.08 * (0.3 + eatProgress * 0.7);
+        // Eating pose — tunables from window.__armAnim.
+        const lift = ARM_SWING_ARC * EAT_LIFT;
+        const shake = Math.sin(performance.now() * EAT_SHAKE_FREQ) * EAT_SHAKE_AMP * (0.3 + eatProgress * 0.7);
         sh.rotation.x = baseRotX - ARM_SHOULDER_FORWARD + lift + shake;
-        sh.rotation.z = baseRotZ + 0.25 + shake * 0.6;
+        sh.rotation.z = baseRotZ + EAT_TWIST + shake * 0.6;
       } else if (swingT > 0) {
         const eased = Math.sin((1 - swingT) * Math.PI);
         sh.rotation.x = baseRotX - ARM_SHOULDER_FORWARD + eased * ARM_SWING_ARC * swingStrength;
         sh.rotation.z = baseRotZ + eased * ARM_TWIST * swingStrength;
-        swingT = Math.max(0, swingT - dt * 4);
+        swingT = Math.max(0, swingT - dt * SWING_DECAY);
       } else if (miningActive) {
-        miningSwingPhase += dt * Math.PI * 3;
+        miningSwingPhase += dt * MINING_SPEED;
         const v = (Math.sin(miningSwingPhase) + 1) * 0.5;
-        sh.rotation.x = baseRotX - ARM_SHOULDER_FORWARD + v * ARM_SWING_ARC * 0.8;
-        sh.rotation.z = baseRotZ + v * ARM_TWIST * 0.7;
+        sh.rotation.x = baseRotX - ARM_SHOULDER_FORWARD + v * ARM_SWING_ARC * MINING_ARC_MUL;
+        sh.rotation.z = baseRotZ + v * ARM_TWIST * MINING_TWIST_MUL;
         miningActive = false;
       } else {
         sh.rotation.x = baseRotX - ARM_SHOULDER_FORWARD;
@@ -376,12 +454,11 @@ export function buildFirstPersonArm(): FirstPersonArm | null {
       if (ctx) {
         const moving = ctx.walkSpeed > 0.5 && ctx.onGround;
         const clampedSpeed = Math.min(ctx.walkSpeed, 6);
-        if (moving) walkPhase += clampedSpeed * dt * 0.6;
+        if (moving) walkPhase += clampedSpeed * dt * BOB_FREQ;
         else        walkPhase *= 0.92;
-        const bobY = moving ? Math.sin(walkPhase * 2) * 0.012 : 0;
-        const bobX = moving ? Math.sin(walkPhase)     * 0.010 : 0;
-        // Sway from yaw changes — arms lag behind the camera, smoothed.
-        const targetSway = Math.max(-0.5, Math.min(0.5, ctx.yawDelta * 18));
+        const bobY = moving ? Math.sin(walkPhase * 2) * BOB_AMP_Y : 0;
+        const bobX = moving ? Math.sin(walkPhase)     * BOB_AMP_X : 0;
+        const targetSway = Math.max(-0.5, Math.min(0.5, ctx.yawDelta * SWAY_MUL));
         swayZ += (targetSway - swayZ) * Math.min(1, dt * 10);
         group.position.x = groupBaseX + bobX + swayZ * 0.025;
         group.position.y = groupBaseY + bobY;

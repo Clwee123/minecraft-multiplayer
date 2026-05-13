@@ -2129,12 +2129,22 @@ async function startGame(serverAddr: string | null) {
     // First-person arm: chop continuously while LMB held in survival.
     // Also pass walking speed + yaw delta so the arm bobs + sways like vanilla.
     if (fpArm) {
-      // Eating overrides the mining/swing pose. Pass current eatProgress
-      // (0..1) so the arm raises to mouth + nibble-shakes while held RMB
-      // is consuming a food item.
-      fpArm.setEating(eatProgress > 0 ? eatProgress / EAT_TIME : 0);
-      if (eatProgress === 0 && lmbHeld && player.gameMode === "survival" && player.lastHit) {
-        fpArm.triggerMineSwing();
+      // ArmStudio pose override — when an animation is being previewed in
+      // the studio, force the arm into that pose every frame so the user
+      // can see live slider edits. null = no override, normal gameplay.
+      const studioOverride = (window as any).__armStudio?.getPoseOverride?.();
+      if (studioOverride) {
+        fpArm.setEating(studioOverride.eat ?? 0);
+        if (studioOverride.mining) fpArm.triggerMineSwing();
+        if (studioOverride.swing)  fpArm.triggerSwing(1);
+      } else {
+        // Eating overrides the mining/swing pose. Pass current eatProgress
+        // (0..1) so the arm raises to mouth + nibble-shakes while held RMB
+        // is consuming a food item.
+        fpArm.setEating(eatProgress > 0 ? eatProgress / EAT_TIME : 0);
+        if (eatProgress === 0 && lmbHeld && player.gameMode === "survival" && player.lastHit) {
+          fpArm.triggerMineSwing();
+        }
       }
       const walkSpeed = Math.hypot(player.vel.x, player.vel.z);
       // Wrap yaw delta into (-PI, PI] so a wrap-around doesn't spike the sway.

@@ -13,7 +13,8 @@
  * tune ITS specific offset, save it. The two panels can be open at once.
  */
 import { BLOCKS, ITEMS, getItemName, getItemTile } from "./Textures";
-import { ITEM_HELD_OVERRIDES, HeldOverride, saveItemHeldOverrides, FirstPersonArm } from "./PlayerModel";
+import { ITEM_HELD_OVERRIDES, HeldOverride, saveItemHeldOverrides, FirstPersonArm,
+         ANIM_DEFAULTS, getAnimOverrides, setAnimOverride, saveAnimOverrides } from "./PlayerModel";
 import { blockIconCache, shouldRenderAsBlock } from "./BlockIconCache";
 
 const SLIDER_DEFS: Array<{ key: keyof HeldOverride; min: number; max: number; step: number; label: string }> = [
@@ -25,15 +26,47 @@ const SLIDER_DEFS: Array<{ key: keyof HeldOverride; min: number; max: number; st
   { key: "rotZ", min: -3.5, max: 3.5, step: 0.01,  label: "Rot Z" },
 ];
 
+/** Animation parameter sliders. Section heading is used to visually group
+ *  related fields in the studio panel. */
+const ANIM_SLIDER_DEFS: Array<{ key: string; min: number; max: number; step: number; label: string; section?: string }> = [
+  { section: "Mining loop",  key: "miningArcMul",   min: 0,   max: 2,   step: 0.01,  label: "Arc mult" },
+  {                          key: "miningTwistMul", min: 0,   max: 2,   step: 0.01,  label: "Twist mult" },
+  {                          key: "miningSpeed",    min: 1,   max: 30,  step: 0.1,   label: "Speed (rad/s)" },
+  { section: "One-shot swing", key: "swingDecay",   min: 1,   max: 12,  step: 0.1,   label: "Decay" },
+  { section: "Eating",       key: "eatLift",        min: 0,   max: 2,   step: 0.01,  label: "Lift" },
+  {                          key: "eatTwist",       min: -1,  max: 1,   step: 0.01,  label: "Twist" },
+  {                          key: "eatShakeAmp",    min: 0,   max: 0.4, step: 0.005, label: "Shake amp" },
+  {                          key: "eatShakeFreq",   min: 0.005, max: 0.1, step: 0.001, label: "Shake freq" },
+  { section: "Walk bob + sway", key: "bobAmpY",     min: 0,   max: 0.1, step: 0.001, label: "Bob Y" },
+  {                          key: "bobAmpX",        min: 0,   max: 0.1, step: 0.001, label: "Bob X" },
+  {                          key: "bobFreq",        min: 0,   max: 3,   step: 0.05,  label: "Bob freq" },
+  {                          key: "swayMul",        min: 0,   max: 40,  step: 0.5,   label: "Sway mult" },
+];
+
+type PoseKind = "rest" | "mining" | "swing" | "eat";
+
 export class ArmStudio {
   private root: HTMLElement;
   private currentId: number = 0;
+  private activePose: PoseKind = "rest";
+  private poseTimer: number | null = null;
   /** Callback wired in main.ts — switches the inventory's held slot to
    *  `id` (count = 999 in creative) so the FP arm picks it up live. */
   onEquip?: (id: number) => void;
   /** Set by main.ts after construction so we can refreshHeldTransform()
    *  on the live arm when a slider changes. */
   fpArm: FirstPersonArm | null = null;
+  /** main.ts forwards this each frame so the studio can DRIVE the live
+   *  arm into a specific pose (mining loop, eating, etc.) while a preview
+   *  is active. Returns the current preview state for the game loop to
+   *  honour — null means "no override, do normal gameplay-driven anim". */
+  getPoseOverride(): { mining?: boolean; swing?: boolean; eat?: number } | null {
+    if (this.activePose === "rest") return null;
+    if (this.activePose === "mining") return { mining: true };
+    if (this.activePose === "eat")    return { eat: 0.8 };
+    if (this.activePose === "swing")  return { swing: true };
+    return null;
+  }
 
   constructor() {
     this.root = this.buildDom();
@@ -42,9 +75,65 @@ export class ArmStudio {
     (window as any).__armStudio = this;
   }
 
-  show() { this.root.style.display = "block"; this.renderItemList(); }
-  hide() { this.root.style.display = "none"; }
+  show() { this.root.style.display = "block"; this.renderItemList(); this.renderAnimSliders(); this.renderPoseButtons(); }
+  hide() { this.root.style.display = "none"; this.setPose("rest"); }
   toggle() { this.root.style.display === "none" ? this.show() : this.hide(); }
+
+  /** Switch which animation the live arm plays. "rest" returns control to
+   *  normal gameplay-driven animation. "swing" auto-clears after 800 ms. */
+  setPose(pose: PoseKind) {
+    this.activePose = pose;
+    if (this.poseTimer) { clearTimeout(this.poseTimer); this.poseTimer = null; }
+    if (pose === "swing") {
+      this.fpArm?.triggerSwing(1);
+      this.poseTimer = window.setTimeout(() => {
+        this.activePose = "rest";
+        this.renderPoseButtons();
+      }, 800);
+    }
+    this.renderPoseButtons();
+  }
+
+  private renderPoseButtons() {
+    const row = this.root.querySelector<HTMLElement>(".as-pose-row");
+    if (!row) return;
+    const buttons: Array<[PoseKind, string]> = [
+      ["rest", "Rest"], ["swing", "Swing (hit)"], ["mining", "Mining loop"], ["eat", "Eating"],
+    ];
+    row.innerHTML = buttons.map(([p, l]) =>
+      `<button class="as-pose-btn ${this.activePose === p ? "active" : ""}" data-pose="${p}">${l}</button>`
+    ).join("");
+    row.querySelectorAll<HTMLButtonElement>(".as-pose-btn").forEach(btn => {
+      btn.addEventListener("click", () => this.setPose(btn.dataset.pose as PoseKind));
+    });
+  }
+
+  private renderAnimSliders() {
+    const panel = this.root.querySelector<HTMLElement>(".as-anim-sliders");
+    if (!panel) return;
+    const cur = getAnimOverrides();
+    panel.innerHTML = ANIM_SLIDER_DEFS.map(s => {
+      const header = s.section ? `<div class="as-sub-section">${s.section}</div>` : "";
+      const v = (cur as any)[s.key] ?? (ANIM_DEFAULTS as any)[s.key];
+      return header + `
+        <label class="as-row">
+          <span class="as-lab">${s.label}</span>
+          <input type="range"  data-anim-key="${s.key}" min="${s.min}" max="${s.max}" step="${s.step}" value="${v}" />
+          <input type="number" data-anim-num="${s.key}" min="${s.min}" max="${s.max}" step="${s.step}" value="${v}" />
+        </label>
+      `;
+    }).join("");
+    panel.querySelectorAll<HTMLInputElement>("input[type=range], input[type=number]").forEach(el => {
+      el.addEventListener("input", () => {
+        const k = (el.dataset.animKey || el.dataset.animNum)!;
+        const v = parseFloat(el.value);
+        if (!Number.isFinite(v)) return;
+        setAnimOverride(k, v);
+        const other = panel.querySelector<HTMLInputElement>(el.dataset.animKey ? `input[data-anim-num="${k}"]` : `input[data-anim-key="${k}"]`);
+        if (other) other.value = String(v);
+      });
+    });
+  }
 
   /** Iterate every block + item and emit clickable thumbnails so the user
    *  can pick the one they want to tune. */
@@ -134,10 +223,11 @@ export class ArmStudio {
     el.innerHTML = `
       <div class="as-hdr">
         <b>ARM STUDIO</b>
-        <span>· per-item held transform</span>
+        <span>· per-item + animation tuner</span>
         <button class="as-close" title="hide">─</button>
       </div>
       <div class="as-body">
+        <div class="as-section">Held-item transform</div>
         <div class="as-current"><span class="as-current-name">(pick an item below)</span></div>
         <div class="as-sliders"><i>Pick an item from the grid to start tuning.</i></div>
         <div class="as-ops">
@@ -145,7 +235,18 @@ export class ArmStudio {
           <button class="as-export">⬇ Export JSON</button>
           <button class="as-reset">↶ Reset this item</button>
         </div>
-        <div class="as-items-title">Items (${Object.keys(BLOCKS).length} blocks · ${Object.keys(ITEMS).length} items)</div>
+
+        <div class="as-section">Animation preview</div>
+        <div class="as-pose-row"></div>
+
+        <div class="as-section">Animation parameters</div>
+        <div class="as-anim-sliders"></div>
+        <div class="as-ops">
+          <button class="as-anim-save">💾 Save anim</button>
+          <button class="as-anim-export">⬇ Export anim JSON</button>
+        </div>
+
+        <div class="as-section">Item picker (${Object.keys(BLOCKS).length} blocks · ${Object.keys(ITEMS).length} items)</div>
         <div class="as-items"></div>
       </div>
     `;
@@ -194,6 +295,13 @@ export class ArmStudio {
       #armStudio .as-item.active { border-color: #ffd23f; box-shadow: inset 0 0 0 1px #ffd23f; }
       #armStudio .as-item .as-icon { position: absolute; inset: 2px; image-rendering: pixelated; }
       #armStudio .as-item .as-id { position: absolute; right: 1px; bottom: 0; font-size: 8px; color: #fff; text-shadow: 1px 1px 0 #000; }
+      #armStudio .as-section { margin: 12px 0 6px; padding: 4px 6px; background: rgba(87,229,124,0.12); color: #57e57c; font-weight: bold; letter-spacing: 1px; border-left: 3px solid #57e57c; }
+      #armStudio .as-sub-section { margin: 6px 0 4px; color: #ffd23f; font-size: 10px; letter-spacing: 1px; border-bottom: 1px solid #444; padding-bottom: 2px; }
+      #armStudio .as-pose-row { display: flex; gap: 4px; flex-wrap: wrap; }
+      #armStudio .as-pose-btn { background: rgba(255,255,255,0.08); border: 1px solid #555; color: #fff; padding: 5px 10px; cursor: pointer; font-family: inherit; font-size: 11px; }
+      #armStudio .as-pose-btn:hover { background: rgba(87,229,124,0.18); border-color: #57e57c; }
+      #armStudio .as-pose-btn.active { background: rgba(87,229,124,0.35); border-color: #57e57c; color: #57e57c; }
+      #armStudio .as-anim-sliders { background: rgba(0,0,0,0.35); padding: 6px; border: 1px solid #333; max-height: 40vh; overflow-y: auto; }
     `;
     document.head.appendChild(styles);
 
@@ -207,6 +315,14 @@ export class ArmStudio {
         this.fpArm?.refreshHeldTransform();
         this.renderSliders();
       }
+    });
+    el.querySelector(".as-anim-save")?.addEventListener("click", () => { saveAnimOverrides(); this.flash(".as-anim-save", "Saved!"); });
+    el.querySelector(".as-anim-export")?.addEventListener("click", () => {
+      const blob = new Blob([JSON.stringify(getAnimOverrides(), null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = `arm-anim-${Date.now()}.json`; a.click();
+      URL.revokeObjectURL(url);
     });
     return el;
   }
