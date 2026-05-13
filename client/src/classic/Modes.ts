@@ -13,7 +13,10 @@ export type ModeId =
   | "parkour_mp"
   | "oneblock"
   | "buildbattle_mp"
-  | "hideandseek_mp";
+  | "hideandseek_mp"
+  | "shooter_mp"
+  | "infection_mp"
+  | "squidgames_mp";
 
 export interface ModeConfig {
   id: ModeId;
@@ -23,6 +26,10 @@ export interface ModeConfig {
   isCreative: boolean;
   useDefaultWorld: boolean;   // false = clear world and build custom
   hotbar?: number[];          // override creative hotbar
+  /** When set, every player in this mode is force-equipped with this Bloxity
+   *  skin id on join — used by Infection (zombie skin) and Squid Games
+   *  (uniform contestant skin). */
+  forceSkinId?: string;
 }
 
 export const MODES: Record<ModeId, ModeConfig> = {
@@ -34,9 +41,20 @@ export const MODES: Record<ModeId, ModeConfig> = {
   parkour_mp:       { id: "parkour_mp",       label: "Parkour · Multiplayer",       short: "parkour",  isMultiplayer: true,  isCreative: false, useDefaultWorld: false },
   oneblock:         { id: "oneblock",         label: "One Block",                          short: "oneblock", isMultiplayer: false, isCreative: false, useDefaultWorld: false },
   buildbattle_mp:   { id: "buildbattle_mp",   label: "Build Battle · Multiplayer",          short: "buildbattle", isMultiplayer: true, isCreative: true, useDefaultWorld: false,
-                       /* creative loadout — common build blocks */
                        hotbar: [8, 9, 1, 14, 15, 11, 36, 42, 22] },
   hideandseek_mp:   { id: "hideandseek_mp",   label: "Hide and Seek · Multiplayer",         short: "hideandseek", isMultiplayer: true, isCreative: false, useDefaultWorld: false },
+  // ── New modes ────────────────────────────────────────────────────────
+  shooter_mp:       { id: "shooter_mp",       label: "Shooter",                            short: "shooter",     isMultiplayer: true, isCreative: false, useDefaultWorld: false,
+                       /* FFA gun loadout — bow + arrows + a single sword fallback */
+                       hotbar: [102, 80, 64, 0, 0, 0, 0, 0, 0] },
+  infection_mp:     { id: "infection_mp",     label: "Infection",                          short: "infection",   isMultiplayer: true, isCreative: false, useDefaultWorld: false,
+                       /* Default survivor loadout — gets stripped if you turn zombie */
+                       hotbar: [64, 102, 80, 0, 0, 0, 0, 0, 0],
+                       /* User-provided zombie skin id */
+                       forceSkinId: "69c816f23ecd845acf82332c" },
+  squidgames_mp:    { id: "squidgames_mp",    label: "Squid Games",                        short: "squidgames",  isMultiplayer: true, isCreative: false, useDefaultWorld: false,
+                       /* Every contestant wears the uniform tracksuit skin */
+                       forceSkinId: "69f0939aaa72454b9f9c045a" },
 };
 
 /**
@@ -293,3 +311,134 @@ function mulberry(seed: number): () => number {
     return ((r ^ (r >>> 14)) >>> 0) / 4294967296;
   };
 }
+
+/**
+ * Shooter FFA — flat arena with cover walls and elevated catwalks.
+ * Players spawn on a central platform, run for cover, gunfight with bows.
+ */
+export function buildShooter(world: World): { spawnX: number; spawnY: number; spawnZ: number } {
+  world.clearAll();
+  const cx = 128, cz = 128, y = 40;
+  const R = 30;
+  // Ground floor — stone bricks with a gravel rim.
+  for (let dx = -R; dx <= R; dx++) for (let dz = -R; dz <= R; dz++) {
+    const onEdge = Math.abs(dx) === R || Math.abs(dz) === R;
+    world.setBlock(cx + dx, y, cz + dz, onEdge ? 10 : 26);
+  }
+  // Boundary wall (3 tall stonebrick).
+  for (let dx = -R; dx <= R; dx++) for (let dy = 1; dy <= 4; dy++) {
+    world.setBlock(cx + dx, y + dy, cz - R, 26);
+    world.setBlock(cx + dx, y + dy, cz + R, 26);
+  }
+  for (let dz = -R; dz <= R; dz++) for (let dy = 1; dy <= 4; dy++) {
+    world.setBlock(cx - R, y + dy, cz + dz, 26);
+    world.setBlock(cx + R, y + dy, cz + dz, 26);
+  }
+  // Cover blocks — scattered 2×2 cobble pillars + walls.
+  const covers: Array<[number, number, "wall" | "pillar"]> = [
+    [-18, -4, "wall"], [16, -8, "pillar"], [-6, 12, "wall"], [4, -16, "pillar"],
+    [12, 14, "wall"], [-12, -14, "pillar"], [18, 4, "pillar"], [-20, 8, "wall"],
+    [0, 20, "wall"], [0, -20, "wall"], [22, 0, "pillar"], [-22, 0, "pillar"],
+  ];
+  for (const [dx, dz, kind] of covers) {
+    if (kind === "pillar") {
+      for (let py = 1; py <= 3; py++) {
+        world.setBlock(cx + dx,     y + py, cz + dz, 9);
+        world.setBlock(cx + dx + 1, y + py, cz + dz, 9);
+        world.setBlock(cx + dx,     y + py, cz + dz + 1, 9);
+        world.setBlock(cx + dx + 1, y + py, cz + dz + 1, 9);
+      }
+    } else {
+      for (let wx = 0; wx < 5; wx++) for (let wy = 1; wy <= 3; wy++) {
+        world.setBlock(cx + dx + wx, y + wy, cz + dz, 17);
+      }
+    }
+  }
+  // Centre spawn pad — slightly elevated.
+  for (let dx = -2; dx <= 2; dx++) for (let dz = -2; dz <= 2; dz++) {
+    world.setBlock(cx + dx, y + 1, cz + dz, 41);
+  }
+  return { spawnX: cx + 0.5, spawnY: y + 2.001, spawnZ: cz + 0.5 };
+}
+
+/**
+ * Infection — start everyone on a survivor side. First infected spawns
+ * with the zombie skin (force-applied client-side). Generates a fenced
+ * compound + a few buildings to barricade.
+ */
+export function buildInfection(world: World): { spawnX: number; spawnY: number; spawnZ: number } {
+  world.clearAll();
+  const cx = 128, cz = 128, y = 40;
+  const R = 40;
+  // Grass ground
+  for (let dx = -R; dx <= R; dx++) for (let dz = -R; dz <= R; dz++) {
+    if (Math.hypot(dx, dz) > R) continue;
+    world.setBlock(cx + dx, y, cz + dz, 1);
+    world.setBlock(cx + dx, y - 1, cz + dz, 2);
+  }
+  // 4-block fence wall ringing the compound
+  for (let a = 0; a < Math.PI * 2; a += 0.06) {
+    const x = Math.round(Math.cos(a) * R);
+    const z = Math.round(Math.sin(a) * R);
+    for (let h = 1; h <= 4; h++) world.setBlock(cx + x, y + h, cz + z, 28); // spruce log
+  }
+  // 4 small "safe houses" the survivors can fall back to
+  const houses: Array<[number, number]> = [[-18, -18], [18, -18], [-18, 18], [18, 18]];
+  for (const [hx, hz] of houses) {
+    for (let dx = -3; dx <= 3; dx++) for (let dz = -3; dz <= 3; dz++) {
+      const onEdge = Math.abs(dx) === 3 || Math.abs(dz) === 3;
+      world.setBlock(cx + hx + dx, y - 1, cz + hz + dz, 8);    // floor
+      if (onEdge) for (let h = 1; h <= 3; h++) world.setBlock(cx + hx + dx, y + h, cz + hz + dz, 8);
+      world.setBlock(cx + hx + dx, y + 4, cz + hz + dz, 5);     // log roof
+    }
+    // Doorway
+    world.setBlock(cx + hx, y + 1, cz + hz + 3, 0);
+    world.setBlock(cx + hx, y + 2, cz + hz + 3, 0);
+  }
+  // Central plaza
+  for (let dx = -4; dx <= 4; dx++) for (let dz = -4; dz <= 4; dz++) {
+    world.setBlock(cx + dx, y, cz + dz, 9);
+  }
+  return { spawnX: cx + 0.5, spawnY: y + 1.001, spawnZ: cz + 0.5 };
+}
+
+/**
+ * Squid Games — lobby with 5 minigame doors arranged in a hexagonal
+ * spawn ring. The minigames themselves are sub-arenas built around the
+ * lobby; for v1 they share a common spawn and visual theming.
+ *
+ * Minigames (vanilla-ish stand-ins): Red Light / Green Light, Honeycomb,
+ * Tug of War, Glass Stepping Stones, Squid Game (final).
+ */
+export function buildSquidGames(world: World): { spawnX: number; spawnY: number; spawnZ: number } {
+  world.clearAll();
+  const cx = 128, cz = 128, y = 40;
+  // Central pink-wool lobby (the iconic stairs colour)
+  const R = 12;
+  for (let dx = -R; dx <= R; dx++) for (let dz = -R; dz <= R; dz++) {
+    if (Math.hypot(dx, dz) > R) continue;
+    world.setBlock(cx + dx, y, cz + dz, 15);   // red wool floor (closest to MC pink)
+  }
+  // 5 doorway pillars around the ring (pentagon).
+  const doors = 5;
+  for (let i = 0; i < doors; i++) {
+    const ang = (i / doors) * Math.PI * 2;
+    const dx = Math.round(Math.cos(ang) * (R - 1));
+    const dz = Math.round(Math.sin(ang) * (R - 1));
+    for (let h = 1; h <= 4; h++) {
+      world.setBlock(cx + dx,     y + h, cz + dz,     14);  // white wool pillar
+      world.setBlock(cx + dx + 1, y + h, cz + dz,     14);
+    }
+    // Door number block — colour each one differently for now
+    world.setBlock(cx + dx, y + 5, cz + dz, [40, 41, 22, 39, 170][i]);
+  }
+  // Glass stepping bridge to the south — a quick visual nod to game 5.
+  for (let s = 0; s < 18; s++) {
+    const zb = cz + R + 4 + s;
+    const ok = (s % 2 === 0);
+    world.setBlock(cx - 1, y, zb, ok ? 11 : 7);
+    world.setBlock(cx + 1, y, zb, ok ? 7  : 11);
+  }
+  return { spawnX: cx + 0.5, spawnY: y + 1.001, spawnZ: cz + 0.5 };
+}
+

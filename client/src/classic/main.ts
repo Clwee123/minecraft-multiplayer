@@ -14,7 +14,7 @@ import { ChestUI } from "./ChestUI";
 import { ArmDevPanel } from "./ArmDevPanel";
 import { ServerFinder, listRooms } from "./ServerFinder";
 import { ItemDrops } from "./ItemDrops";
-import { MODES, ModeId, buildBedwars, buildParkour, buildOneBlock, pickOneBlockNext, buildBuildBattle, buildHideAndSeek } from "./Modes";
+import { MODES, ModeId, buildBedwars, buildParkour, buildOneBlock, pickOneBlockNext, buildBuildBattle, buildHideAndSeek, buildShooter, buildInfection, buildSquidGames } from "./Modes";
 import { preloadPlayerModel, buildFirstPersonArm, FirstPersonArm, applySkinToCharacter, swapPart } from "./PlayerModel";
 import { BreakHighlight, BreakParticles } from "./BreakEffects";
 import { Legion, LegionUser, LegionFriend, readInstantJoinIntent } from "./Legion";
@@ -164,9 +164,12 @@ function wireMenuButtons() {
   const savedName = localStorage.getItem("mc.playerName");
   nameInput.value = savedName ?? ("Player" + Math.floor(Math.random() * 1000));
   document.querySelectorAll<HTMLElement>(".mode-card").forEach(card => {
+    // MC button "click" sound on press + hover, mirrors the vanilla menu UX.
+    card.addEventListener("mouseenter", () => sound.click());
     card.addEventListener("click", () => {
       const modeId = card.dataset.mode as ModeId;
       if (!modeId || !MODES[modeId]) return;
+      sound.click();
       playerName = nameInput.value.trim() || "Player";
       localStorage.setItem("mc.playerName", playerName);
       mode = modeId;
@@ -193,6 +196,7 @@ function wireMenuButtons() {
       bedwars: "bedwars_mp", parkour: "parkour_mp",
       oneblock: "oneblock",
       buildbattle: "buildbattle_mp", hideandseek: "hideandseek_mp",
+      shooter: "shooter_mp", infection: "infection_mp", squidgames: "squidgames_mp",
     };
     mode = ((roomMode && fallback[roomMode]) || "survival_mp") as ModeId;
     pendingRoomId = roomId;
@@ -1562,6 +1566,9 @@ async function startGame(serverAddr: string | null) {
                   : mode === "oneblock"        ? "oneblock"
                   : mode === "buildbattle_mp"  ? "buildbattle"
                   : mode === "hideandseek_mp"  ? "hideandseek"
+                  : mode === "shooter_mp"      ? "shooter"
+                  : mode === "infection_mp"    ? "infection"
+                  : mode === "squidgames_mp"   ? "squidgames"
                   : "survival";
     try {
       await mp.connect(serverAddr, modeKey, pendingRoomId);
@@ -1598,6 +1605,15 @@ async function startGame(serverAddr: string | null) {
     spawnX = s.spawnX; spawnY = s.spawnY; spawnZ = s.spawnZ;
   } else if (mode === "hideandseek_mp") {
     const s = buildHideAndSeek(world);
+    spawnX = s.spawnX; spawnY = s.spawnY; spawnZ = s.spawnZ;
+  } else if (mode === "shooter_mp") {
+    const s = buildShooter(world);
+    spawnX = s.spawnX; spawnY = s.spawnY; spawnZ = s.spawnZ;
+  } else if (mode === "infection_mp") {
+    const s = buildInfection(world);
+    spawnX = s.spawnX; spawnY = s.spawnY; spawnZ = s.spawnZ;
+  } else if (mode === "squidgames_mp") {
+    const s = buildSquidGames(world);
     spawnX = s.spawnX; spawnY = s.spawnY; spawnZ = s.spawnZ;
   } else {
     const s = world.findSpawn();
@@ -1671,12 +1687,19 @@ async function startGame(serverAddr: string | null) {
   fpArm = buildFirstPersonArm();
   if (fpArm) {
     camera.add(fpArm.group);
-    // Apply the local user's skin texture + custom right-arm shape (per the
-    // user's note: FP only needs skin + right arm geometry — hat/back/etc.
-    // would be off-screen anyway).
+    // Apply the local user's skin texture + custom right-arm shape. Some
+    // modes (Infection, Squid Games) force a uniform skin onto every
+    // player regardless of their Bloxity avatar.
     const avatar = Legion.getAvatar();
-    applySkinToCharacter(fpArm.group, String(avatar?.skinId || "0"));
-    if (avatar?.armRId) swapPart(fpArm.group, "arm_R", avatar.armRId);
+    const forcedSkin = MODES[mode].forceSkinId;
+    const skinId = forcedSkin || String(avatar?.skinId || "0");
+    applySkinToCharacter(fpArm.group, skinId);
+    if (!forcedSkin && avatar?.armRId) swapPart(fpArm.group, "arm_R", avatar.armRId);
+    // If we're in a forced-skin mode, push that skin to the server so other
+    // clients render us with it too.
+    if (forcedSkin && mp?.isConnected()) {
+      mp.sendAvatarUpdate({ skinId: forcedSkin }, {});
+    }
     // Dev panel — sliders to tune arm rest pose + swing. Hidden by default,
     // shown when ?devarm=1 is in the URL or window.__armDev.show() is called.
     new ArmDevPanel();
@@ -2142,6 +2165,7 @@ function startInstantMultiplayer(intent: ReturnType<typeof readInstantJoinIntent
     bedwars: "bedwars_mp", parkour: "parkour_mp",
     oneblock: "oneblock",
     buildbattle: "buildbattle_mp", hideandseek: "hideandseek_mp",
+    shooter: "shooter_mp", infection: "infection_mp", squidgames: "squidgames_mp",
   };
   const resolved = (MODES[requested as ModeId] ? requested : fallbackMap[requested]) as ModeId;
   mode = resolved || "survival_mp";

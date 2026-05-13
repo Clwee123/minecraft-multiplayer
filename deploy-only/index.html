@@ -94,31 +94,36 @@
       max-width: 1100px;
     }
     .mode-grid { width: 100%; }
+    /* Vanilla MC button look — flat stone-gray with bevels. No gradients. */
     .mode-card {
       position: relative;
       aspect-ratio: 16 / 9;
-      border-radius: 6px;
       overflow: hidden;
       cursor: pointer;
-      border: 2px solid rgba(255,255,255,0.18);
-      box-shadow: 0 3px 0 rgba(0,0,0,0.4), 0 5px 12px rgba(0,0,0,0.5);
-      transition: transform 0.12s ease, border-color 0.12s ease;
-      background: #222;
+      background: #555;
+      border-top:    2px solid #aaa;
+      border-left:   2px solid #aaa;
+      border-right:  2px solid #1f1f1f;
+      border-bottom: 2px solid #1f1f1f;
+      box-shadow: 0 0 0 2px #000;
+      transition: filter 0.08s;
+      image-rendering: pixelated;
     }
     .mode-card:hover {
-      transform: translateY(-2px);
-      border-color: #7eb84c;
-      box-shadow: 0 5px 0 rgba(0,0,0,0.4), 0 8px 16px rgba(126,184,76,0.35);
+      filter: brightness(1.15);
+      border-top-color:  #cfcfcf;
+      border-left-color: #cfcfcf;
     }
-    .mode-card:active { transform: translateY(1px); }
+    .mode-card:active {
+      filter: brightness(0.92);
+      border-top-color:    #1f1f1f;
+      border-left-color:   #1f1f1f;
+      border-right-color:  #aaa;
+      border-bottom-color: #aaa;
+    }
     .mode-card.disabled {
-      filter: grayscale(0.6) brightness(0.6);
+      filter: grayscale(0.7) brightness(0.55);
       cursor: not-allowed;
-    }
-    .mode-card.disabled:hover {
-      transform: none;
-      border-color: rgba(255,255,255,0.18);
-      box-shadow: 0 3px 0 rgba(0,0,0,0.4), 0 5px 12px rgba(0,0,0,0.5);
     }
     .mc-cover {
       position: absolute; inset: 0;
@@ -127,35 +132,38 @@
       image-rendering: auto;
     }
     .mc-cover::after {
-      /* Bottom gradient so the title is always legible over the screenshot. */
+      /* Solid dark band at the bottom so the title is legible. No gradient. */
       content: "";
-      position: absolute; inset: 0;
-      background: linear-gradient(180deg, transparent 50%, rgba(0,0,0,0.82) 100%);
+      position: absolute; left: 0; right: 0; bottom: 0;
+      height: 26px;
+      background: rgba(0,0,0,0.72);
       pointer-events: none;
     }
     .mc-tag {
-      position: absolute; top: 0; left: 0;
+      position: absolute; top: 4px; left: 4px;
       font-family: 'Minecraft', 'Courier New', monospace;
-      font-size: 11px; font-weight: bold;
-      padding: 4px 8px;
+      font-size: 10px; font-weight: bold;
+      padding: 3px 6px;
       color: #fff;
       letter-spacing: 1px;
-      background: #f0a418;
-      box-shadow: 0 2px 0 rgba(0,0,0,0.3);
+      background: #c8851a;
+      border: 1px solid #000;
+      text-shadow: 1px 1px 0 #000;
       z-index: 2;
     }
-    .mc-tag.updated { background: #4cae4c; }
-    .mc-tag.ranked  { background: #ffd14a; color: #5a3500; }
-    .mc-tag.limited { background: #e94560; }
-    .mc-tag.coming  { background: #888; color: #fff; }
+    .mc-tag.updated { background: #3a8a3a; }
+    .mc-tag.ranked  { background: #c89c1a; color: #2a1a00; text-shadow: 1px 1px 0 #6a4a00; }
+    .mc-tag.limited { background: #a83042; }
+    .mc-tag.coming  { background: #6a6a6a; }
+    .mc-tag.new     { background: #3a6ec8; }
     .mc-ccu {
-      position: absolute; top: 6px; right: 6px;
+      position: absolute; top: 4px; right: 4px;
       font-family: 'Minecraft', 'Courier New', monospace;
       font-size: 11px; font-weight: bold;
       color: #fff;
-      background: rgba(0,0,0,0.55);
-      padding: 3px 8px;
-      border-radius: 4px;
+      background: rgba(0,0,0,0.7);
+      border: 1px solid #000;
+      padding: 2px 6px;
       display: flex; align-items: center; gap: 4px;
       z-index: 2;
       text-shadow: 1px 1px 0 #000;
@@ -167,31 +175,27 @@
     }
     .mc-title {
       position: absolute; left: 0; right: 0; bottom: 0;
-      padding: 8px 10px 10px;
+      padding: 5px 8px 6px;
       color: #fff;
       font-family: 'Minecraft', 'Courier New', monospace;
       z-index: 2;
       pointer-events: none;
+      display: flex; align-items: center; gap: 8px;
     }
     .mc-title .mc-name {
-      font-size: 13px;
+      font-size: 14px;
       font-weight: bold;
       letter-spacing: 0.5px;
       text-shadow: 2px 2px 0 #000;
       line-height: 1.1;
     }
     .mc-title .mc-sub {
-      display: inline-block;
-      margin-top: 3px;
       font-size: 10px;
-      padding: 1px 6px;
-      background: #5a8a3a;
-      color: #fff;
-      border-radius: 3px;
+      color: #5be17a;
       letter-spacing: 1px;
       text-shadow: 1px 1px 0 #000;
     }
-    .mc-title .mc-sub.offline { background: #5a5a5a; }
+    .mc-title .mc-sub.offline { color: #b0b0b0; }
     .mc-title .mc-sub.mp { background: #4a8aff; }
     .mc-title .mc-sub.featured { background: #e94560; }
     .menu-footer {
@@ -1516,7 +1520,7 @@
       font-weight: bold;
     }
   </style>
-  <script type="module" crossorigin src="/assets/index-DPSi5z1z.js"></script>
+  <script type="module" crossorigin src="/assets/index-B9zPok_c.js"></script>
 </head>
 <body>
   <!-- ── Main menu ──────────────────────────────────────────────── -->
@@ -1554,79 +1558,73 @@
           <div class="mc-cover" style="background-image:url('/screenshots/survival.jpg');"></div>
           <div class="mc-tag">POPULAR</div>
           <div class="mc-ccu" data-mode-ccu="survival">0</div>
-          <div class="mc-title">
-            <div class="mc-name">Survival</div>
-            <span class="mc-sub mp">multi</span>
-          </div>
+          <div class="mc-title"><div class="mc-name">Survival</div></div>
         </div>
         <div class="mode-card" data-mode="survival_offline">
           <div class="mc-cover" style="background-image:url('/screenshots/survival.jpg');"></div>
-          <div class="mc-ccu" data-mode-ccu="survival_offline">·</div>
           <div class="mc-title">
             <div class="mc-name">Survival</div>
-            <span class="mc-sub offline">offline</span>
+            <span class="mc-sub offline">Offline</span>
           </div>
         </div>
         <div class="mode-card" data-mode="creative_mp">
           <div class="mc-cover" style="background-image:url('/screenshots/creative.jpg');"></div>
           <div class="mc-tag updated">UPDATED</div>
           <div class="mc-ccu" data-mode-ccu="creative">0</div>
-          <div class="mc-title">
-            <div class="mc-name">Creative</div>
-            <span class="mc-sub mp">multi</span>
-          </div>
+          <div class="mc-title"><div class="mc-name">Creative</div></div>
         </div>
         <div class="mode-card" data-mode="creative_offline">
           <div class="mc-cover" style="background-image:url('/screenshots/creative.jpg');"></div>
-          <div class="mc-ccu" data-mode-ccu="creative_offline">·</div>
           <div class="mc-title">
             <div class="mc-name">Creative</div>
-            <span class="mc-sub offline">offline</span>
+            <span class="mc-sub offline">Offline</span>
           </div>
         </div>
         <div class="mode-card" data-mode="bedwars_mp">
           <div class="mc-cover" style="background-image:url('/screenshots/bedwars.jpg');"></div>
           <div class="mc-tag ranked">RANKED</div>
           <div class="mc-ccu" data-mode-ccu="bedwars">0</div>
-          <div class="mc-title">
-            <div class="mc-name">Bedwars</div>
-            <span class="mc-sub mp">multi</span>
-          </div>
+          <div class="mc-title"><div class="mc-name">Bedwars</div></div>
         </div>
         <div class="mode-card" data-mode="parkour_mp">
           <div class="mc-cover" style="background-image:url('/screenshots/parkour.jpg');"></div>
           <div class="mc-ccu" data-mode-ccu="parkour">0</div>
-          <div class="mc-title">
-            <div class="mc-name">Parkour</div>
-            <span class="mc-sub mp">multi</span>
-          </div>
+          <div class="mc-title"><div class="mc-name">Parkour</div></div>
         </div>
         <div class="mode-card" data-mode="oneblock">
           <div class="mc-cover" style="background-image:url('/screenshots/oneblock.jpg');"></div>
           <div class="mc-tag limited">FEATURED</div>
-          <div class="mc-ccu" data-mode-ccu="oneblock">·</div>
-          <div class="mc-title">
-            <div class="mc-name">One Block</div>
-            <span class="mc-sub featured">solo</span>
-          </div>
+          <div class="mc-title"><div class="mc-name">One Block</div></div>
         </div>
         <div class="mode-card" data-mode="buildbattle_mp">
           <div class="mc-cover" style="background-image:url('/screenshots/buildbattle.jpg');"></div>
-          <div class="mc-tag updated">NEW</div>
+          <div class="mc-tag new">NEW</div>
           <div class="mc-ccu" data-mode-ccu="buildbattle">0</div>
-          <div class="mc-title">
-            <div class="mc-name">Build Battle</div>
-            <span class="mc-sub mp">multi</span>
-          </div>
+          <div class="mc-title"><div class="mc-name">Build Battle</div></div>
         </div>
         <div class="mode-card" data-mode="hideandseek_mp">
           <div class="mc-cover" style="background-image:url('/screenshots/hideandseek.jpg');"></div>
-          <div class="mc-tag updated">NEW</div>
+          <div class="mc-tag new">NEW</div>
           <div class="mc-ccu" data-mode-ccu="hideandseek">0</div>
-          <div class="mc-title">
-            <div class="mc-name">Hide and Seek</div>
-            <span class="mc-sub mp">multi</span>
-          </div>
+          <div class="mc-title"><div class="mc-name">Hide and Seek</div></div>
+        </div>
+        <div class="mode-card" data-mode="shooter_mp">
+          <div class="mc-cover" style="background-image:url('/screenshots/bedwars.jpg');"></div>
+          <div class="mc-tag new">NEW</div>
+          <div class="mc-ccu" data-mode-ccu="shooter">0</div>
+          <div class="mc-title"><div class="mc-name">Shooter</div></div>
+        </div>
+        <div class="mode-card" data-mode="infection_mp">
+          <div class="mc-cover" style="background-image:url('/screenshots/hideandseek.jpg');"></div>
+          <div class="mc-tag new">NEW</div>
+          <div class="mc-ccu" data-mode-ccu="infection">0</div>
+          <div class="mc-title"><div class="mc-name">Infection</div></div>
+        </div>
+        <div class="mode-card" data-mode="squidgames_mp">
+          <div class="mc-cover" style="background-image:url('/screenshots/buildbattle.jpg');"></div>
+          <div class="mc-tag new">NEW</div>
+          <div class="mc-ccu" data-mode-ccu="squidgames">0</div>
+          <div class="mc-title"><div class="mc-name">Squid Games</div></div>
         </div>
       </div>
       <div class="menu-footer">
