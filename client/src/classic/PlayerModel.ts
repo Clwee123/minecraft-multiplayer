@@ -162,13 +162,64 @@ let ITEM_ROT_X = ARM_DEFAULTS.itemRotX;
 let ITEM_ROT_Y = ARM_DEFAULTS.itemRotY;
 let ITEM_ROT_Z = ARM_DEFAULTS.itemRotZ;
 
+/** Per-item override for the held mesh's local transform. Without an entry
+ *  we fall back to ITEM_OFFSET_* / ITEM_ROT_*. The studio panel writes here
+ *  and persists the map via localStorage. */
+export interface HeldOverride { x?: number; y?: number; z?: number; rotX?: number; rotY?: number; rotZ?: number; }
+export const ITEM_HELD_OVERRIDES: Record<number, HeldOverride> = {
+  // Tools — typically held diagonally with the blade up and forward.
+  // Swords (vanilla MC tilt: roughly +X up, slight -Z back so the blade
+  // points at the world's +Z forward camera direction).
+  58: { x: 0.02, y: -0.20, z: -0.10, rotX: -0.5, rotY: -0.8, rotZ: 0.4 },  // wood sword
+  61: { x: 0.02, y: -0.20, z: -0.10, rotX: -0.5, rotY: -0.8, rotZ: 0.4 },  // stone sword
+  63: { x: 0.02, y: -0.20, z: -0.10, rotX: -0.5, rotY: -0.8, rotZ: 0.4 },  // iron sword
+  64: { x: 0.02, y: -0.20, z: -0.10, rotX: -0.5, rotY: -0.8, rotZ: 0.4 },  // diamond sword
+  183: { x: 0.02, y: -0.20, z: -0.10, rotX: -0.5, rotY: -0.8, rotZ: 0.4 }, // gold sword
+  // Pickaxes / axes / shovels — held more horizontally, head pointing out.
+  55: { x: 0.0, y: -0.25, z: -0.05, rotX: 0.0, rotY: -0.4, rotZ: 0.9 },    // wood pickaxe
+  59: { x: 0.0, y: -0.25, z: -0.05, rotX: 0.0, rotY: -0.4, rotZ: 0.9 },    // stone pickaxe
+  62: { x: 0.0, y: -0.25, z: -0.05, rotX: 0.0, rotY: -0.4, rotZ: 0.9 },    // iron pickaxe
+  70: { x: 0.0, y: -0.25, z: -0.05, rotX: 0.0, rotY: -0.4, rotZ: 0.9 },    // diamond pickaxe
+  185: { x: 0.0, y: -0.25, z: -0.05, rotX: 0.0, rotY: -0.4, rotZ: 0.9 },   // gold pickaxe
+  // Bow — held vertically, string toward camera.
+  102: { x: 0.05, y: -0.18, z: -0.20, rotX: 0.2, rotY: 0.0, rotZ: 1.4 },
+  // Food items + small items — close to the hand, slightly tilted.
+  65: { x: 0.0, y: -0.28, z: 0.0, rotX: 0.0, rotY: 0.0, rotZ: 0.0 },   // apple
+  66: { x: 0.0, y: -0.28, z: 0.0, rotX: 0.0, rotY: 0.0, rotZ: 0.0 },   // bread
+  82: { x: 0.0, y: -0.28, z: 0.0, rotX: 0.0, rotY: 0.0, rotZ: 0.0 },   // cooked porkchop
+  83: { x: 0.0, y: -0.28, z: 0.0, rotX: 0.0, rotY: 0.0, rotZ: 0.0 },   // cooked beef
+  84: { x: 0.0, y: -0.28, z: 0.0, rotX: 0.0, rotY: 0.0, rotZ: 0.0 },   // cooked chicken
+  212: { x: 0.0, y: -0.28, z: 0.0, rotX: 0.0, rotY: 0.0, rotZ: 0.0 },  // raw beef
+  213: { x: 0.0, y: -0.28, z: 0.0, rotX: 0.0, rotY: 0.0, rotZ: 0.0 },  // raw porkchop
+  214: { x: 0.0, y: -0.28, z: 0.0, rotX: 0.0, rotY: 0.0, rotZ: 0.0 },  // raw chicken
+};
+/** Studio overwrites this whole map at runtime. Persisted in localStorage. */
+const ITEM_OVERRIDES_KEY = "mc.itemHeldOverrides.v1";
+try {
+  const raw = localStorage.getItem(ITEM_OVERRIDES_KEY);
+  if (raw) {
+    const data = JSON.parse(raw);
+    for (const k of Object.keys(data)) ITEM_HELD_OVERRIDES[+k] = data[k];
+  }
+} catch {}
+export function saveItemHeldOverrides() {
+  try { localStorage.setItem(ITEM_OVERRIDES_KEY, JSON.stringify(ITEM_HELD_OVERRIDES)); } catch {}
+}
+
 export interface FirstPersonArm {
   group: THREE.Group;
   triggerSwing(strength?: number): void;
   triggerMineSwing(): void;
+  /** Eating-pose override. `progress` is 0..1 where 1 = fully raised to
+   *  mouth. Pass 0 (or stop calling) to release back to rest. Adds a small
+   *  nibble shake on top of the raised pose. */
+  setEating(progress: number): void;
   /** Advance animation. `ctx` adds walking bob + yaw sway when provided. */
   update(dt: number, ctx?: { walkSpeed: number; yawDelta: number; onGround: boolean }): void;
   setHeldItem(itemId: number): void;
+  /** Re-apply the held mesh transform from the current overrides — used by
+   *  the studio so live slider edits show without re-equipping. */
+  refreshHeldTransform(): void;
 }
 
 export function buildFirstPersonArm(): FirstPersonArm | null {
@@ -275,6 +326,7 @@ export function buildFirstPersonArm(): FirstPersonArm | null {
   const groupBaseX = group.position.x;
   const groupBaseY = group.position.y;
 
+  let eatProgress = 0;
   return {
     group,
     triggerSwing(strength = 1) {
@@ -285,11 +337,23 @@ export function buildFirstPersonArm(): FirstPersonArm | null {
     triggerMineSwing() {
       miningActive = true;
     },
+    setEating(p: number) {
+      eatProgress = Math.max(0, Math.min(1, p));
+    },
     update(dt: number, ctx?: { walkSpeed: number; yawDelta: number; onGround: boolean }) {
       if (!shoulder) return;
       const sh = shoulder as THREE.Object3D;
       // ── Shoulder swing (one-shot or continuous mining) ──
-      if (swingT > 0) {
+      if (eatProgress > 0) {
+        // Eating pose: rotate the shoulder upward so the held item rises to
+        // the mouth, plus a fast nibble shake. The shake amplitude builds
+        // with eat progress so it's subtle at the start, busier near the
+        // last bite — feels like chewing.
+        const lift = ARM_SWING_ARC * 0.9;
+        const shake = Math.sin(performance.now() * 0.028) * 0.08 * (0.3 + eatProgress * 0.7);
+        sh.rotation.x = baseRotX - ARM_SHOULDER_FORWARD + lift + shake;
+        sh.rotation.z = baseRotZ + 0.25 + shake * 0.6;
+      } else if (swingT > 0) {
         const eased = Math.sin((1 - swingT) * Math.PI);
         sh.rotation.x = baseRotX - ARM_SHOULDER_FORWARD + eased * ARM_SWING_ARC * swingStrength;
         sh.rotation.z = baseRotZ + eased * ARM_TWIST * swingStrength;
@@ -346,13 +410,24 @@ export function buildFirstPersonArm(): FirstPersonArm | null {
       // The cloned model is scaled ~0.4×, so we counter-scale the held mesh.
       const inv = 1 / (cloned.scale.y || 1);
       heldMesh.scale.set(inv, inv, inv);
-      // Offset down the forearm in the hand-bone's local space and tilt for
-      // the classic vanilla diagonal. Values are tuneable from the dev panel
-      // via window.__armTuner.set("itemX"/"itemY"/.../itemRotZ).
-      heldMesh.position.set(ITEM_OFFSET_X, ITEM_OFFSET_Y, ITEM_OFFSET_Z);
-      heldMesh.rotation.set(ITEM_ROT_X, ITEM_ROT_Y, ITEM_ROT_Z);
+      // Per-item override → fall back to the global tuner values.
+      const o = ITEM_HELD_OVERRIDES[itemId] || {};
+      const px = o.x   ?? ITEM_OFFSET_X;
+      const py = o.y   ?? ITEM_OFFSET_Y;
+      const pz = o.z   ?? ITEM_OFFSET_Z;
+      const rx = o.rotX ?? ITEM_ROT_X;
+      const ry = o.rotY ?? ITEM_ROT_Y;
+      const rz = o.rotZ ?? ITEM_ROT_Z;
+      heldMesh.position.set(px, py, pz);
+      heldMesh.rotation.set(rx, ry, rz);
       const parent = (hand as THREE.Object3D | null) ?? group;
       parent.add(heldMesh);
+    },
+    refreshHeldTransform() {
+      if (!heldMesh) return;
+      const o = ITEM_HELD_OVERRIDES[currentHeldId] || {};
+      heldMesh.position.set(o.x ?? ITEM_OFFSET_X, o.y ?? ITEM_OFFSET_Y, o.z ?? ITEM_OFFSET_Z);
+      heldMesh.rotation.set(o.rotX ?? ITEM_ROT_X, o.rotY ?? ITEM_ROT_Y, o.rotZ ?? ITEM_ROT_Z);
     },
   };
 }

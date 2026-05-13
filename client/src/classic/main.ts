@@ -12,6 +12,7 @@ import { TradeUI } from "./TradeUI";
 import { FurnaceUI } from "./FurnaceUI";
 import { ChestUI } from "./ChestUI";
 import { ArmDevPanel } from "./ArmDevPanel";
+import { ArmStudio } from "./ArmStudio";
 import { ServerFinder, listRooms } from "./ServerFinder";
 import { ItemDrops } from "./ItemDrops";
 import { MODES, ModeId, buildBedwars, buildParkour, buildOneBlock, pickOneBlockNext, buildBuildBattle, buildHideAndSeek, buildShooter, buildInfection, buildSquidGames } from "./Modes";
@@ -1793,6 +1794,20 @@ async function startGame(serverAddr: string | null) {
     // Dev panel — sliders to tune arm rest pose + swing. Hidden by default,
     // shown when ?devarm=1 is in the URL or window.__armDev.show() is called.
     new ArmDevPanel();
+    // Arm Studio — per-item held offset tuner. ?armstudio=1 to open it,
+    // or window.__armStudio.show() from the console.
+    const studio = new ArmStudio();
+    studio.fpArm = fpArm;
+    studio.onEquip = (id) => {
+      // Drop the picked item into the selected hotbar slot so the live arm
+      // picks it up via syncHeldItem. Count 999 keeps the slot stable while
+      // tuning.
+      if (!inv) return;
+      const sel = inv.selected;
+      inv.hotbar[sel] = { id, count: 999, damage: 0 };
+      refreshHotbar();
+      syncHeldItem();
+    };
   }
 
   // Hooks
@@ -2094,7 +2109,11 @@ async function startGame(serverAddr: string | null) {
     // First-person arm: chop continuously while LMB held in survival.
     // Also pass walking speed + yaw delta so the arm bobs + sways like vanilla.
     if (fpArm) {
-      if (lmbHeld && player.gameMode === "survival" && player.lastHit) {
+      // Eating overrides the mining/swing pose. Pass current eatProgress
+      // (0..1) so the arm raises to mouth + nibble-shakes while held RMB
+      // is consuming a food item.
+      fpArm.setEating(eatProgress > 0 ? eatProgress / EAT_TIME : 0);
+      if (eatProgress === 0 && lmbHeld && player.gameMode === "survival" && player.lastHit) {
         fpArm.triggerMineSwing();
       }
       const walkSpeed = Math.hypot(player.vel.x, player.vel.z);
