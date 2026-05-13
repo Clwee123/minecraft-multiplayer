@@ -1112,6 +1112,44 @@
     }
     #waterTint.active { opacity: 1; }
 
+    /* ── Shooter map vote panel ─────────────────────────────────── */
+    #mapVotePanel {
+      position: fixed; left: 50%; top: 22%;
+      transform: translateX(-50%);
+      display: none;
+      background: rgba(0,0,0,0.85);
+      border-top:    2px solid #c6c6c6;
+      border-left:   2px solid #c6c6c6;
+      border-right:  2px solid #2d2d2d;
+      border-bottom: 2px solid #2d2d2d;
+      padding: 16px;
+      z-index: 250;
+      font-family: 'Minecraft', 'Courier New', monospace;
+      color: #fff;
+      text-align: center;
+    }
+    #mapVotePanel h2 {
+      margin: 0 0 12px; color: #ffd23f; letter-spacing: 2px;
+      text-shadow: 2px 2px 0 #2a1c00;
+    }
+    .map-vote-grid {
+      display: flex; gap: 10px;
+    }
+    .map-vote-card {
+      width: 140px; padding: 10px;
+      background: #555;
+      border-top:    2px solid #aaa;
+      border-left:   2px solid #aaa;
+      border-right:  2px solid #1f1f1f;
+      border-bottom: 2px solid #1f1f1f;
+      cursor: pointer;
+      text-shadow: 1px 1px 0 #000;
+    }
+    .map-vote-card:hover { filter: brightness(1.2); }
+    .map-vote-card.voted { border-top-color: #57e57c; border-left-color: #57e57c; background: #4a704a; }
+    .map-vote-card .map-name { font-weight: bold; letter-spacing: 1px; }
+    .map-vote-timer { margin-top: 10px; color: #aaa; font-size: 12px; }
+
     /* ── Red damage overlay ─────────────────────────────────────── */
     /* Vanilla MC: brief red vignette pulse on any HP loss, fading out. */
     #hurtOverlay {
@@ -1520,7 +1558,7 @@
       font-weight: bold;
     }
   </style>
-  <script type="module" crossorigin src="/assets/index-B9zPok_c.js"></script>
+  <script type="module" crossorigin src="/assets/index-DrEDx9Do.js"></script>
 </head>
 <body>
   <!-- ── Main menu ──────────────────────────────────────────────── -->
@@ -1685,6 +1723,13 @@
       <div><b>WASD</b> move · <b>Shift</b> sprint · <b>C</b> crouch · <b>Space</b> jump · <b>2×Space</b> fly</div>
       <div><b>Mouse</b> look · <b>LMB</b> break (hold) · <b>RMB</b> place / open crafting table</div>
       <div><b>1-9</b> / <b>scroll</b> select · <b>E</b> inventory · <b>Q</b> drop · <b>P</b> debug · <b>T</b> chat · <b>L</b> friends</div>
+    </div>
+
+    <!-- Shooter map vote panel — shown during the 10s vote phase -->
+    <div id="mapVotePanel">
+      <h2>VOTE FOR THE NEXT MAP</h2>
+      <div class="map-vote-grid" id="mapVoteGrid"></div>
+      <div class="map-vote-timer">Closing in <span id="mapVoteTimer">10</span>s</div>
     </div>
 
     <!-- Death screen -->

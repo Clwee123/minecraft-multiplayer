@@ -1139,6 +1139,47 @@ function renderXp(level: number, progress: number) {
 // ── Death screen ──────────────────────────────────────────────────────────
 let _deathWired = false;
 let _respawnPos = { x: 0, y: 64, z: 0 };
+// ── Shooter map-vote panel ────────────────────────────────────────────────
+let _voteTimerInterval: number | null = null;
+function showMapVotePanel(maps: string[]) {
+  const panel = document.getElementById("mapVotePanel");
+  const grid  = document.getElementById("mapVoteGrid");
+  const timerEl = document.getElementById("mapVoteTimer");
+  if (!panel || !grid) return;
+  grid.innerHTML = "";
+  maps.forEach((name, idx) => {
+    const card = document.createElement("div");
+    card.className = "map-vote-card";
+    card.innerHTML = `<div class="map-name">${escapeHtml(name.toUpperCase())}</div>`;
+    card.addEventListener("click", () => {
+      mp?.voteMap(idx);
+      grid.querySelectorAll(".map-vote-card").forEach(el => el.classList.remove("voted"));
+      card.classList.add("voted");
+      sound.click();
+    });
+    grid.appendChild(card);
+  });
+  panel.style.display = "block";
+  // Tick the timer down to 0 visually.
+  if (_voteTimerInterval) clearInterval(_voteTimerInterval);
+  const tick = () => {
+    if (!timerEl) return;
+    const remaining = mp ? Math.max(0, Math.ceil((mp.phaseEndsAtMs - Date.now()) / 1000)) : 0;
+    timerEl.textContent = String(remaining);
+    if (remaining <= 0) {
+      if (_voteTimerInterval) clearInterval(_voteTimerInterval);
+      _voteTimerInterval = null;
+    }
+  };
+  tick();
+  _voteTimerInterval = window.setInterval(tick, 250);
+}
+function hideMapVotePanel() {
+  const panel = document.getElementById("mapVotePanel");
+  if (panel) panel.style.display = "none";
+  if (_voteTimerInterval) { clearInterval(_voteTimerInterval); _voteTimerInterval = null; }
+}
+
 function showDeathScreen() {
   const el = document.getElementById("deathScreen");
   if (!el) return;
@@ -1326,7 +1367,10 @@ function tryAttackInFront(): boolean {
     if (t < 0 || t > maxDist) return;
     if (!best || t < best.t) best = { kind, id, t, mesh };
   };
-  for (const m of mp.getRemoteMobs())    considerBox("mob",    m.id, m.mesh, 0.5, 1.8);
+  for (const m of mp.getRemoteMobs()) {
+    if (m.health <= 0) continue;
+    considerBox("mob", m.id, m.mesh, 0.5, 1.8);
+  }
   // Skip dead players: server's alive=false hides their mesh, and we don't
   // want the killer's swing to keep registering on the now-invisible corpse.
   for (const p of mp.getRemotePlayers()) {
@@ -1337,8 +1381,28 @@ function tryAttackInFront(): boolean {
   // Visual: red-flash whatever we hit for ~250 ms.
   flashHitFlash(best.mesh);
   const dmg = damageForHeld();
-  if (best.kind === "mob") mp.sendAttackMob(best.id, dmg);
-  else                     mp.sendAttackPlayer(best.id, dmg);
+  if (best.kind === "mob") {
+    mp.sendAttackMob(best.id, dmg);
+    // ── Predicted damage on the target's HP badge ──
+    // The server is authoritative — reconcileFromState will overwrite this
+    // with the real value on the next tick. But predicting locally means
+    // the badge ticks down THE INSTANT you swing, instead of after the
+    // RTT round-trip. Feels much snappier and is impossible to drift since
+    // every state replication clobbers the prediction.
+    const m = mp.getRemoteMobs().find(mm => mm.id === best!.id);
+    if (m) {
+      m.health = Math.max(0, m.health - dmg);
+      m.healthBadge?.updateHp?.(m.health, m.maxHealth);
+    }
+  } else {
+    mp.sendAttackPlayer(best.id, dmg);
+    const p = mp.getRemotePlayers().find(pp => pp.id === best!.id);
+    if (p) {
+      p.health = Math.max(0, p.health - dmg);
+      p.healthBadge?.updateHp?.(p.health, 20);
+      p.lastShownHealth = p.health;
+    }
+  }
   return true;
 }
 
@@ -1527,6 +1591,21 @@ async function startGame(serverAddr: string | null) {
       // and applied when generateChunk reaches it.
       if (world) world.setBlock(x, y, z, type, { autoCreate: false });
     };
+    // ── Shooter round flow ──
+    // voteStart fires when the 10-s vote phase begins. We pop the map-vote
+    // UI; clicking a card sends voteMap to the server, which tallies and
+    // broadcasts roundStart with the winning map. roundStart hides the
+    // panel + tears down + rebuilds the arena from the new mapIndex.
+    mp.onVoteStart = (maps) => showMapVotePanel(maps);
+    mp.onRoundStart = (_mapName) => {
+      hideMapVotePanel();
+      if (mode === "shooter_mp") {
+        const s = buildShooter(world, mp?.mapIndex ?? 0);
+        // Force a mesh rebuild before teleporting the player there.
+        world.buildAllDirtyNow();
+        player.spawnAt(s.spawnX, s.spawnY, s.spawnZ);
+      }
+    };
     mp.onMobKilled = (_id, _type, x, y, z, dropList) => {
       // Spawn each drop at the mob's position. ItemDrops handles the
       // bouncing visuals + grace-period before pickup. We don't gate on
@@ -1537,9 +1616,20 @@ async function startGame(serverAddr: string | null) {
       }
     };
     mp.onLocalDamage = (d, source) => {
-      // Prefer the precise source from the server message ("a creeper" /
-      // "PlayerName"). Fall back to "a monster" only if no source arrived.
-      player?.takeDamage(d, source || "a monster");
+      // Authoritative HP comes from state.players[me].health (already
+      // synced by mp.update). We just MIRROR that onto Player.health and
+      // trigger the local feedback (red flash, sound, death screen).
+      if (!player) return;
+      const authoritative = mp?.lastSelfHealth ?? player.health;
+      player.lastDamageReason = source || "a monster";
+      const wasAlive = !player.isDead;
+      player.health = Math.max(0, authoritative);
+      if (player.health <= 0 && wasAlive) {
+        player.isDead = true;
+      }
+      // Reuse the existing onHealthChange callback so the HUD + death
+      // screen + screenshake/red-overlay all run from one place.
+      (player as any).onHealthChange?.(player.health);
     };
     // Snap remote mobs to actual terrain — server uses a dumb y=32 floor.
     mp.groundLookup = (x, z) => {
@@ -1607,7 +1697,7 @@ async function startGame(serverAddr: string | null) {
     const s = buildHideAndSeek(world);
     spawnX = s.spawnX; spawnY = s.spawnY; spawnZ = s.spawnZ;
   } else if (mode === "shooter_mp") {
-    const s = buildShooter(world);
+    const s = buildShooter(world, mp?.mapIndex ?? 0);
     spawnX = s.spawnX; spawnY = s.spawnY; spawnZ = s.spawnZ;
   } else if (mode === "infection_mp") {
     const s = buildInfection(world);

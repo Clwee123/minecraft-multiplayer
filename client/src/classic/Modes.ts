@@ -316,47 +316,63 @@ function mulberry(seed: number): () => number {
  * Shooter FFA — flat arena with cover walls and elevated catwalks.
  * Players spawn on a central platform, run for cover, gunfight with bows.
  */
-export function buildShooter(world: World): { spawnX: number; spawnY: number; spawnZ: number } {
+/** Names ordered to match the server's MODE_MAPS.shooter pool. */
+export const SHOOTER_MAPS = ["arena", "warehouse", "courtyard"] as const;
+
+export function buildShooter(world: World, mapIndex = 0): { spawnX: number; spawnY: number; spawnZ: number } {
   world.clearAll();
   const cx = 128, cz = 128, y = 40;
   const R = 30;
-  // Ground floor — stone bricks with a gravel rim.
+  const map = SHOOTER_MAPS[mapIndex % SHOOTER_MAPS.length];
+  // Per-map material palette. Layout below is shared; only the surface
+  // blocks change so each map has a distinct vibe without doubling code.
+  const palette = map === "warehouse"
+    ? { floor: 8 /*planks*/,  wall: 5 /*log*/,    pillar: 17 /*mossy cobble*/, accent: 39 /*iron block*/ }
+    : map === "courtyard"
+    ? { floor: 1 /*grass*/,   wall: 27 /*sandstone*/, pillar: 12 /*bricks*/,     accent: 40 /*gold*/ }
+    :                          { floor: 26 /*stone bricks*/, wall: 26, pillar: 9 /*cobble*/, accent: 41 /*diamond*/ };
+  // Ground floor with a gravel rim.
   for (let dx = -R; dx <= R; dx++) for (let dz = -R; dz <= R; dz++) {
     const onEdge = Math.abs(dx) === R || Math.abs(dz) === R;
-    world.setBlock(cx + dx, y, cz + dz, onEdge ? 10 : 26);
+    world.setBlock(cx + dx, y, cz + dz, onEdge ? 10 : palette.floor);
   }
-  // Boundary wall (3 tall stonebrick).
+  // Boundary wall (4 tall).
   for (let dx = -R; dx <= R; dx++) for (let dy = 1; dy <= 4; dy++) {
-    world.setBlock(cx + dx, y + dy, cz - R, 26);
-    world.setBlock(cx + dx, y + dy, cz + R, 26);
+    world.setBlock(cx + dx, y + dy, cz - R, palette.wall);
+    world.setBlock(cx + dx, y + dy, cz + R, palette.wall);
   }
   for (let dz = -R; dz <= R; dz++) for (let dy = 1; dy <= 4; dy++) {
-    world.setBlock(cx - R, y + dy, cz + dz, 26);
-    world.setBlock(cx + R, y + dy, cz + dz, 26);
+    world.setBlock(cx - R, y + dy, cz + dz, palette.wall);
+    world.setBlock(cx + R, y + dy, cz + dz, palette.wall);
   }
-  // Cover blocks — scattered 2×2 cobble pillars + walls.
-  const covers: Array<[number, number, "wall" | "pillar"]> = [
-    [-18, -4, "wall"], [16, -8, "pillar"], [-6, 12, "wall"], [4, -16, "pillar"],
-    [12, 14, "wall"], [-12, -14, "pillar"], [18, 4, "pillar"], [-20, 8, "wall"],
-    [0, 20, "wall"], [0, -20, "wall"], [22, 0, "pillar"], [-22, 0, "pillar"],
-  ];
+  // Cover placement varies per map for tactical variety.
+  const covers: Array<[number, number, "wall" | "pillar"]> =
+    map === "warehouse"
+      ? [[-10, -10, "wall"], [10, 10, "wall"], [-10, 10, "wall"], [10, -10, "wall"],
+         [0, 0, "pillar"], [-18, 0, "pillar"], [18, 0, "pillar"], [0, -18, "pillar"], [0, 18, "pillar"]]
+      : map === "courtyard"
+      ? [[-15, 0, "wall"], [15, 0, "wall"], [0, -15, "wall"], [0, 15, "wall"],
+         [-8, -8, "pillar"], [8, 8, "pillar"], [-8, 8, "pillar"], [8, -8, "pillar"]]
+      : [[-18, -4, "wall"], [16, -8, "pillar"], [-6, 12, "wall"], [4, -16, "pillar"],
+         [12, 14, "wall"], [-12, -14, "pillar"], [18, 4, "pillar"], [-20, 8, "wall"],
+         [0, 20, "wall"], [0, -20, "wall"], [22, 0, "pillar"], [-22, 0, "pillar"]];
   for (const [dx, dz, kind] of covers) {
     if (kind === "pillar") {
       for (let py = 1; py <= 3; py++) {
-        world.setBlock(cx + dx,     y + py, cz + dz, 9);
-        world.setBlock(cx + dx + 1, y + py, cz + dz, 9);
-        world.setBlock(cx + dx,     y + py, cz + dz + 1, 9);
-        world.setBlock(cx + dx + 1, y + py, cz + dz + 1, 9);
+        world.setBlock(cx + dx,     y + py, cz + dz, palette.pillar);
+        world.setBlock(cx + dx + 1, y + py, cz + dz, palette.pillar);
+        world.setBlock(cx + dx,     y + py, cz + dz + 1, palette.pillar);
+        world.setBlock(cx + dx + 1, y + py, cz + dz + 1, palette.pillar);
       }
     } else {
       for (let wx = 0; wx < 5; wx++) for (let wy = 1; wy <= 3; wy++) {
-        world.setBlock(cx + dx + wx, y + wy, cz + dz, 17);
+        world.setBlock(cx + dx + wx, y + wy, cz + dz, palette.pillar);
       }
     }
   }
-  // Centre spawn pad — slightly elevated.
+  // Centre spawn pad — slightly elevated, accent block.
   for (let dx = -2; dx <= 2; dx++) for (let dz = -2; dz <= 2; dz++) {
-    world.setBlock(cx + dx, y + 1, cz + dz, 41);
+    world.setBlock(cx + dx, y + 1, cz + dz, palette.accent);
   }
   return { spawnX: cx + 0.5, spawnY: y + 2.001, spawnZ: cz + 0.5 };
 }

@@ -99,10 +99,18 @@ export class Multiplayer {
   public playerName: string;
   /** Server-reported world time in ticks (0..24000). Mirrors state.timeOfDay if present. */
   public timeOfDay = 6000;
-  /** Server-driven mode-phase state (BuildBattle / HideAndSeek). */
+  /** Server-driven mode-phase state (BuildBattle / HideAndSeek / Shooter). */
   public modePhase = 0;
   /** Server timestamp (ms) when the current phase ends. 0 = no phase set. */
   public phaseEndsAtMs = 0;
+  /** Active map index (Shooter) — client reads this to know which arena to build. */
+  public mapIndex = 0;
+  /** Cast a vote for the next map (Shooter, only during vote phase). */
+  voteMap(index: number) { this.room?.send("voteMap", { index }); }
+  /** Listener wired in main.ts — fires when the server starts the vote phase. */
+  onVoteStart?: (maps: string[]) => void;
+  /** Listener wired in main.ts — fires when a new round begins (map swap). */
+  onRoundStart?: (map: string) => void;
 
   onBlockUpdate?: BlockUpdateHandler;
   /** Optional ground-snap callback set by main.ts so mob meshes sit on the
@@ -134,7 +142,10 @@ export class Multiplayer {
   /** A mob died — main.ts spawns the dropped items at the mob's position. */
   onMobKilled?: (mobId: string, type: string, x: number, y: number, z: number, drops: Array<{ id: number; count: number }>) => void;
 
-  private lastSelfHealth = -1;
+  /** Last authoritative HP value the server told us for our own player.
+   *  Exposed so main.ts can mirror it onto Player.health without doing
+   *  delta math (which drifts). -1 = haven't received state yet. */
+  public lastSelfHealth = -1;
 
   constructor(scene: THREE.Scene, playerName: string) {
     this.scene = scene;
@@ -270,6 +281,8 @@ export class Multiplayer {
       });
       this.room.onMessage("hunger", noop);
       this.room.onMessage("inventory", noop);
+      this.room.onMessage("voteStart",  (msg: any) => { this.onVoteStart?.(Array.isArray(msg?.maps) ? msg.maps : []); });
+      this.room.onMessage("roundStart", (msg: any) => { this.onRoundStart?.(String(msg?.map || "")); });
       // Catch-all: stop colyseus from logging warnings about any other unknown message types.
       try {
         (this.room as any).onMessage("*", noop);
@@ -456,11 +469,11 @@ export class Multiplayer {
       alive: player?.alive !== false,
       crouching: !!player?.crouching,
       healthBadge: (() => {
-        const b = makeHealthBadge(player?.health ?? 40, 40);
+        const b = makeHealthBadge(player?.health ?? 20, 20);
         this.scene.add(b);
         return b;
       })(),
-      lastShownHealth: player?.health ?? 40,
+      lastShownHealth: player?.health ?? 20,
     });
   }
 
@@ -588,14 +601,19 @@ export class Multiplayer {
     else if (typeof state.time === "number")      this.timeOfDay = state.time;
     else if (typeof state.dayTime === "number")   this.timeOfDay = state.dayTime;
 
-    // Mode phase (BuildBattle / HideAndSeek) — Gunblox-style unified time.
+    // Mode phase (BuildBattle / HideAndSeek / Shooter) — Gunblox-style.
     if (typeof state.modePhase === "number")   this.modePhase = state.modePhase;
     if (typeof state.phaseEndsAt === "number") this.phaseEndsAtMs = state.phaseEndsAt * 1000;
+    if (typeof state.mapIndex === "number")    this.mapIndex     = state.mapIndex;
 
-    // Own-health reconcile. Server tickMobs damages state.players[sid].health
-    // directly; we observe that and surface it as a local damage event so the
-    // existing HP HUD + takeDamage flow runs. This is the state-sync path —
-    // we never accept playerDamage messages.
+    // Own-health reconcile. The server is authoritative: state.players[me]
+    // .health IS the truth, and we just mirror it onto the local Player.
+    // Previously we applied (lastSelfHealth - me.health) as a delta through
+    // Player.takeDamage, but because Player.health (max 20) and the old
+    // server health (max 40) were on different scales the delta double-
+    // counted and one side died while the other still saw HP. Authoritative
+    // assignment makes drift impossible: whatever the server says, that's
+    // what HUD + state both show.
     if (state.players && this.sessionId) {
       const me: any = state.players.get ? state.players.get(this.sessionId) : state.players[this.sessionId];
       if (me && typeof me.health === "number") {
@@ -635,7 +653,7 @@ export class Multiplayer {
         if (typeof p.health === "number") {
           rp.health = p.health;
           if (rp.healthBadge && rp.lastShownHealth !== p.health) {
-            rp.healthBadge.updateHp?.(p.health, 40);
+            rp.healthBadge.updateHp?.(p.health, 20);
             rp.lastShownHealth = p.health;
           }
         }

@@ -12,7 +12,7 @@ export class PlayerState extends Schema {
   @type("float32") rotY: number = 0;
   @type("float32") rotX: number = 0;
   @type("boolean") onGround: boolean = false;
-  @type("uint8")   health: number = 40;
+  @type("uint8")   health: number = 20;
   @type("string")  gameMode: string = "survival";
   /** False between death and respawn — clients hide the mesh when not alive. */
   @type("boolean") alive: boolean = true;
@@ -70,12 +70,30 @@ export class GameState extends Schema {
   @type({ map: PlayerState }) players    = new MapSchema<PlayerState>();
   @type([BlockChange])        blockChanges = new ArraySchema<BlockChange>();
   @type({ map: MobState })    mobs       = new MapSchema<MobState>();
+  /** Active map index — clients build the matching arena. Shooter cycles
+   *  this on every match. 0 by default. */
+  @type("uint8")              mapIndex   = 0;
+  /** Vote counts for the next map. Cleared each new round. Keys are map
+   *  indices as strings. */
+  @type({ map: "uint16" })    mapVotes   = new MapSchema<number>();
 }
 
 /** Phase durations in seconds. Length of the array also defines the cycle. */
 const MODE_PHASES: Record<string, number[]> = {
-  buildbattle: [30, 300, 90, 30],  // waiting → build → voting → results
-  hideandseek: [30, 30, 180, 15],  // waiting → hide → seek → round over
+  buildbattle: [30, 300, 90, 30],   // waiting → build → voting → results
+  hideandseek: [30, 30, 180, 15],   // waiting → hide → seek → round over
+  // Shooter: 5-min match → 10s map-vote → back to match. Two phases.
+  shooter:     [300, 10],
+  // Infection: 30s lobby → 4 min round → 15s reset.
+  infection:   [30, 240, 15],
+  // Squid Games: 5 minigames (60s each) + 10s buffer at start.
+  squidgames:  [10, 60, 60, 60, 60, 60],
+};
+
+/** Map-pool per mode for the auto-rotation feature. The active map index is
+ *  stored in state.mapIndex so all clients render the same arena. */
+const MODE_MAPS: Record<string, string[]> = {
+  shooter: ["arena", "warehouse", "courtyard"],
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -304,7 +322,7 @@ export class GameRoom extends Room<GameState> {
     this.onMessage("playerRespawn", (client) => {
       const p = this.state.players.get(client.sessionId);
       if (!p) return;
-      p.health = 40;
+      p.health = 20;
       p.alive = true;
       // Spawn high enough so client physics lands player on surface safely
       p.x = (Math.random() - 0.5) * 6;
@@ -334,11 +352,67 @@ export class GameRoom extends Room<GameState> {
       this.phaseLoop = setInterval(() => {
         const nowSec = Math.floor(Date.now() / 1000);
         if (nowSec >= this.state.phaseEndsAt) {
+          const prevPhase = this.state.modePhase;
           this.state.modePhase = (this.state.modePhase + 1) % phases.length;
           this.state.phaseEndsAt = nowSec + phases[this.state.modePhase];
           console.log(`[GameRoom ${this.roomId}] mode=${this.state.mode} → phase=${this.state.modePhase} (ends in ${phases[this.state.modePhase]}s)`);
+          this.onPhaseTransition(prevPhase, this.state.modePhase);
         }
       }, 500);
+    }
+
+    // ── Map vote (Shooter) ──
+    // During the 10-s vote phase, clients send "voteMap" with a map index.
+    // The highest-voted index becomes the new mapIndex when we transition
+    // out of the vote phase.
+    this.onMessage("voteMap", (_client, data: any) => {
+      if (this.state.mode !== "shooter") return;
+      if (this.state.modePhase !== 1) return; // only during vote phase
+      const idx = Math.max(0, Math.min(255, (data?.index | 0)));
+      const k = String(idx);
+      this.state.mapVotes.set(k, (this.state.mapVotes.get(k) ?? 0) + 1);
+    });
+
+    // ── PvP kill scoring ──
+    // For Shooter, the `playerHit/playerDied` flow already runs. We just
+    // need to reset score-relevant state on a new match. Per-player kill
+    // counts aren't in the schema yet — surface them as a future tick.
+  }
+
+  /** Fired by phaseLoop when the modePhase index changes. Used to swap
+   *  maps, reset HP, broadcast round-start, etc. */
+  private onPhaseTransition(_prev: number, next: number) {
+    if (this.state.mode === "shooter") {
+      // Phase 0 = match, Phase 1 = vote. After the vote ends (we just
+      // entered phase 0 again) tally + swap maps + respawn everyone.
+      if (next === 0) {
+        const pool = MODE_MAPS.shooter;
+        if (pool && pool.length > 0) {
+          let bestIdx = (this.state.mapIndex + 1) % pool.length;
+          let bestCount = -1;
+          this.state.mapVotes.forEach((count, k) => {
+            const idx = parseInt(k, 10);
+            if (idx >= 0 && idx < pool.length && count > bestCount) {
+              bestIdx = idx; bestCount = count;
+            }
+          });
+          this.state.mapIndex = bestIdx;
+          this.state.mapVotes.clear();
+          console.log(`[GameRoom ${this.roomId}] shooter map → ${pool[bestIdx]} (idx ${bestIdx})`);
+        }
+        // Respawn every player at full HP for the new round.
+        this.state.players.forEach(p => {
+          p.health = 20;
+          p.alive = true;
+          p.x = (Math.random() - 0.5) * 8;
+          p.y = 42;
+          p.z = (Math.random() - 0.5) * 8;
+        });
+        this.broadcast("roundStart", { map: pool[this.state.mapIndex] });
+      } else if (next === 1) {
+        // Entering vote phase — let clients open the vote UI.
+        this.broadcast("voteStart", { maps: MODE_MAPS.shooter });
+      }
     }
   }
 
