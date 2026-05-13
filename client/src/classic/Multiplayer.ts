@@ -146,6 +146,13 @@ export class Multiplayer {
    *  Exposed so main.ts can mirror it onto Player.health without doing
    *  delta math (which drifts). -1 = haven't received state yet. */
   public lastSelfHealth = -1;
+  /** Last authoritative alive flag for OUR player. main.ts subscribes to
+   *  onLocalAliveChange so it can pop / hide the death screen purely from
+   *  schema state — never from client-side guessing. */
+  public lastSelfAlive = true;
+  /** Fired when state.players[me].alive flips. true → revive (hide death
+   *  screen, re-enable input). false → die (show death screen, freeze). */
+  onLocalAliveChange?: (alive: boolean) => void;
 
   constructor(scene: THREE.Scene, playerName: string) {
     this.scene = scene;
@@ -617,14 +624,28 @@ export class Multiplayer {
     if (state.players && this.sessionId) {
       const me: any = state.players.get ? state.players.get(this.sessionId) : state.players[this.sessionId];
       if (me && typeof me.health === "number") {
-        if (this.lastSelfHealth >= 0 && me.health < this.lastSelfHealth) {
-          // Drain the pending damage source so the next reconcile after a
-          // server-driven HP drop carries the right "Killed by X" cause.
+        const dropped = this.lastSelfHealth >= 0 && me.health < this.lastSelfHealth;
+        const delta = dropped ? (this.lastSelfHealth - me.health) : 0;
+        // Update FIRST so anyone reading mp.lastSelfHealth inside the
+        // callback (e.g. main.ts pulling the authoritative value) sees the
+        // new value, not the pre-tick stale one. Earlier we updated AFTER,
+        // which made `player.health = mp.lastSelfHealth` mirror the OLD
+        // value and drift one tick behind the server every hit.
+        this.lastSelfHealth = me.health;
+        if (dropped) {
           const source = this.pendingDamageSource ?? undefined;
           this.pendingDamageSource = null;
-          this.onLocalDamage?.(this.lastSelfHealth - me.health, source);
+          this.onLocalDamage?.(delta, source);
         }
-        this.lastSelfHealth = me.health;
+      }
+      // Own alive flag: drive death-screen on/off from state. The server's
+      // state.players[me].alive is the truth — when it flips to false we
+      // show death, when it flips back we hide it. No more "client got
+      // removed on one screen but not the other" since both screens read
+      // the same schema field.
+      if (me && typeof me.alive === "boolean" && me.alive !== this.lastSelfAlive) {
+        this.lastSelfAlive = me.alive;
+        this.onLocalAliveChange?.(me.alive);
       }
     }
 
@@ -643,6 +664,15 @@ export class Multiplayer {
       iterate((sid: string, p: any) => {
         if (sid === this.sessionId) return;
         if (!p) return;
+        // Dead remote players are removed entirely — same pattern as
+        // dead mobs. Earlier we just toggled mesh.visible, which on a
+        // race condition could leave the HP badge floating or the player
+        // intermittently visible. Removing makes it impossible for the
+        // killer to keep seeing the corpse on their screen.
+        if (p.alive === false) {
+          if (this.remotePlayers.has(sid)) this.removeRemotePlayer(sid);
+          return;
+        }
         seen.add(sid);
         if (!this.remotePlayers.has(sid)) this.ensureRemotePlayer(sid, p);
         const rp = this.remotePlayers.get(sid)!;
@@ -657,14 +687,10 @@ export class Multiplayer {
             rp.lastShownHealth = p.health;
           }
         }
-        // Server-driven (de)spawn: hide mesh + nametag as soon as alive=false
-        // and restore when the player respawns. No client-side delay — the
-        // killer sees the body vanish the instant HP hits 0.
-        if (typeof p.alive === "boolean" && p.alive !== rp.alive) {
-          rp.alive = p.alive;
-          rp.mesh.visible = p.alive;
-          if (rp.nameTag) rp.nameTag.visible = p.alive;
-        }
+        // Always alive here — the early-return above handled the dead
+        // case by fully removing the RemotePlayer. Keep rp.alive synced
+        // so any code reading the field sees the truth.
+        rp.alive = true;
         // Crouch — squash + lower like vanilla. Local update() lerps the
         // mesh.scale.y / position offset toward this target so the
         // transition is smooth instead of popping.

@@ -1616,21 +1616,41 @@ async function startGame(serverAddr: string | null) {
         if (d.id > 0 && d.count > 0) drops.spawn(d.id, d.count, x, y + 0.5, z);
       }
     };
-    mp.onLocalDamage = (d, source) => {
-      // Authoritative HP comes from state.players[me].health (already
-      // synced by mp.update). We just MIRROR that onto Player.health and
-      // trigger the local feedback (red flash, sound, death screen).
+    mp.onLocalDamage = (_d, source) => {
+      // Authoritative HP comes from state.players[me].health, which
+      // Multiplayer.reconcileFromState now writes BEFORE firing this
+      // callback (was bug: it wrote after, so we mirrored the stale value).
       if (!player) return;
       const authoritative = mp?.lastSelfHealth ?? player.health;
-      player.lastDamageReason = source || "a monster";
-      const wasAlive = !player.isDead;
+      if (source) player.lastDamageReason = source;
       player.health = Math.max(0, authoritative);
-      if (player.health <= 0 && wasAlive) {
-        player.isDead = true;
-      }
-      // Reuse the existing onHealthChange callback so the HUD + death
-      // screen + screenshake/red-overlay all run from one place.
+      // We DO NOT decide death from health here — death is driven by the
+      // server's alive flag via onLocalAliveChange below. Otherwise a hit
+      // that takes you to exactly 0 hp without alive=false yet would
+      // briefly show the death screen, then it'd retract.
       (player as any).onHealthChange?.(player.health);
+    };
+    // Authoritative death/revive — driven purely by state.players[me].alive.
+    // The server says alive, we render alive. Simple. Death and the killer's
+    // despawn now share one source of truth (the schema field), which is
+    // exactly the Colyseus pattern.
+    mp.onLocalAliveChange = (alive) => {
+      if (!player) return;
+      if (!alive) {
+        player.isDead = true;
+        player.health = 0;
+        (player as any).onHealthChange?.(0);  // routes through to showDeathScreen
+      } else {
+        player.isDead = false;
+        const el = document.getElementById("deathScreen");
+        if (el) el.style.display = "none";
+        if (fpArm) fpArm.group.visible = true;
+        // Mirror the new HP that came with the respawn (full HP normally).
+        if (mp?.lastSelfHealth != null && mp.lastSelfHealth > 0) {
+          player.health = mp.lastSelfHealth;
+          renderHearts(player.health);
+        }
+      }
     };
     // Snap remote mobs to actual terrain — server uses a dumb y=32 floor.
     mp.groundLookup = (x, z) => {
