@@ -119,7 +119,17 @@ export class Multiplayer {
   groundLookup?: (x: number, z: number) => number | null;
   onChat?: (sender: string, msg: string) => void;
   onConnected?: () => void;
-  onDisconnected?: () => void;
+  /** Called when the room connection ends. `reason` is human-readable
+   *  (e.g. "Server restarting", "Connection lost", "Kicked by server") and
+   *  derived from either the server's `shutdown` message or the Colyseus
+   *  close code. Pass through to a chat-line / banner. */
+  onDisconnected?: (reason?: string) => void;
+  /** Fired when the server broadcasts `shutdown` — clients can pop a
+   *  countdown banner so the user knows why they're about to disconnect. */
+  onShutdown?: (reason: string, endsAtMs: number) => void;
+  /** Last reason captured from `shutdown` or onLeave code; defaults to
+   *  "Connection lost" if we never heard one. */
+  private lastDisconnectReason: string | null = null;
   onError?: (err: string) => void;
   /** Fired when the server-side health of OUR player drops (e.g. zombie hit us).
    *  `source` is a short human-readable string like "a creeper" or
@@ -290,6 +300,15 @@ export class Multiplayer {
       this.room.onMessage("inventory", noop);
       this.room.onMessage("voteStart",  (msg: any) => { this.onVoteStart?.(Array.isArray(msg?.maps) ? msg.maps : []); });
       this.room.onMessage("roundStart", (msg: any) => { this.onRoundStart?.(String(msg?.map || "")); });
+      // Server graceful-shutdown warning. Stash the reason so when the
+      // socket actually closes a few seconds later, onDisconnected
+      // surfaces the right "why" instead of a generic message.
+      this.room.onMessage("shutdown", (msg: any) => {
+        const reason = String(msg?.reason || "Server restarting");
+        const endsAt = Number(msg?.endsAt) || Date.now() + 30000;
+        this.lastDisconnectReason = reason;
+        this.onShutdown?.(reason, endsAt);
+      });
       // Catch-all: stop colyseus from logging warnings about any other unknown message types.
       try {
         (this.room as any).onMessage("*", noop);
@@ -316,7 +335,21 @@ export class Multiplayer {
         console.warn("[MP] schema listener setup failed (will fall back to polling)", e);
       }
 
-      this.room.onLeave(() => this.onDisconnected?.());
+      this.room.onLeave((code?: number) => {
+        // Colyseus close codes:
+        //   1000 = normal close (room dispose)
+        //   1001 = going away (page unload, server shutdown)
+        //   1006 = abnormal (network drop)
+        //   4000+ = custom application codes
+        let reason = this.lastDisconnectReason;
+        if (!reason) {
+          if (code === 1000) reason = "Server closed the room";
+          else if (code === 1001) reason = "Server restarting";
+          else if (code === 1006) reason = "Connection lost";
+          else reason = `Disconnected (code ${code ?? "?"})`;
+        }
+        this.onDisconnected?.(reason);
+      });
       this.room.onError((code: any, msg: any) => {
         console.error("[MP] room error", code, msg);
         this.onError?.(`Room error: ${msg || code}`);

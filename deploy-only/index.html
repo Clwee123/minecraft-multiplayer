@@ -1112,6 +1112,27 @@
     }
     #waterTint.active { opacity: 1; }
 
+    /* ── Server shutdown banner ─────────────────────────────────── */
+    #shutdownBanner {
+      position: fixed; top: 12px; left: 50%;
+      transform: translateX(-50%);
+      display: none;
+      align-items: center; gap: 10px;
+      background: rgba(160, 30, 30, 0.95);
+      border-top:    2px solid #ff9a9a;
+      border-left:   2px solid #ff9a9a;
+      border-right:  2px solid #4a0a0a;
+      border-bottom: 2px solid #4a0a0a;
+      padding: 10px 18px;
+      color: #fff;
+      font-family: 'Minecraft', 'Courier New', monospace;
+      font-size: 13px;
+      letter-spacing: 1px;
+      text-shadow: 2px 2px 0 #2a0000;
+      z-index: 400;
+    }
+    #shutdownBanner .sb-icon { font-size: 18px; }
+
     /* ── Shooter map vote panel ─────────────────────────────────── */
     #mapVotePanel {
       position: fixed; left: 50%; top: 22%;
@@ -1558,7 +1579,7 @@
       font-weight: bold;
     }
   </style>
-  <script type="module" crossorigin src="/assets/index-C3TkXJB7.js"></script>
+  <script type="module" crossorigin src="/assets/index-CP0_2D8c.js"></script>
 </head>
 <body>
   <!-- ── Main menu ──────────────────────────────────────────────── -->
@@ -1723,6 +1744,13 @@
       <div><b>WASD</b> move · <b>Shift</b> sprint · <b>C</b> crouch · <b>Space</b> jump · <b>2×Space</b> fly</div>
       <div><b>Mouse</b> look · <b>LMB</b> break (hold) · <b>RMB</b> place / open crafting table</div>
       <div><b>1-9</b> / <b>scroll</b> select · <b>E</b> inventory · <b>Q</b> drop · <b>P</b> debug · <b>T</b> chat · <b>L</b> friends</div>
+    </div>
+
+    <!-- Server shutdown banner — shown on `shutdown` broadcast, ticks
+         down to 0 then the socket closes. -->
+    <div id="shutdownBanner">
+      <span class="sb-icon">⚠</span>
+      <span class="sb-text"></span>
     </div>
 
     <!-- Shooter map vote panel — shown during the 10s vote phase -->

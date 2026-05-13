@@ -67,6 +67,10 @@ export class GameState extends Schema {
   /** Server timestamp (seconds since epoch) when the current phase ends.
    *  Clients compute remaining time as `phaseEndsAt * 1000 - Date.now()`. */
   @type("uint32")             phaseEndsAt = 0;
+  /** Server timestamp (seconds) when a graceful shutdown will disconnect
+   *  all clients. 0 = not shutting down. Set by index.ts on SIGTERM so
+   *  late joiners + reconnects also see the warning banner. */
+  @type("uint32")             shuttingDownAt = 0;
   @type({ map: PlayerState }) players    = new MapSchema<PlayerState>();
   @type([BlockChange])        blockChanges = new ArraySchema<BlockChange>();
   @type({ map: MobState })    mobs       = new MapSchema<MobState>();

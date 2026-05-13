@@ -308,11 +308,12 @@ export function buildFirstPersonArm(): FirstPersonArm | null {
   // Same SkeletonUtils story as spawnPlayer — must do a skeleton-aware clone.
   const cloned = skeletonClone(_template) as THREE.Object3D;
 
-  // Use the default lit shader with normal depth testing. Earlier we had
-  // depthTest:false + transparent:true so the arm rendered over the whole
-  // world, but that made the arm's own front/back faces bleed through each
-  // other (no z-sort within the model). Plain opaque + depthTest=true is
-  // exactly how remote-player meshes are rendered and looks correct.
+  // Use the default lit shader with normal depth testing. We render the
+  // FP arm in a SEPARATE pass with cleared depth (see main.ts loop), so
+  // depthTest=true here makes the arm's own faces sort correctly against
+  // each other AND against the held item — without the world ever
+  // occluding the pair, because the world is on a different layer that
+  // we render first.
   isolateMaterials(cloned, { transparent: false, depthTest: true });
   // Normalise to a sensible size, then `cloned.position` re-aligns the
   // shoulder. Keep this a touch smaller than the world model since we only
@@ -499,6 +500,12 @@ export function buildFirstPersonArm(): FirstPersonArm | null {
       heldMesh.rotation.set(rx, ry, rz);
       const parent = (hand as THREE.Object3D | null) ?? group;
       parent.add(heldMesh);
+      // Inherit the FP layer from the parent so the second-pass render
+      // includes the newly-attached mesh. Same as setHeldItem callers
+      // attaching to layer 1 — we just walk the new mesh and stamp it.
+      // (group.layers is whatever the consumer set after construction.)
+      const targetLayer = (parent as any).layers?.mask ?? group.layers.mask;
+      heldMesh.traverse((o: any) => { o.layers.mask = targetLayer; });
     },
     refreshHeldTransform() {
       if (!heldMesh) return;
@@ -543,8 +550,12 @@ function buildHeldPlane(itemId: number, opts: { firstPerson?: boolean } = {}): T
     map: getAtlasTexture(),
     transparent: true, alphaTest: 0.5,
     side: THREE.DoubleSide,
-    depthTest: !opts.firstPerson,
-    depthWrite: !opts.firstPerson,
+    // Normal depth — held item z-sorts against the FP arm. The whole FP
+    // unit (arm + held item) renders in a second pass with cleared depth
+    // (see render loop), so the world never occludes it but the arm and
+    // the held item can naturally occlude each other.
+    depthTest: true,
+    depthWrite: true,
   });
   const mesh = new THREE.Mesh(geo, mat);
   mesh.frustumCulled = false;
@@ -567,8 +578,12 @@ function tryBuildExtrudedItem(itemId: number, opts: { firstPerson?: boolean } = 
     vertexColors: true,
     // Transparent queue when first-person — see comment in buildHeldBlock.
     transparent: !!opts.firstPerson,
-    depthTest: !opts.firstPerson,
-    depthWrite: !opts.firstPerson,
+    // Normal depth — held item z-sorts against the FP arm. The whole FP
+    // unit (arm + held item) renders in a second pass with cleared depth
+    // (see render loop), so the world never occludes it but the arm and
+    // the held item can naturally occlude each other.
+    depthTest: true,
+    depthWrite: true,
   });
   const mesh = new THREE.Mesh(geo, mat);
   mesh.frustumCulled = false;
@@ -687,8 +702,12 @@ function buildHeldBlock(blockId: number, opts: { firstPerson?: boolean } = {}): 
     map: getAtlasTexture(),
     transparent: opts.firstPerson ? true : (!!def.transparent || !!def.isLeaf),
     alphaTest: (def.transparent || def.isLeaf) ? 0.5 : 0,
-    depthTest: !opts.firstPerson,
-    depthWrite: !opts.firstPerson,
+    // Normal depth — held item z-sorts against the FP arm. The whole FP
+    // unit (arm + held item) renders in a second pass with cleared depth
+    // (see render loop), so the world never occludes it but the arm and
+    // the held item can naturally occlude each other.
+    depthTest: true,
+    depthWrite: true,
   });
   const mesh = new THREE.Mesh(geo, mat);
   mesh.frustumCulled = false;

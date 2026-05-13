@@ -41,6 +41,13 @@ scene.background = new THREE.Color(0x9bd2ff);
 scene.fog = new THREE.Fog(0x9bd2ff, 60, 220);
 
 const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 1000);
+/** First-person layer — the arm + held item live here. We render the world
+ *  on layer 0, then clear the depth buffer, then render layer 1 over the
+ *  top. That way the arm + item never get clipped by walls but still
+ *  z-sort against each other naturally (so the held item appears INSIDE
+ *  the hand instead of pasted in front of it). */
+const FP_LAYER = 1;
+camera.layers.enable(FP_LAYER);
 const ambient = new THREE.AmbientLight(0xffffff, 0.7);
 scene.add(ambient);
 const sun = new THREE.DirectionalLight(0xfff8e8, 0.85);
@@ -1140,6 +1147,31 @@ function renderXp(level: number, progress: number) {
 // ── Death screen ──────────────────────────────────────────────────────────
 let _deathWired = false;
 let _respawnPos = { x: 0, y: 64, z: 0 };
+// ── Server shutdown banner ─────────────────────────────────────────────
+let _shutdownTimerId: number | null = null;
+function showShutdownBanner(reason: string, endsAtMs: number) {
+  const banner = document.getElementById("shutdownBanner") as HTMLElement | null;
+  const text   = banner?.querySelector(".sb-text") as HTMLElement | null;
+  if (!banner || !text) return;
+  banner.style.display = "flex";
+  const tick = () => {
+    const remaining = Math.max(0, Math.ceil((endsAtMs - Date.now()) / 1000));
+    text.textContent = `${reason} — disconnecting in ${remaining}s`;
+    if (remaining <= 0 && _shutdownTimerId !== null) {
+      clearInterval(_shutdownTimerId);
+      _shutdownTimerId = null;
+    }
+  };
+  tick();
+  if (_shutdownTimerId) clearInterval(_shutdownTimerId);
+  _shutdownTimerId = window.setInterval(tick, 500);
+}
+function hideShutdownBanner() {
+  const banner = document.getElementById("shutdownBanner");
+  if (banner) banner.style.display = "none";
+  if (_shutdownTimerId) { clearInterval(_shutdownTimerId); _shutdownTimerId = null; }
+}
+
 // ── Shooter map-vote panel ────────────────────────────────────────────────
 let _voteTimerInterval: number | null = null;
 function showMapVotePanel(maps: string[]) {
@@ -1582,7 +1614,14 @@ async function startGame(serverAddr: string | null) {
     // touch it check for that and bail. We'll replay block state below via
     // mp.applyExistingBlockState() once the world is built.
     mp.onConnected = () => addChatLine("", `Connected as ${playerName}`);
-    mp.onDisconnected = () => addChatLine("", "Disconnected from server");
+    mp.onDisconnected = (reason) => {
+      addChatLine("", `Disconnected — ${reason || "Connection lost"}`);
+      hideShutdownBanner();
+    };
+    mp.onShutdown = (reason, endsAtMs) => {
+      addChatLine("", `⚠ Server: ${reason} — disconnecting in 30s`);
+      showShutdownBanner(reason, endsAtMs);
+    };
     mp.onError = (err) => addChatLine("", "Connect error: " + err);
     mp.onChat = (sender, msg) => { addChatLine(sender, msg); sound.chat(); };
     mp.onBlockUpdate = (x, y, z, type) => {
@@ -1798,6 +1837,9 @@ async function startGame(serverAddr: string | null) {
   fpArm = buildFirstPersonArm();
   if (fpArm) {
     camera.add(fpArm.group);
+    // Move every mesh in the arm onto FP_LAYER so the second render pass
+    // picks them up (arm + held item over the world, z-testing each other).
+    fpArm.group.traverse((o: any) => o.layers.set(FP_LAYER));
     // Apply the local user's skin texture + custom right-arm shape. Some
     // modes (Infection, Squid Games) force a uniform skin onto every
     // player regardless of their Bloxity avatar.
@@ -2254,6 +2296,26 @@ async function startGame(serverAddr: string | null) {
       mp.update(dt, camera.position);
     }
 
+    // ── Two-pass render ──
+    // Pass 1: world only (layer 0). Pass 2: FP arm + held item only
+    // (layer FP_LAYER), AFTER clearing the depth buffer so the world never
+    // clips them, but they still z-sort against each other.
+    const renderBoth = () => {
+      renderer.autoClear = true;
+      camera.layers.disable(FP_LAYER);
+      renderer.render(scene, camera);
+      // FP pass — disable world layer, clear depth so the arm is never
+      // occluded, render.
+      camera.layers.enable(FP_LAYER);
+      camera.layers.disable(0);
+      renderer.autoClear = false;
+      renderer.clearDepth();
+      renderer.render(scene, camera);
+      // Restore.
+      camera.layers.enable(0);
+      renderer.autoClear = true;
+    };
+
     // Hurt screenshake — small random jitter that decays over ~0.3s. Saved
     // pos restored after render so it doesn't drift the player's actual eye.
     if (_shakeT > 0) {
@@ -2264,10 +2326,10 @@ async function startGame(serverAddr: string | null) {
       const oz = (Math.random() - 0.5) * k;
       const sx = camera.position.x, sy = camera.position.y, sz = camera.position.z;
       camera.position.set(sx + ox, sy + oy, sz + oz);
-      renderer.render(scene, camera);
+      renderBoth();
       camera.position.set(sx, sy, sz);
     } else {
-      renderer.render(scene, camera);
+      renderBoth();
     }
     requestAnimationFrame(loop);
   }
