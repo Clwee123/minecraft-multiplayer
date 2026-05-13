@@ -2298,20 +2298,28 @@ async function startGame(serverAddr: string | null) {
 
     // ── Two-pass render ──
     // Pass 1: world only (layer 0). Pass 2: FP arm + held item only
-    // (layer FP_LAYER), AFTER clearing the depth buffer so the world never
-    // clips them, but they still z-sort against each other.
+    // (layer FP_LAYER) AFTER clearing depth so the world never clips them,
+    // while they still z-sort against each other.
+    //
+    // CRITICAL: scene.background gets re-drawn at the start of EVERY
+    // renderer.render() call, regardless of autoClear. If we leave the
+    // background set during pass 2, it overdraws the world from pass 1
+    // (color buffer cleared by the implicit bg fill) — bug was a sky-blue
+    // void with only the hotbar visible. Null the bg before pass 2 and
+    // restore after.
     const renderBoth = () => {
       renderer.autoClear = true;
       camera.layers.disable(FP_LAYER);
       renderer.render(scene, camera);
-      // FP pass — disable world layer, clear depth so the arm is never
-      // occluded, render.
+      const savedBg = scene.background;
+      scene.background = null;
       camera.layers.enable(FP_LAYER);
       camera.layers.disable(0);
       renderer.autoClear = false;
       renderer.clearDepth();
       renderer.render(scene, camera);
       // Restore.
+      scene.background = savedBg;
       camera.layers.enable(0);
       renderer.autoClear = true;
     };
