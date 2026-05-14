@@ -35,6 +35,17 @@ export class PlayerState extends Schema {
   @type("string")  legLId:  string = "-1";
   @type("string")  legRId:  string = "-1";
   @type("string")  torsoId: string = "-1";
+
+  // ── Minigame mode roles ──
+  // "" (default) = no role / regular gameplay.
+  // Infection: "survivor" or "infected" (zombie). Survivors win by surviving
+  // the timer; infected win by converting everyone.
+  // Squid Games: "alive" or "eliminated". Eliminated players become spectators
+  // for the rest of the round.
+  @type("string")  role: string = "";
+  /** Per-round score: kills (shooter), tug-of-war pulls, marble picks, etc.
+   *  Reset on round restart. */
+  @type("uint16")  score: number = 0;
 }
 
 export class BlockChange extends Schema {
@@ -80,6 +91,17 @@ export class GameState extends Schema {
   /** Vote counts for the next map. Cleared each new round. Keys are map
    *  indices as strings. */
   @type({ map: "uint16" })    mapVotes   = new MapSchema<number>();
+  // ── Per-minigame sub-state ──
+  // Generic free-form field for current-minigame data. The shape depends on
+  // mode + modePhase. Examples:
+  //   squidgames RLGL: "green" or "red"          (doll watching state)
+  //   squidgames honeycomb: "1", "2", or "3"     (correct shape, revealed at end)
+  //   squidgames glassbridge: "L" or "R"         (current step's safe side)
+  // Clients render mini-game UI based on (mode, modePhase, subState).
+  @type("string")             subState   = "";
+  /** Per-minigame timer — e.g. seconds left in current RLGL window. The main
+   *  phase timer is in phaseEndsAt; this is a shorter sub-timer. */
+  @type("uint32")             subStateEndsAt = 0;
 }
 
 /** Phase durations in seconds. Length of the array also defines the cycle. */
@@ -141,8 +163,31 @@ export class GameRoom extends Room<GameState> {
   private mobLoop: ReturnType<typeof setInterval> | null = null;
   private timeLoop: ReturnType<typeof setInterval> | null = null;
   private phaseLoop: ReturnType<typeof setInterval> | null = null;
+  /** Minigame-specific sub-tick (RLGL position checking, glass-bridge step,
+   *  etc.). Null when no sub-tick is needed for the current phase. */
+  private subTickLoop: ReturnType<typeof setInterval> | null = null;
   private mobTimers  = new Map<string, number>(); // AI state timers
   private mobVelY    = new Map<string, number>(); // vertical velocity per mob
+
+  // ── Minigame transient state (server-only, NOT replicated) ──
+  // Squidgames RLGL: snapshot of every player's position taken when the doll
+  // turns red. Anyone whose live position later differs by >RLGL_MOVE_THRESH
+  // gets eliminated. Cleared when light goes green.
+  private rlglFrozenAt = new Map<string, { x: number; y: number; z: number }>();
+  /** Honeycomb: each player's chosen shape (1/2/3). Server picks the safe
+   *  shape at end of phase; wrong picks eliminated. */
+  private honeycombPicks = new Map<string, number>();
+  /** Tug of War: 0 = team A, 1 = team B. Assigned at phase start. Each pull
+   *  message bumps the team's score. */
+  private tugTeams = new Map<string, 0 | 1>();
+  private tugScores: [number, number] = [0, 0];
+  /** Marbles: pairs and per-player guesses. */
+  private marblePairs: Array<[string, string]> = [];
+  private marbleGuesses = new Map<string, number>();
+  /** Glass bridge: per-step safe side ("L" | "R"). Players pick via msg. */
+  private glassSafe: ("L" | "R")[] = [];
+  private glassStep = 0;
+  private glassPicks = new Map<string, "L" | "R">();
 
   onCreate(options: any = {}) {
     this.setState(new GameState());
@@ -189,6 +234,19 @@ export class GameRoom extends Room<GameState> {
       if (d > 5.5) return;
       const dmg = Math.max(1, Math.min(20, (Number(data?.damage) || 4) | 0));
       target.health = Math.max(0, target.health - dmg) as any;
+      // ── Infection mode conversion ──
+      // If the attacker is infected and target is a survivor, convert the
+      // target into a zombie immediately (in vanilla MC infection servers
+      // the target's role changes the instant the zombie touches them).
+      if (this.state.mode === "infection" && attacker.role === "infected" && target.role === "survivor") {
+        target.role = "infected";
+        target.health = 20;  // full HP as a new zombie
+        this.broadcast("chat", { name: "Server", text: `🧟 ${target.name} was infected by ${attacker.name}!` });
+        this.broadcast("infectionConvert", { id: targetId, by: client.sessionId });
+        // Don't kill them; they're a zombie now. Skip the death path.
+        attacker.score = (attacker.score + 1) & 0xffff;
+        return;
+      }
       // Include attacker's position so the target client can compute a
       // knockback direction without trusting per-attacker direction input.
       // byName lets the target HUD render "Killed by <attacker display name>"
@@ -335,13 +393,22 @@ export class GameRoom extends Room<GameState> {
     });
 
     // ── Spawn initial mobs & start AI loop ───────────────────────────────────
-    this.spawnInitialMobs();
-    this.mobLoop = setInterval(() => { try { this.tickMobs(0.2); } catch(e) { console.error("[GameRoom] mob tick error:", e); } }, 200);
-    // 3-minute day/night cycle: 180 s × ~134 ticks/sec = 24000 tick day.
-    // Server-authoritative + replicated via state.timeOfDay.
-    this.timeLoop = setInterval(() => {
-      this.state.timeOfDay = (this.state.timeOfDay + 14) % 24000;
-    }, 100);
+    // Mobs ONLY in survival mode. Minigame modes (shooter/infection/squidgames/
+    // buildbattle/hideandseek/bedwars/parkour/oneblock) have curated arenas
+    // where wandering pigs would just be visual noise.
+    if (mode === "survival") {
+      this.spawnInitialMobs();
+      this.mobLoop = setInterval(() => { try { this.tickMobs(0.2); } catch(e) { console.error("[GameRoom] mob tick error:", e); } }, 200);
+    }
+    // Day/night cycle ONLY in survival/creative — minigame rooms stay pinned
+    // at noon (timeOfDay = 6000) so visibility is consistent every round.
+    if (mode === "survival" || mode === "creative") {
+      this.timeLoop = setInterval(() => {
+        this.state.timeOfDay = (this.state.timeOfDay + 14) % 24000;
+      }, 100);
+    } else {
+      this.state.timeOfDay = 6000;
+    }
 
     // ── Mode phase state machine (BuildBattle / HideAndSeek) ────────────
     //
@@ -353,6 +420,10 @@ export class GameRoom extends Room<GameState> {
     if (phases) {
       this.state.modePhase = 0;
       this.state.phaseEndsAt = Math.floor(Date.now() / 1000) + phases[0];
+      // Fire phase-0 setup so infection/squidgames initialize roles + intro
+      // banner without waiting for the first transition. _prev=-1 marks "from
+      // startup", but the handlers only care about `next` so it's fine.
+      this.onPhaseTransition(-1, 0);
       this.phaseLoop = setInterval(() => {
         const nowSec = Math.floor(Date.now() / 1000);
         if (nowSec >= this.state.phaseEndsAt) {
@@ -364,6 +435,40 @@ export class GameRoom extends Room<GameState> {
         }
       }, 500);
     }
+
+    // ── Squid Games minigame inputs ──
+    // Each handler ignores messages outside the corresponding mode/phase, so
+    // a malicious client can't pre-fill picks for future rounds.
+    this.onMessage("honeycombPick", (client, data: any) => {
+      if (this.state.mode !== "squidgames" || this.state.modePhase !== 2) return;
+      const p = this.state.players.get(client.sessionId);
+      if (!p || p.role !== "alive") return;
+      const pick = Math.max(1, Math.min(3, (data?.shape | 0) || 0));
+      if (pick > 0) this.honeycombPicks.set(client.sessionId, pick);
+    });
+    this.onMessage("tugPull", (client) => {
+      if (this.state.mode !== "squidgames" || this.state.modePhase !== 3) return;
+      const p = this.state.players.get(client.sessionId);
+      if (!p || p.role !== "alive") return;
+      const team = this.tugTeams.get(client.sessionId);
+      if (team !== 0 && team !== 1) return;
+      this.tugScores[team] += 1;
+      p.score = (p.score + 1) & 0xffff;
+    });
+    this.onMessage("marbleGuess", (client, data: any) => {
+      if (this.state.mode !== "squidgames" || this.state.modePhase !== 4) return;
+      const p = this.state.players.get(client.sessionId);
+      if (!p || p.role !== "alive") return;
+      const g = Math.max(1, Math.min(10, (data?.n | 0) || 0));
+      if (g > 0) this.marbleGuesses.set(client.sessionId, g);
+    });
+    this.onMessage("glassPick", (client, data: any) => {
+      if (this.state.mode !== "squidgames" || this.state.modePhase !== 5) return;
+      const p = this.state.players.get(client.sessionId);
+      if (!p || p.role !== "alive") return;
+      const side = data?.side === "L" ? "L" : (data?.side === "R" ? "R" : null);
+      if (side) this.glassPicks.set(client.sessionId, side);
+    });
 
     // ── Map vote (Shooter) ──
     // During the 10-s vote phase, clients send "voteMap" with a map index.
@@ -386,6 +491,16 @@ export class GameRoom extends Room<GameState> {
   /** Fired by phaseLoop when the modePhase index changes. Used to swap
    *  maps, reset HP, broadcast round-start, etc. */
   private onPhaseTransition(_prev: number, next: number) {
+    // Clear any minigame sub-tick from the previous phase. Each branch below
+    // restarts its own if needed.
+    if (this.subTickLoop) { clearInterval(this.subTickLoop); this.subTickLoop = null; }
+    this.state.subState = "";
+    this.state.subStateEndsAt = 0;
+    if (this.state.mode === "infection") {
+      this.handleInfectionPhase(next);
+    } else if (this.state.mode === "squidgames") {
+      this.handleSquidGamesPhase(next);
+    }
     if (this.state.mode === "shooter") {
       // Phase 0 = match, Phase 1 = vote. After the vote ends (we just
       // entered phase 0 again) tally + swap maps + respawn everyone.
@@ -470,6 +585,15 @@ export class GameRoom extends Room<GameState> {
       console.log(`[GameRoom] restored save for ${p.name} (${sk})`);
     }
 
+    // Mode-specific late-join role assignment.
+    if (this.state.mode === "infection") {
+      // Mid-round joiners become infected (zombies). Lobby joiners get no role.
+      p.role = this.state.modePhase === 0 ? "" : "infected";
+    } else if (this.state.mode === "squidgames") {
+      // Mid-round joiners spectate as eliminated; lobby joiners are alive.
+      p.role = this.state.modePhase === 0 ? "alive" : "eliminated";
+    }
+
     this.state.players.set(client.sessionId, p);
     console.log(`[GameRoom] ${p.name} joined (${client.sessionId})`);
 
@@ -512,9 +636,255 @@ export class GameRoom extends Room<GameState> {
   }
 
   onDispose() {
-    if (this.mobLoop)   clearInterval(this.mobLoop);
-    if (this.timeLoop)  clearInterval(this.timeLoop);
-    if (this.phaseLoop) clearInterval(this.phaseLoop);
+    if (this.mobLoop)     clearInterval(this.mobLoop);
+    if (this.timeLoop)    clearInterval(this.timeLoop);
+    if (this.phaseLoop)   clearInterval(this.phaseLoop);
+    if (this.subTickLoop) clearInterval(this.subTickLoop);
+  }
+
+  // ── Infection mode ────────────────────────────────────────────────────────
+  //
+  // Phase 0 = lobby (30s): reset everyone to survivor, full HP.
+  // Phase 1 = round (240s): pick ~1/8 as patient zero, set to infected.
+  //          attackPlayer handler converts survivor → infected on hit.
+  //          Win check ticks every 2s.
+  // Phase 2 = end (15s): announce winner, prep reset.
+  private handleInfectionPhase(next: number) {
+    if (next === 0) {
+      // Lobby — reset all roles, scoreboard.
+      this.state.players.forEach(p => {
+        p.role = "";
+        p.health = 20; p.alive = true;
+        p.score = 0;
+      });
+      this.broadcast("chat", { name: "Server", text: "Infection: lobby — round starts in 30s. Stay near the safe zone!" });
+    } else if (next === 1) {
+      // Pick patient zero(s). ~1/8 of joined players, min 1, max N-1.
+      const ids = Array.from(this.state.players.keys());
+      if (ids.length === 0) return;
+      // Shuffle.
+      for (let i = ids.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [ids[i], ids[j]] = [ids[j], ids[i]];
+      }
+      const numInfected = Math.max(1, Math.min(ids.length - 1, Math.ceil(ids.length / 8)));
+      ids.forEach((id, idx) => {
+        const p = this.state.players.get(id)!;
+        p.role = idx < numInfected ? "infected" : "survivor";
+        p.health = 20; p.alive = true;
+      });
+      this.broadcast("chat", { name: "Server", text: `🧟 The infection begins! ${numInfected} player(s) are infected. Survivors — run!` });
+      // Win-check tick every 2s. Ends the phase early when survivors hit 0.
+      this.subTickLoop = setInterval(() => {
+        let survivors = 0, infected = 0;
+        this.state.players.forEach(p => {
+          if (p.role === "survivor") survivors++;
+          else if (p.role === "infected") infected++;
+        });
+        if (survivors === 0 && infected > 0) {
+          // Force-advance phase by setting phaseEndsAt to "now".
+          this.state.phaseEndsAt = Math.floor(Date.now() / 1000);
+          this.broadcast("chat", { name: "Server", text: "🧟 Infected win — all survivors converted!" });
+        }
+      }, 2000);
+    } else if (next === 2) {
+      // End — announce survivors who made it.
+      let survivors = 0;
+      this.state.players.forEach(p => { if (p.role === "survivor") survivors++; });
+      if (survivors > 0) {
+        this.broadcast("chat", { name: "Server", text: `🛡️ Survivors win! ${survivors} made it out alive.` });
+      }
+    }
+  }
+
+  // ── Squid Games mode ──────────────────────────────────────────────────────
+  //
+  // Phase 0 = lobby (10s)
+  // Phase 1 = Red Light Green Light (60s) — server flips doll watching state
+  //           every 3-7s. During red, players who move are eliminated.
+  // Phase 2 = Honeycomb (60s) — each player picks a shape 1-3 via msg.
+  //           At end, server reveals 1 safe shape; others eliminated.
+  // Phase 3 = Tug of War (60s) — players split into 2 teams; each click on
+  //           "tugPull" adds 1 to their team's score. Losing team eliminated.
+  // Phase 4 = Marbles (60s) — pair players, each guesses 1-10; server picks.
+  //           Loser of each pair eliminated.
+  // Phase 5 = Glass Bridge (60s) — 6 steps, each "L" or "R" safe (random).
+  //           Players pick. Wrong picks eliminated. Last to survive wins.
+  private handleSquidGamesPhase(next: number) {
+    if (next === 0) {
+      // Lobby — reset everyone to alive.
+      this.state.players.forEach(p => {
+        p.role = "alive";
+        p.health = 20; p.alive = true;
+        p.score = 0;
+      });
+      this.broadcast("chat", { name: "Server", text: "🦑 Squid Games: 5 minigames, last alive wins. Lobby — 10s." });
+    } else if (next === 1) {
+      // ── Red Light Green Light ──
+      this.broadcast("chat", { name: "Server", text: "🟢 RED LIGHT GREEN LIGHT — move only when the doll is sleeping!" });
+      this.state.subState = "green";
+      this.scheduleNextRlglFlip();
+      this.subTickLoop = setInterval(() => this.tickRlgl(), 250);
+    } else if (next === 2) {
+      // ── Honeycomb ──
+      this.honeycombPicks.clear();
+      this.broadcast("chat", { name: "Server", text: "🍯 HONEYCOMB — pick your shape (1, 2, or 3) by pressing the matching number key! Wrong shape = eliminated." });
+      this.state.subState = "picking";
+      // After 50s, lock in. Then reveal safe shape.
+      setTimeout(() => {
+        if (this.state.modePhase !== 2) return;
+        const safe = 1 + Math.floor(Math.random() * 3);
+        this.state.subState = String(safe);
+        this.broadcast("chat", { name: "Server", text: `🍯 Safe shape: ${safe}!` });
+        // Eliminate anyone whose pick != safe.
+        this.state.players.forEach((p, id) => {
+          if (p.role !== "alive") return;
+          const pick = this.honeycombPicks.get(id);
+          if (pick !== safe) this.eliminate(id, "wrong shape");
+        });
+      }, 50_000);
+    } else if (next === 3) {
+      // ── Tug of War ──
+      this.tugTeams.clear();
+      this.tugScores = [0, 0];
+      // Assign teams (alive players only) alternating A/B for fairness.
+      const alive = Array.from(this.state.players.entries()).filter(([_, p]) => p.role === "alive");
+      alive.forEach(([id], idx) => this.tugTeams.set(id, (idx % 2) as 0 | 1));
+      this.state.subState = "fight";
+      this.broadcast("chat", { name: "Server", text: "🪢 TUG OF WAR — left-click as fast as you can! Losing team = eliminated." });
+      // At end of phase, tally.
+      setTimeout(() => {
+        if (this.state.modePhase !== 3) return;
+        const losingTeam = this.tugScores[0] < this.tugScores[1] ? 0 : 1;
+        this.state.players.forEach((p, id) => {
+          if (p.role !== "alive") return;
+          if ((this.tugTeams.get(id) ?? -1) === losingTeam) {
+            this.eliminate(id, "tug-of-war loss");
+          }
+        });
+        this.broadcast("chat", { name: "Server", text: `🪢 Team ${losingTeam === 0 ? "A" : "B"} lost! Scores ${this.tugScores[0]} vs ${this.tugScores[1]}.` });
+      }, 55_000);
+    } else if (next === 4) {
+      // ── Marbles ──
+      this.marblePairs = [];
+      this.marbleGuesses.clear();
+      const alive = Array.from(this.state.players.keys()).filter(id => this.state.players.get(id)?.role === "alive");
+      // Shuffle then pair.
+      for (let i = alive.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [alive[i], alive[j]] = [alive[j], alive[i]];
+      }
+      for (let i = 0; i + 1 < alive.length; i += 2) this.marblePairs.push([alive[i], alive[i + 1]]);
+      this.state.subState = "guess";
+      this.broadcast("chat", { name: "Server", text: "🔵 MARBLES — guess a number 1-10 (press the matching key). Closer to target survives. Unpaired players get a free pass." });
+      setTimeout(() => {
+        if (this.state.modePhase !== 4) return;
+        const target = 1 + Math.floor(Math.random() * 10);
+        this.broadcast("chat", { name: "Server", text: `🔵 Target was ${target}.` });
+        for (const [a, b] of this.marblePairs) {
+          const ga = this.marbleGuesses.get(a) ?? 0;
+          const gb = this.marbleGuesses.get(b) ?? 0;
+          const da = Math.abs(ga - target), db = Math.abs(gb - target);
+          const loser = da > db ? a : (db > da ? b : (Math.random() < 0.5 ? a : b));
+          this.eliminate(loser, "marbles loss");
+        }
+      }, 55_000);
+    } else if (next === 5) {
+      // ── Glass Bridge ──
+      this.glassSafe = [];
+      this.glassStep = 0;
+      this.glassPicks.clear();
+      for (let i = 0; i < 6; i++) this.glassSafe.push(Math.random() < 0.5 ? "L" : "R");
+      this.state.subState = `step:0`;
+      this.broadcast("chat", { name: "Server", text: "🌉 GLASS BRIDGE — 6 steps. Pick LEFT or RIGHT (keys L/R). Wrong panel = fall." });
+      // One step every 8s; final step at +48s. Last to survive wins.
+      const stepInterval = setInterval(() => {
+        const safe = this.glassSafe[this.glassStep];
+        // Eliminate anyone whose pick differs.
+        this.state.players.forEach((p, id) => {
+          if (p.role !== "alive") return;
+          const pick = this.glassPicks.get(id);
+          if (pick !== safe) this.eliminate(id, `wrong panel on step ${this.glassStep + 1}`);
+        });
+        this.broadcast("chat", { name: "Server", text: `🌉 Step ${this.glassStep + 1}: ${safe} was safe.` });
+        this.glassPicks.clear();
+        this.glassStep++;
+        this.state.subState = `step:${this.glassStep}`;
+        if (this.glassStep >= this.glassSafe.length) {
+          clearInterval(stepInterval);
+          // Declare winner (first surviving player, or chat if multiple).
+          this.declareSquidWinner();
+        }
+      }, 8000);
+      this.subTickLoop = stepInterval;
+    }
+  }
+
+  private scheduleNextRlglFlip() {
+    // Random 3-7s in current state before flipping.
+    const dur = 3000 + Math.floor(Math.random() * 4000);
+    this.state.subStateEndsAt = Math.floor((Date.now() + dur) / 1000);
+  }
+
+  private tickRlgl() {
+    if (Math.floor(Date.now() / 1000) >= this.state.subStateEndsAt) {
+      // Flip state.
+      if (this.state.subState === "green") {
+        // Going RED — snapshot every alive player's position.
+        this.rlglFrozenAt.clear();
+        this.state.players.forEach((p, id) => {
+          if (p.role !== "alive") return;
+          this.rlglFrozenAt.set(id, { x: p.x, y: p.y, z: p.z });
+        });
+        this.state.subState = "red";
+        this.broadcast("chat", { name: "Server", text: "🔴 RED LIGHT — FREEZE!" });
+      } else {
+        this.state.subState = "green";
+        this.rlglFrozenAt.clear();
+        this.broadcast("chat", { name: "Server", text: "🟢 GREEN LIGHT — go!" });
+      }
+      this.scheduleNextRlglFlip();
+    }
+    // During RED: eliminate any player whose position drifted > threshold.
+    if (this.state.subState === "red") {
+      const RLGL_MOVE_THRESH = 0.5;
+      this.state.players.forEach((p, id) => {
+        if (p.role !== "alive") return;
+        const frozen = this.rlglFrozenAt.get(id);
+        if (!frozen) return;
+        const d = Math.hypot(p.x - frozen.x, p.y - frozen.y, p.z - frozen.z);
+        if (d > RLGL_MOVE_THRESH) this.eliminate(id, "moved on red light");
+      });
+    }
+  }
+
+  /** Mark a player as eliminated in a squidgames-style round. They become
+   *  spectator-ish (still alive=true so they can walk around but role flips
+   *  to "eliminated"). Broadcasts a chat line. */
+  private eliminate(playerId: string, reason: string) {
+    const p = this.state.players.get(playerId);
+    if (!p || p.role !== "alive") return;
+    p.role = "eliminated";
+    this.broadcast("chat", { name: "Server", text: `❌ ${p.name} eliminated — ${reason}.` });
+    this.broadcast("squidEliminated", { id: playerId, reason });
+    // If only one player remains alive, declare winner immediately.
+    this.declareSquidWinner();
+  }
+
+  private declareSquidWinner() {
+    if (this.state.mode !== "squidgames") return;
+    const aliveIds = Array.from(this.state.players.entries()).filter(([_, p]) => p.role === "alive").map(([id]) => id);
+    if (aliveIds.length <= 1) {
+      if (aliveIds.length === 1) {
+        const winner = this.state.players.get(aliveIds[0])!;
+        winner.score = 1;
+        this.broadcast("chat", { name: "Server", text: `🏆 ${winner.name} wins Squid Games!` });
+      } else {
+        this.broadcast("chat", { name: "Server", text: "🏆 Nobody survived. Resetting…" });
+      }
+      // Force-advance past remaining phases.
+      this.state.phaseEndsAt = Math.floor(Date.now() / 1000);
+    }
   }
 
   // ── Mob spawning ──────────────────────────────────────────────────────────

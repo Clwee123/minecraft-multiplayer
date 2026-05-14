@@ -105,8 +105,16 @@ export class Multiplayer {
   public phaseEndsAtMs = 0;
   /** Active map index (Shooter) — client reads this to know which arena to build. */
   public mapIndex = 0;
+  /** Per-minigame sub-state — see GameRoom.ts. e.g. RLGL "green"/"red". */
+  public subState = "";
+  public subStateEndsAtMs = 0;
   /** Cast a vote for the next map (Shooter, only during vote phase). */
   voteMap(index: number) { this.room?.send("voteMap", { index }); }
+  // ── Squid Games minigame inputs ──
+  squidHoneycombPick(shape: number)  { this.room?.send("honeycombPick", { shape }); }
+  squidTugPull()                      { this.room?.send("tugPull"); }
+  squidMarbleGuess(n: number)         { this.room?.send("marbleGuess", { n }); }
+  squidGlassPick(side: "L" | "R")     { this.room?.send("glassPick", { side }); }
   /** Listener wired in main.ts — fires when the server starts the vote phase. */
   onVoteStart?: (maps: string[]) => void;
   /** Listener wired in main.ts — fires when a new round begins (map swap). */
@@ -367,6 +375,27 @@ export class Multiplayer {
   /** Remote players only (does NOT include the local session). */
   getRemotePlayers(): RemotePlayer[] { return [...this.remotePlayers.values()]; }
   getRemoteMobs(): RemoteMob[] { return [...this.remoteMobs.values()]; }
+  /** Read our own server-side role (infection / squidgames). "" when unset. */
+  getSelfRole(): string {
+    const state: any = this.room?.state;
+    if (!state?.players || !this.sessionId) return "";
+    const me: any = state.players.get ? state.players.get(this.sessionId) : state.players[this.sessionId];
+    return me?.role ?? "";
+  }
+  /** Counts by role. Useful for HUD: "3 survivors · 2 infected". */
+  countRoles(): { survivor: number; infected: number; alive: number; eliminated: number; total: number } {
+    const out = { survivor: 0, infected: 0, alive: 0, eliminated: 0, total: 0 };
+    const state: any = this.room?.state;
+    if (!state?.players) return out;
+    state.players.forEach((p: any) => {
+      out.total++;
+      if (p.role === "survivor") out.survivor++;
+      else if (p.role === "infected") out.infected++;
+      else if (p.role === "alive") out.alive++;
+      else if (p.role === "eliminated") out.eliminated++;
+    });
+    return out;
+  }
 
   sendMove(x: number, y: number, z: number, rotY: number, rotX: number, heldId = 0, crouching = false) {
     if (!this.room) return;
@@ -645,6 +674,8 @@ export class Multiplayer {
     if (typeof state.modePhase === "number")   this.modePhase = state.modePhase;
     if (typeof state.phaseEndsAt === "number") this.phaseEndsAtMs = state.phaseEndsAt * 1000;
     if (typeof state.mapIndex === "number")    this.mapIndex     = state.mapIndex;
+    if (typeof state.subState === "string")    this.subState    = state.subState;
+    if (typeof state.subStateEndsAt === "number") this.subStateEndsAtMs = state.subStateEndsAt * 1000;
 
     // Own-health reconcile. The server is authoritative: state.players[me]
     // .health IS the truth, and we just mirror it onto the local Player.

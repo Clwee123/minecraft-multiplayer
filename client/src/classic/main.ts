@@ -170,6 +170,56 @@ function tickModeState() {
   const el = document.getElementById("modeStateBanner");
   const t = el?.querySelector(".timer") as HTMLElement | null;
   if (t) t.textContent = `· ${m}:${String(s).padStart(2, "0")}`;
+  // Mode-specific extras (role / sub-state / counts).
+  paintModeExtras();
+}
+
+/** Append role + counts + sub-state info to the banner for infection /
+ *  squidgames. Renders into a `.extra` <span> inside #modeStateBanner. */
+function paintModeExtras() {
+  const el = document.getElementById("modeStateBanner");
+  if (!el || !mp?.isConnected()) return;
+  let extra = el.querySelector(".extra") as HTMLElement | null;
+  if (!extra) {
+    extra = document.createElement("span");
+    extra.className = "extra";
+    extra.style.cssText = "display:block;margin-top:4px;font-size:11px;color:#f0d090;";
+    el.appendChild(extra);
+  }
+  const role = mp.getSelfRole();
+  const counts = mp.countRoles();
+  if (mode === "infection_mp") {
+    const roleTag = role === "infected" ? "🧟 YOU ARE INFECTED — convert everyone"
+                    : role === "survivor" ? "🛡️ YOU ARE A SURVIVOR — don't get touched"
+                    : "Waiting for the round to start…";
+    extra.textContent = `${roleTag}  ·  ${counts.survivor} survivors · ${counts.infected} infected`;
+  } else if (mode === "squidgames_mp") {
+    const roleTag = role === "alive" ? "💚 YOU ARE ALIVE"
+                    : role === "eliminated" ? "❌ YOU ARE ELIMINATED (spectating)"
+                    : "…";
+    let subInfo = "";
+    const sub = mp.subState;
+    if (mp.modePhase === 1) {
+      // RLGL
+      subInfo = sub === "red" ? "  ·  🔴 RED LIGHT — FREEZE!"
+              : sub === "green" ? "  ·  🟢 GREEN LIGHT — go!"
+              : "";
+    } else if (mp.modePhase === 2) {
+      subInfo = sub === "picking" ? "  ·  Press 1/2/3 to pick a shape"
+              : (sub === "1" || sub === "2" || sub === "3") ? `  ·  Safe: shape ${sub}`
+              : "";
+    } else if (mp.modePhase === 3) {
+      subInfo = "  ·  LEFT-CLICK as fast as you can to pull!";
+    } else if (mp.modePhase === 4) {
+      subInfo = "  ·  Press 1-9 or 0 (=10) to guess";
+    } else if (mp.modePhase === 5) {
+      const step = sub.startsWith("step:") ? parseInt(sub.slice(5), 10) : 0;
+      subInfo = `  ·  Step ${step + 1}/6 — press L or R`;
+    }
+    extra.textContent = `${roleTag}  ·  ${counts.alive} alive · ${counts.eliminated} out${subInfo}`;
+  } else if (extra) {
+    extra.textContent = "";
+  }
 }
 let mp: Multiplayer | null = null;
 let mode: ModeId = "creative_offline";
@@ -964,6 +1014,12 @@ document.addEventListener("mousedown", (e) => {
   if (e.button === 0) {
     lmbHeld = true;
     fpArm?.triggerSwing(1);
+    // Squid Games — Tug of War: every LMB click adds a pull to our team's
+    // score while phase 3 is active. We still play the swing animation so
+    // it feels physical.
+    if (mode === "squidgames_mp" && mp?.isConnected() && mp.modePhase === 3 && mp.getSelfRole() === "alive") {
+      mp.squidTugPull();
+    }
     // LMB: try to hit a mob or remote player in front of us; either way the
     // swing animation plays. If nothing was hit, the click flows through to
     // block-mining (Player has its own LMB listener for that).
@@ -1119,6 +1175,35 @@ window.addEventListener("keydown", (e) => {
     chatInput.value = "";
     chatInput.style.display = "none";
     chatInput.blur();
+  }
+});
+
+// ── Squid Games minigame input ──
+// Per-phase key bindings, only active when in squidgames_mp + alive. Suppress
+// while chat is focused.
+window.addEventListener("keydown", (e) => {
+  if (mode !== "squidgames_mp" || !mp?.isConnected()) return;
+  if (chatInput.matches(":focus")) return;
+  if (mp.getSelfRole() !== "alive") return;
+  const phase = mp.modePhase;
+  const k = e.key.toLowerCase();
+  if (phase === 2) {
+    // Honeycomb — 1 / 2 / 3 pick.
+    if (k === "1" || k === "2" || k === "3") {
+      mp.squidHoneycombPick(parseInt(k, 10));
+      addChatLine("(you)", `Picked shape ${k}.`);
+    }
+  } else if (phase === 4) {
+    // Marbles — number 1..9 + 0 (=10).
+    if (k >= "0" && k <= "9") {
+      const n = k === "0" ? 10 : parseInt(k, 10);
+      mp.squidMarbleGuess(n);
+      addChatLine("(you)", `Guessed ${n}.`);
+    }
+  } else if (phase === 5) {
+    // Glass bridge — L / R.
+    if (k === "l") { mp.squidGlassPick("L"); addChatLine("(you)", "Chose LEFT."); }
+    if (k === "r") { mp.squidGlassPick("R"); addChatLine("(you)", "Chose RIGHT."); }
   }
 });
 
