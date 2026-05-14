@@ -632,6 +632,86 @@ export function tileUV(tileIdx: number): [number, number, number, number] {
   return [u0, v0, u1, v1];
 }
 
+// ── Texture pack picker ──────────────────────────────────────────────────
+// Four packs available — selected via localStorage key "mc.texturePack":
+//   "default" → vanilla atlas (as-built from minecraft-assets-master)
+//   "smooth"  → soft/blurred variant (less crunchy)
+//   "vivid"   → boosted saturation + contrast
+//   "gritty"  → muted/sepia for a rugged look
+// The three non-default packs are derived in-canvas from the base PNG so we
+// don't need to ship four 512×512 atlases. Future: bake real packs into
+// /terrain_atlas_<pack>.png and load those directly when present.
+export type TexturePackId = "default" | "smooth" | "vivid" | "gritty";
+export const TEXTURE_PACKS: { id: TexturePackId; label: string; desc: string }[] = [
+  { id: "default", label: "Default",          desc: "Vanilla Minecraft look" },
+  { id: "smooth",  label: "Smooth (OCD-ish)", desc: "Softer, cleaner tiles"   },
+  { id: "vivid",   label: "Vivid",             desc: "Punchy, saturated"      },
+  { id: "gritty",  label: "Gritty",            desc: "Muted + sepia"           },
+];
+const TEXTURE_PACK_KEY = "mc.texturePack";
+export function getTexturePack(): TexturePackId {
+  const raw = (localStorage.getItem(TEXTURE_PACK_KEY) || "default").toLowerCase();
+  return (TEXTURE_PACKS.find(p => p.id === raw)?.id) ?? "default";
+}
+export function setTexturePack(id: TexturePackId) {
+  localStorage.setItem(TEXTURE_PACK_KEY, id);
+}
+
+function applyPackToCanvas(ctx: CanvasRenderingContext2D, pack: TexturePackId) {
+  if (pack === "default") return;
+  const img = ctx.getImageData(0, 0, ATLAS_SIZE, ATLAS_SIZE);
+  const d = img.data;
+  if (pack === "vivid") {
+    // Saturation +30%, contrast +12% — punches grass/dyes etc.
+    for (let i = 0; i < d.length; i += 4) {
+      const r = d[i], g = d[i + 1], b = d[i + 2];
+      const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+      d[i]     = Math.min(255, Math.max(0, (r - lum) * 1.30 + lum));
+      d[i + 1] = Math.min(255, Math.max(0, (g - lum) * 1.30 + lum));
+      d[i + 2] = Math.min(255, Math.max(0, (b - lum) * 1.30 + lum));
+      d[i]     = Math.min(255, Math.max(0, (d[i]     - 128) * 1.12 + 128));
+      d[i + 1] = Math.min(255, Math.max(0, (d[i + 1] - 128) * 1.12 + 128));
+      d[i + 2] = Math.min(255, Math.max(0, (d[i + 2] - 128) * 1.12 + 128));
+    }
+  } else if (pack === "gritty") {
+    // Desaturate halfway + warm sepia tint.
+    for (let i = 0; i < d.length; i += 4) {
+      const r = d[i], g = d[i + 1], b = d[i + 2];
+      const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+      const mr = lum * 0.5 + r * 0.5;
+      const mg = lum * 0.5 + g * 0.5;
+      const mb = lum * 0.5 + b * 0.5;
+      d[i]     = Math.min(255, mr * 1.05 + 8);
+      d[i + 1] = Math.min(255, mg * 0.97);
+      d[i + 2] = Math.min(255, mb * 0.85);
+    }
+  } else if (pack === "smooth") {
+    // Tile-local box blur (3×3) — keeps tile boundaries crisp so we don't
+    // bleed across tile UVs. Done per-tile.
+    const src = new Uint8ClampedArray(d);
+    const W = ATLAS_SIZE;
+    for (let ty = 0; ty < COLS; ty++) {
+      for (let tx = 0; tx < COLS; tx++) {
+        const ox = tx * TILE_SIZE, oy = ty * TILE_SIZE;
+        for (let y = 0; y < TILE_SIZE; y++) {
+          for (let x = 0; x < TILE_SIZE; x++) {
+            let r = 0, g = 0, b = 0, a = 0, n = 0;
+            for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+              const sx = x + dx, sy = y + dy;
+              if (sx < 0 || sx >= TILE_SIZE || sy < 0 || sy >= TILE_SIZE) continue;
+              const idx = ((oy + sy) * W + (ox + sx)) * 4;
+              r += src[idx]; g += src[idx + 1]; b += src[idx + 2]; a += src[idx + 3]; n++;
+            }
+            const di = ((oy + y) * W + (ox + x)) * 4;
+            d[di] = r / n; d[di + 1] = g / n; d[di + 2] = b / n; d[di + 3] = a / n;
+          }
+        }
+      }
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+}
+
 export async function preloadAtlas(): Promise<void> {
   if (_atlasTex) return;
   return new Promise((resolve, reject) => {
@@ -645,11 +725,34 @@ export async function preloadAtlas(): Promise<void> {
       // 256 or 512 depending on which build of build_mc_atlas.py was last
       // run — the explicit size args make this robust).
       ctx.drawImage(img, 0, 0, ATLAS_SIZE, ATLAS_SIZE);
+      // Apply the selected texture pack filter (no-op for default).
+      applyPackToCanvas(ctx, getTexturePack());
       _liveAtlasTex = new THREE.CanvasTexture(_liveAtlasCanvas);
       _liveAtlasTex.magFilter = THREE.NearestFilter;
       _liveAtlasTex.minFilter = THREE.NearestFilter;
       _liveAtlasTex.generateMipmaps = false;
       _atlasTex = _liveAtlasTex;
+      resolve();
+    };
+    img.onerror = reject;
+    img.src = `/terrain_atlas.png?v=${Date.now()}`;
+  });
+}
+
+/** Re-apply the selected texture pack to the live atlas. Call when the user
+ *  changes pack in settings. Reloads the base PNG so previous filter passes
+ *  don't compound. */
+export async function reloadAtlasForPack(): Promise<void> {
+  if (!_liveAtlasCanvas || !_liveAtlasTex) return;
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const ctx = _liveAtlasCanvas!.getContext("2d")!;
+      ctx.imageSmoothingEnabled = false;
+      ctx.clearRect(0, 0, ATLAS_SIZE, ATLAS_SIZE);
+      ctx.drawImage(img, 0, 0, ATLAS_SIZE, ATLAS_SIZE);
+      applyPackToCanvas(ctx, getTexturePack());
+      _liveAtlasTex!.needsUpdate = true;
       resolve();
     };
     img.onerror = reject;

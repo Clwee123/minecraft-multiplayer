@@ -295,6 +295,10 @@ export interface FirstPersonArm {
    *  mouth. Pass 0 (or stop calling) to release back to rest. Adds a small
    *  nibble shake on top of the raised pose. */
   setEating(progress: number): void;
+  /** Bow-draw pose override. `progress` is 0..1 where 1 = fully drawn. The
+   *  arm raises in front of the face and the held bow gets a stretched
+   *  string + slight pull-back to mouth like vanilla MC. */
+  setBowDraw(progress: number): void;
   /** Advance animation. `ctx` adds walking bob + yaw sway when provided. */
   update(dt: number, ctx?: { walkSpeed: number; yawDelta: number; onGround: boolean }): void;
   setHeldItem(itemId: number): void;
@@ -409,6 +413,8 @@ export function buildFirstPersonArm(): FirstPersonArm | null {
   const groupBaseY = group.position.y;
 
   let eatProgress = 0;
+  let bowDraw = 0;
+  let lastBowDraw = 0;
   return {
     group,
     triggerSwing(strength = 1) {
@@ -422,11 +428,40 @@ export function buildFirstPersonArm(): FirstPersonArm | null {
     setEating(p: number) {
       eatProgress = Math.max(0, Math.min(1, p));
     },
+    setBowDraw(p: number) {
+      bowDraw = Math.max(0, Math.min(1, p));
+    },
     update(dt: number, ctx?: { walkSpeed: number; yawDelta: number; onGround: boolean }) {
       if (!shoulder) return;
       const sh = shoulder as THREE.Object3D;
       // ── Shoulder swing (one-shot or continuous mining) ──
-      if (eatProgress > 0) {
+      // When bow-draw releases, snap the held mesh back to its rest transform.
+      if (lastBowDraw > 0 && bowDraw === 0 && heldMesh && currentHeldId === 102) {
+        const o = ITEM_HELD_OVERRIDES[102] || {};
+        heldMesh.position.set(o.x ?? ITEM_OFFSET_X, o.y ?? ITEM_OFFSET_Y, o.z ?? ITEM_OFFSET_Z);
+        heldMesh.scale.y = 1 / (cloned.scale.y || 1);
+      }
+      lastBowDraw = bowDraw;
+      if (bowDraw > 0 && currentHeldId === 102) {
+        // Bow-draw pose — raise the arm up + in toward the face, rotate the
+        // bow upright. Slight string-tension shake at full draw.
+        const t = bowDraw;
+        const shake = t > 0.95 ? (Math.random() - 0.5) * 0.02 : 0;
+        sh.rotation.x = baseRotX - ARM_SHOULDER_FORWARD + 1.05 * t + shake;
+        sh.rotation.z = baseRotZ + 0.25 * t;
+        // Visually pull the bow back toward the camera + scale Y for the
+        // "stretched string" feel. Restore in setHeldItem / refreshHeldTransform.
+        if (heldMesh) {
+          const o = ITEM_HELD_OVERRIDES[102] || {};
+          const px = o.x ?? ITEM_OFFSET_X;
+          const py = o.y ?? ITEM_OFFSET_Y;
+          const pz = o.z ?? ITEM_OFFSET_Z;
+          heldMesh.position.set(px - 0.05 * t, py + 0.05 * t, pz + 0.12 * t);
+          // Stretch along the bow's length axis (Y in local space for our
+          // upright bow). Stays uniform on other axes.
+          heldMesh.scale.y = (1 / (cloned.scale.y || 1)) * (1 + 0.25 * t);
+        }
+      } else if (eatProgress > 0) {
         // Eating pose — tunables from window.__armAnim.
         const lift = ARM_SWING_ARC * EAT_LIFT;
         const shake = Math.sin(performance.now() * EAT_SHAKE_FREQ) * EAT_SHAKE_AMP * (0.3 + eatProgress * 0.7);

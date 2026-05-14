@@ -2,6 +2,8 @@ import { Inventory, InvSlot, matchRecipe, consumeGrid, emptySlot, RECIPES, Recip
 import { getItemTile, getItemName } from "./Textures";
 import { sound } from "./Sound";
 import { blockIconCache, shouldRenderAsBlock } from "./BlockIconCache";
+import * as THREE from "three";
+import { spawnPlayer } from "./PlayerModel";
 
 function iconStyleFor(id: number, size = 32): string {
   if (shouldRenderAsBlock(id)) {
@@ -157,69 +159,82 @@ export class CraftingUI {
     this.renderCursor();
   }
 
-  /** Draw a tiny pixel-style player to the preview canvas, with armor items
-   *  overlaid as colored bands where they sit on the body. Real 3D would
-   *  need its own scene + camera; a 2D placeholder gets the 1.8 inventory
-   *  look across without the complexity. */
-  private renderCharPreview() {
+  // ── 3D player preview (Minecraft-style inventory) ──
+  // Spins up a self-contained THREE scene + WebGL renderer attached to the
+  // existing #invCharPreview canvas. We clone the same player GLB used in
+  // the world, give it its own light rig, and idle-rotate so the player
+  // sees themselves like vanilla MC. The renderer is created lazily on
+  // first open and kept alive for the session — cheap, 120×180 viewport.
+  private _previewRenderer: THREE.WebGLRenderer | null = null;
+  private _previewScene: THREE.Scene | null = null;
+  private _previewCamera: THREE.PerspectiveCamera | null = null;
+  private _previewModel: THREE.Object3D | null = null;
+  private _previewLoopActive = false;
+  private _previewStartedAt = 0;
+
+  private ensurePreviewScene() {
+    if (this._previewRenderer) return true;
     const canvas = document.getElementById("invCharPreview") as HTMLCanvasElement | null;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    ctx.imageSmoothingEnabled = false;
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    // Background mat
-    ctx.fillStyle = "#191c24";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    // Steve silhouette in 2D — head + body + arms + legs
-    const skin   = "#c69b7b";   // skin tone
-    const shirt  = "#3a82c4";
-    const pants  = "#3a4a99";
-    const cx = canvas.width / 2;
-    const headSize = 28;
-    const headY = 18;
-    // Head
-    ctx.fillStyle = skin;
-    ctx.fillRect(cx - headSize / 2, headY, headSize, headSize);
-    // Eyes
-    ctx.fillStyle = "#fff";
-    ctx.fillRect(cx - 9, headY + 11, 4, 4);
-    ctx.fillRect(cx + 5, headY + 11, 4, 4);
-    ctx.fillStyle = "#5a4a8a";
-    ctx.fillRect(cx - 7, headY + 12, 2, 3);
-    ctx.fillRect(cx + 7, headY + 12, 2, 3);
-    // Body
-    const bodyY = headY + headSize;
-    ctx.fillStyle = shirt;
-    ctx.fillRect(cx - 14, bodyY, 28, 36);
-    // Arms
-    ctx.fillRect(cx - 22, bodyY, 8, 36);
-    ctx.fillRect(cx + 14, bodyY, 8, 36);
-    // Legs
-    const legY = bodyY + 36;
-    ctx.fillStyle = pants;
-    ctx.fillRect(cx - 12, legY, 10, 36);
-    ctx.fillRect(cx +  2, legY, 10, 36);
-    // Equipped-armor overlays (tinted bands at the appropriate Y range).
-    const drawArmor = (id: number, y: number, h: number) => {
-      if (!id) return;
-      // Different tints per material — leather/chain/iron/gold/diamond.
-      let color = "#888";
-      // helmet/chestplate/leggings/boots ids per material
-      if ([114, 115, 116, 117].includes(id)) color = "#7c4d2c";       // leather
-      else if ([118, 119, 120, 121].includes(id)) color = "#cccccc";  // iron
-      else if ([122, 123, 124, 125].includes(id)) color = "#f5c842";  // gold
-      else if ([126, 127, 128, 129].includes(id)) color = "#5dd9d1";  // diamond
-      else if ([192, 193, 194, 195].includes(id)) color = "#6a6a6a";  // chain
-      ctx.fillStyle = color;
-      ctx.globalAlpha = 0.78;
-      ctx.fillRect(cx - 24, y, 48, h);
-      ctx.globalAlpha = 1.0;
-    };
-    drawArmor(this.inv.armor.helmet.id,     headY - 2, headSize + 2);
-    drawArmor(this.inv.armor.chestplate.id, bodyY,     36);
-    drawArmor(this.inv.armor.leggings.id,   legY,      20);
-    drawArmor(this.inv.armor.boots.id,      legY + 24, 12);
+    if (!canvas) return false;
+    const inst = spawnPlayer();
+    if (!inst) return false;  // GLB not loaded yet
+    try {
+      this._previewRenderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
+      this._previewRenderer.setPixelRatio(window.devicePixelRatio || 1);
+      this._previewRenderer.setSize(canvas.width, canvas.height, false);
+    } catch (e) {
+      console.warn("[invPreview] WebGL init failed", e);
+      return false;
+    }
+    this._previewScene = new THREE.Scene();
+    // Dark mat backdrop matches the original 2D preview's #191c24.
+    this._previewScene.background = new THREE.Color(0x191c24);
+    this._previewCamera = new THREE.PerspectiveCamera(28, canvas.width / canvas.height, 0.1, 50);
+    this._previewCamera.position.set(0, 1.0, 3.4);
+    this._previewCamera.lookAt(0, 1.0, 0);
+    // Three-light setup so the model is well-lit from the front.
+    const key  = new THREE.DirectionalLight(0xffffff, 1.0); key.position.set(1, 2, 3);  this._previewScene.add(key);
+    const fill = new THREE.DirectionalLight(0xc0d8ff, 0.4); fill.position.set(-2, 1, 1); this._previewScene.add(fill);
+    this._previewScene.add(new THREE.AmbientLight(0xffffff, 0.55));
+    this._previewModel = inst.root;
+    // Sit the model so the camera frames head-to-feet.
+    this._previewModel.position.set(0, 0, 0);
+    this._previewScene.add(this._previewModel);
+    return true;
+  }
+
+  /** Render the 3D player preview into the armor-panel canvas. Spawns a
+   *  copy of the player GLB once and idle-rotates it like vanilla MC. */
+  private renderCharPreview() {
+    if (!this.ensurePreviewScene()) {
+      // GLB not loaded yet — do NOT call canvas.getContext("2d") here
+      // because that would lock the canvas to 2D and prevent WebGLRenderer
+      // from later acquiring a WebGL context on the same element. Just bail;
+      // next render() (after armor change) will retry.
+      return;
+    }
+    // Start the idle rotation loop once (rAF). Stops automatically when the
+    // panel closes.
+    if (!this._previewLoopActive) {
+      this._previewLoopActive = true;
+      this._previewStartedAt = performance.now();
+      const tick = () => {
+        if (!this.open || !this._previewRenderer || !this._previewScene || !this._previewCamera || !this._previewModel) {
+          this._previewLoopActive = false;
+          return;
+        }
+        // Gentle yaw oscillation — left/right ~30° like vanilla.
+        const t = (performance.now() - this._previewStartedAt) / 1000;
+        this._previewModel.rotation.y = Math.sin(t * 0.9) * 0.5;
+        this._previewRenderer.render(this._previewScene, this._previewCamera);
+        requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    }
+    // TODO: when armor items are equipped, attach armor-piece meshes to the
+    // appropriate body bones (helmet → head, chestplate → torso, etc.). For
+    // now the armor *slots* still show their item icons; the 3D preview is
+    // the base skin.
   }
 
   private renderArmor() {

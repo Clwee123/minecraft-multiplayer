@@ -43,3 +43,10 @@ VPS paths (verified, do not change without re-probing — earlier `vps-setup.sh`
 | nginx config | `/etc/nginx/sites-enabled/*` — proxies WS + `/matchmake` + `/colyseus` to localhost:8471, otherwise serves from /var/www/minecraft |
 
 `scripts/deploy.py` does: git pull → npm install + build client → copy dist to /var/www/minecraft → npm install server → `pm2 restart mc-server`. After it runs, the bundle hash in the served `index.html` changes (e.g. `index-DePyMSfV.js`); the build-stamp text in the bottom-left HUD is a quick visual check.
+
+## Reference assets (NOT in repo — pull source textures from here)
+
+- `C:\Users\leeza\Downloads\minecraft-assets-master` — vanilla Minecraft assets dump (every version under `minecraft-assets-master/data/<version>/...`). Use these for authoritative block/item textures, sounds, models — anything where we need the real vanilla look.
+- `C:\Users\leeza\Downloads\ocdpackv18` — OCD resource pack (alternative texture pack, structure: `assets/minecraft/textures/...`). Used as one of the selectable in-game texture packs.
+
+Do NOT add these directories to the repo. Copy individual files into `client/public/textures/<packname>/...` when wiring them into the texture-pack picker.

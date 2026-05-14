@@ -1,6 +1,6 @@
 declare const __BUILD_TIME__: string;
 import * as THREE from "three";
-import { preloadAtlas, tickWater, BLOCKS, ITEMS, getItemTile, getItemName, isPlaceable, CREATIVE_HOTBAR } from "./Textures";
+import { preloadAtlas, tickWater, BLOCKS, ITEMS, getItemTile, getItemName, isPlaceable, CREATIVE_HOTBAR, getTexturePack, setTexturePack, reloadAtlasForPack, type TexturePackId } from "./Textures";
 import { damageTool } from "./Inventory";
 import { World } from "./World";
 import { Player } from "./Player";
@@ -55,6 +55,11 @@ sun.position.set(60, 100, 35);
 scene.add(sun);
 const hemi = new THREE.HemisphereLight(0xb0d8ff, 0x5a7a3a, 0.35);
 scene.add(hemi);
+// Lights default to layer 0 only — but pass 2 disables layer 0 so the FP arm
+// would render pitch-black. Enable them on FP_LAYER too so both passes are lit.
+ambient.layers.enable(FP_LAYER);
+sun.layers.enable(FP_LAYER);
+hemi.layers.enable(FP_LAYER);
 
 // ── State ───────────────────────────────────────────────────────────────────
 let world: World;
@@ -98,6 +103,29 @@ function startModeStates(modeId: ModeId) {
       { name: "Hide!",               help: "Find a spot — seeker is frozen",       durationSec: 30 },
       { name: "Seek!",               help: "Track down everyone before time's up", durationSec: 180 },
       { name: "Round over",          help: "Resetting…",                            durationSec: 15 },
+    ];
+  } else if (modeId === "shooter_mp") {
+    // Server phases: [300, 10] — match → map vote.
+    _modePhases = [
+      { name: "Match",     help: "Fight! Most kills wins.",  durationSec: 300 },
+      { name: "Map vote",  help: "Voting on next arena…",     durationSec: 10  },
+    ];
+  } else if (modeId === "infection_mp") {
+    // Server phases: [30, 240, 15] — lobby → round → reset.
+    _modePhases = [
+      { name: "Lobby",       help: "Round starts soon",                       durationSec: 30  },
+      { name: "Infection!",  help: "Survive — or infect the survivors",       durationSec: 240 },
+      { name: "Round over",  help: "Resetting…",                               durationSec: 15  },
+    ];
+  } else if (modeId === "squidgames_mp") {
+    // Server phases: [10, 60, 60, 60, 60, 60]
+    _modePhases = [
+      { name: "Lobby",          help: "Get ready…",                         durationSec: 10 },
+      { name: "Red Light Green Light", help: "Move only when the doll looks away", durationSec: 60 },
+      { name: "Honeycomb",       help: "Don't break the shape",              durationSec: 60 },
+      { name: "Tug of War",      help: "Pull together!",                     durationSec: 60 },
+      { name: "Marbles",         help: "Make a deal — or steal",             durationSec: 60 },
+      { name: "Glass Bridge",    help: "Pick wisely — tempered or not",      durationSec: 60 },
     ];
   } else {
     _modePhases = [];
@@ -412,6 +440,18 @@ function wirePauseButtons() {
   wireOption("optRender", "optRenderVal", v => { _renderDist = v;          saveSettings(); }, x => String(x));
   wireOption("optMouse",  "optMouseVal",  v => { if (player) player.mouseSensitivity = 0.001 * v; saveSettings(); }, v => (v / 10).toFixed(1));
   wireOption("optFov",    "optFovVal",    v => { camera.fov = v; camera.updateProjectionMatrix();  saveSettings(); }, x => String(x));
+  // Texture pack <select> — re-applies the pack filter to the live atlas
+  // canvas, so the world updates without a reload. Persisted via the same
+  // localStorage layer as the sliders.
+  const tpSel = document.getElementById("optTexturePack") as HTMLSelectElement | null;
+  if (tpSel) {
+    tpSel.value = getTexturePack();
+    tpSel.addEventListener("change", async () => {
+      setTexturePack(tpSel.value as TexturePackId);
+      await reloadAtlasForPack();
+      saveSettings();
+    });
+  }
 }
 
 // ── Settings persistence ──────────────────────────────────────────────────
@@ -948,19 +988,38 @@ document.addEventListener("mousedown", (e) => {
       sound.swing();
     }
   } else if (e.button === 2) {
-    fpArm?.triggerSwing(0.65);
-    tryShootBow();
+    // Bow held → don't fire on RMB-down; start charging. Fire on RMB-up
+    // (see mouseup handler) with damage scaled by draw time. Vanilla MC
+    // behaviour. For other items keep the swing animation.
+    const held0 = inv?.getHeld();
+    if (!(held0 && held0.id === 102)) {
+      fpArm?.triggerSwing(0.65);
+    }
   }
 });
 document.addEventListener("mouseup", (e) => {
   if (e.button === 0) lmbHeld = false;
-  if (e.button === 2) { rmbHeld = false; eatProgress = 0; }
+  if (e.button === 2) {
+    rmbHeld = false;
+    eatProgress = 0;
+    // Bow release — fire the arrow with charge = how long RMB was held.
+    if (bowChargeT > 0) {
+      releaseBowShot(bowChargeT);
+      bowChargeT = 0;
+      fpArm?.setBowDraw(0);
+    }
+  }
 });
 // Hold-RMB-to-eat tracker — accumulates `eatProgress` (seconds) while RMB
 // is held on a food item. Reset on release. The game loop advances it.
 let rmbHeld = false;
 let eatProgress = 0;
 const EAT_TIME = 1.6;  // seconds to fully eat one item (vanilla)
+// Bow charge — seconds RMB has been held with a bow equipped. Drives the
+// draw animation (0..1 progress = clamp(t / BOW_FULL_DRAW, 0, 1)) and the
+// damage scale when released. Vanilla full draw = ~1.0s.
+let bowChargeT = 0;
+const BOW_FULL_DRAW = 1.0;
 document.addEventListener("mousedown", (e) => {
   if (e.button === 2 && document.pointerLockElement) rmbHeld = true;
 });
@@ -1445,10 +1504,14 @@ function tryAttackInFront(): boolean {
 // one arrow, raycast up to 30 m, damage the first mob/player on the line.
 // Hitscan rather than projectile for now — much simpler and reads instantly.
 // We do spawn a brief tracer line so the shot is visible.
-function tryShootBow(): boolean {
+function releaseBowShot(chargeSec: number): boolean {
   if (!player || !inv) return false;
   const held = inv.getHeld();
   if (!held || held.id !== 102) return false; // not holding a bow
+  // Need a minimum draw (~0.2s) — same threshold vanilla uses to discard
+  // accidental taps. Fully drawn at BOW_FULL_DRAW.
+  const charge = Math.max(0, Math.min(1, chargeSec / BOW_FULL_DRAW));
+  if (charge < 0.2) return false;
   // Find + consume one arrow (creative skips ammo check).
   if (inv.gameMode !== "creative") {
     if (inv.countOf(80) < 1) return false;
@@ -1479,7 +1542,9 @@ function tryShootBow(): boolean {
   // Visible tracer
   spawnArrowTracer(origin, dir, best ? best.t : maxDist);
   if (best && mp?.isConnected()) {
-    const dmg = 5;
+    // Damage scales with draw — 2 at min draw, up to 9 at full draw (close
+    // to vanilla critical: ~9 hearts at full crit). Linear is fine.
+    const dmg = Math.max(2, Math.round(2 + charge * 7));
     if (best.kind === "mob") mp.sendAttackMob(best.id, dmg);
     else                     mp.sendAttackPlayer(best.id, dmg);
     sound.hit();
@@ -2131,6 +2196,25 @@ async function startGame(serverAddr: string | null) {
         else if (player.health > 0) player.takeDamage(1, "starvation");
         renderHunger(hunger);
       }
+      // ── Hold-RMB to charge a bow ──
+      // Mirrors the eat loop but bumps bowChargeT instead. Reset to 0 when
+      // RMB releases or item swaps off the bow. The arm pose is driven from
+      // the fpArm.setBowDraw call below.
+      {
+        const heldNow = inv.getHeld();
+        const isBow = heldNow && heldNow.id === 102;
+        if (rmbHeld && isBow) {
+          // Require at least one arrow (or creative) before counting charge —
+          // otherwise the player gets a misleading draw animation that won't
+          // fire on release.
+          if (inv.gameMode === "creative" || inv.countOf(80) > 0) {
+            bowChargeT = Math.min(BOW_FULL_DRAW * 1.05, bowChargeT + dt);
+          }
+        } else if (bowChargeT > 0 && !isBow) {
+          // Switched off bow mid-charge — cancel without firing.
+          bowChargeT = 0;
+        }
+      }
       // ── Hold-RMB to eat ──
       // Only count progress when RMB is actually held + the held item is a
       // food (ITEMS[id].food > 0) + we're not at full hunger. Restores
@@ -2184,7 +2268,10 @@ async function startGame(serverAddr: string | null) {
         // (0..1) so the arm raises to mouth + nibble-shakes while held RMB
         // is consuming a food item.
         fpArm.setEating(eatProgress > 0 ? eatProgress / EAT_TIME : 0);
-        if (eatProgress === 0 && lmbHeld && player.gameMode === "survival" && player.lastHit) {
+        // Bow draw pose — pose overrides swing/mine when active. Progress
+        // 0..1 clamps the visual stretch.
+        fpArm.setBowDraw(bowChargeT > 0 ? Math.min(1, bowChargeT / BOW_FULL_DRAW) : 0);
+        if (eatProgress === 0 && bowChargeT === 0 && lmbHeld && player.gameMode === "survival" && player.lastHit) {
           fpArm.triggerMineSwing();
         }
       }
