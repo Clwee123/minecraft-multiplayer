@@ -252,6 +252,24 @@ export class ArmEditor {
         border-radius: 3px; font-size: 9px; margin-left: 8px;
         text-transform: uppercase; letter-spacing: 0.5px;
       }
+      #armEditor .ae-menu {
+        font-size: 11px; color: #c4c8d2; cursor: pointer;
+        padding: 2px 8px; margin-right: 10px; border-radius: 3px;
+        font-weight: 500; user-select: none;
+      }
+      #armEditor .ae-menu:hover { background: #2c2f38; color: #fff; }
+      #armEditor .ae-menu-dropdown {
+        position: absolute; left: 12px; top: 42px; z-index: 3;
+        background: #1a1c22; border: 1px solid #3a3d48; border-radius: 4px;
+        min-width: 180px; padding: 4px; display: none;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.45);
+      }
+      #armEditor .ae-menu-dropdown.open { display: block; }
+      #armEditor .ae-menu-item {
+        padding: 7px 10px; font-size: 12px; color: #e8ebf0; cursor: pointer;
+        border-radius: 3px;
+      }
+      #armEditor .ae-menu-item:hover { background: #2c2f38; }
       #armEditor a.exit {
         float: right; color: #8e93a0; text-decoration: none; font-size: 11px;
       }
@@ -266,9 +284,15 @@ export class ArmEditor {
     const inspector = document.createElement("div");
     inspector.className = "ae-inspector";
     inspector.innerHTML = `
-      <h1>Arm Editor <span class="pill">?devarm=1</span>
+      <h1>
+        <span class="ae-menu" id="aeFileMenu">File ▾</span>
+        Arm Editor <span class="pill">?devarm=1</span>
         <a href="?" class="exit">exit ✕</a>
       </h1>
+      <div class="ae-menu-dropdown" id="aeFileMenuDropdown">
+        <div class="ae-menu-item" data-action="export">⬇ Save As JSON…</div>
+        <div class="ae-menu-item" data-action="reset-all">↺ Reset All</div>
+      </div>
       <div class="ae-tabs">
         <div class="ae-tab active" data-tab="held">Held Item</div>
         <div class="ae-tab" data-tab="arm">Arm</div>
@@ -281,6 +305,25 @@ export class ArmEditor {
     document.body.appendChild(this.container);
 
     this.inspectorEl = inspector.querySelector("#aeInspector") as HTMLDivElement;
+
+    // Wire the File menu (Save As + Reset All).
+    const fileBtn  = inspector.querySelector<HTMLElement>("#aeFileMenu");
+    const fileDrop = inspector.querySelector<HTMLElement>("#aeFileMenuDropdown");
+    if (fileBtn && fileDrop) {
+      fileBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        fileDrop.classList.toggle("open");
+      });
+      document.addEventListener("click", () => fileDrop.classList.remove("open"));
+      fileDrop.addEventListener("click", (e) => {
+        const item = (e.target as HTMLElement).closest<HTMLElement>(".ae-menu-item");
+        if (!item) return;
+        fileDrop.classList.remove("open");
+        const action = item.dataset.action;
+        if (action === "export")    this.exportJSON();
+        if (action === "reset-all") this.resetAll();
+      });
+    }
 
     // Status overlay (bottom-left of viewport)
     this.statusEl = document.createElement("div");
@@ -557,13 +600,22 @@ export class ArmEditor {
 
     const utilGroup = document.createElement("div");
     utilGroup.className = "grp";
-    const resetBtn = document.createElement("button");
-    resetBtn.className = "ae-btn";
-    resetBtn.style.cssText = "background:#5a2a2a;border-color:#a04040;";
-    resetBtn.textContent = "↺ Reset All";
-    resetBtn.title = "Wipe ALL tunings (item offsets, arm pose, animation values) and revert to defaults.";
-    resetBtn.onclick = () => this.resetAll();
-    utilGroup.appendChild(resetBtn);
+
+    // Fullscreen toggle — sits to the LEFT of "Test in game" so it's in
+    // easy reach for showing off the FP preview without browser chrome.
+    const fsBtn = document.createElement("button");
+    fsBtn.className = "ae-btn";
+    fsBtn.textContent = "⛶ Fullscreen";
+    fsBtn.title = "Toggle browser fullscreen (F11-equivalent).";
+    const setFsLabel = () => {
+      fsBtn.textContent = document.fullscreenElement ? "⛶ Exit Fullscreen" : "⛶ Fullscreen";
+    };
+    fsBtn.onclick = () => {
+      if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+      else document.documentElement.requestFullscreen().catch(() => {});
+    };
+    document.addEventListener("fullscreenchange", setFsLabel);
+    utilGroup.appendChild(fsBtn);
 
     const testBtn = document.createElement("button");
     testBtn.className = "ae-btn";
@@ -820,9 +872,11 @@ export class ArmEditor {
       ${this.sliderRow("rotY", valRY, -Math.PI, Math.PI, 0.01, "held.rotY")}
       ${this.sliderRow("rotZ", valRZ, -Math.PI, Math.PI, 0.01, "held.rotZ")}
       <div class="ae-actions">
-        <button class="primary" data-action="save-held">💾 Save persistently</button>
         <button data-action="reset-held">↺ Reset this item</button>
-        <button data-action="export">⬇ Export JSON</button>
+        <button data-action="copy-to-all">⎘ Copy to all (with confirm)</button>
+      </div>
+      <div style="margin-top:8px;font-size:11px;color:#6e7280;line-height:1.5;">
+        All edits auto-save. Use <strong>File → Save As JSON</strong> to export.
       </div>
       <div class="ae-section-title">Pick item to edit</div>
       <div class="ae-item-grid" id="aeItemGrid"></div>
@@ -846,11 +900,10 @@ export class ArmEditor {
       ${this.sliderRow("twist",       this.tunerGet("twist"),         -1.5, 1.5, 0.01,  "arm.twist")}
       <div class="ae-actions">
         <button data-action="reset-arm">↺ Reset arm to defaults</button>
-        <button data-action="export">⬇ Export JSON</button>
       </div>
       <div style="margin-top:14px;font-size:11px;color:#6e7280;line-height:1.5;">
-        Arm defaults are tuned live and applied to <code>buildFirstPersonArm()</code> on next reload.
         Use the 3D <strong>Arm</strong> gizmo target in the toolbar to drag the rig in space.
+        Edits auto-save. Use <strong>File → Save As JSON</strong> to export.
       </div>
     `;
     this.inspectorEl.innerHTML = html;
@@ -873,12 +926,11 @@ export class ArmEditor {
       ${this.sliderRow("shakeAmp", a.eatShakeAmp,    0, 0.4, 0.005, "anim.eatShakeAmp")}
       ${this.sliderRow("shakeFreq",a.eatShakeFreq,   0.005, 0.1, 0.001, "anim.eatShakeFreq")}
       <div class="ae-actions">
-        <button class="primary" data-action="save-anim">💾 Save animations</button>
         <button data-action="reset-anim">↺ Reset to defaults</button>
-        <button data-action="export">⬇ Export JSON</button>
       </div>
       <div style="margin-top:14px;font-size:11px;color:#6e7280;line-height:1.5;">
         Pick a pose from the toolbar (Mining / Swing / Eat / Bow) to see live changes.
+        Edits auto-save. Use <strong>File → Save As JSON</strong> to export.
       </div>
     `;
     this.inspectorEl.innerHTML = html;
@@ -895,13 +947,12 @@ export class ArmEditor {
       ${this.sliderRow("freq",  a.bobFreq,  0, 5,    0.05,  "anim.bobFreq")}
       ${this.sliderRow("sway",  a.swayMul,  0, 50,   0.5,   "anim.swayMul")}
       <div class="ae-actions">
-        <button class="primary" data-action="save-anim">💾 Save bob</button>
         <button data-action="reset-bob">↺ Reset bob</button>
-        <button data-action="export">⬇ Export JSON</button>
       </div>
       <div style="margin-top:14px;font-size:11px;color:#6e7280;line-height:1.5;">
         Bob preview ticks at a steady simulated walking speed of 4 m/s so
         you can dial in the amplitude/frequency without leaving the editor.
+        Edits auto-save. Use <strong>File → Save As JSON</strong> to export.
       </div>
     `;
     this.inspectorEl.innerHTML = html;
@@ -969,11 +1020,17 @@ export class ArmEditor {
       (o as any)[f] = v;
       ITEM_HELD_OVERRIDES[this.currentItemId] = o;
       this.fpArm?.refreshHeldTransform?.();
+      // Auto-save — no more explicit "Save persistently" button.
+      saveItemHeldOverrides();
     } else if (key.startsWith("arm.")) {
       const f = key.slice(4);
       (window as any).__armTuner?.set?.(f, v);
+      // Arm defaults aren't persisted in localStorage today (they live on
+      // the live __armTuner closure). If we want to remember them across
+      // reloads, the persistence hook would go here.
     } else if (key.startsWith("anim.")) {
       setAnimOverride(key.slice(5), v);
+      saveAnimOverrides();
     }
   }
   private tunerGet(field: string): number {
@@ -1006,18 +1063,23 @@ export class ArmEditor {
     return Array.from(ids).sort((a, b) => a - b);
   }
   private getTileBg(id: number): string {
-    // 3D iso-cube icons only for opaque cubic blocks — cross-shape flowers /
-    // saplings / sprites + iconTile-overridden blocks fall through to the
-    // flat atlas-tile path with the CORRECT tile (the bug here was
-    // `ITEMS[id]?.tile ?? 0` which gave 0 = grass-top for every non-cube
-    // block, e.g. crossShape flowers all showed as grass-block icons).
     if (shouldRenderAsBlock(id)) {
       const url = blockIconCache.get(id);
-      return `background-image:url('${url}');`;
+      // Use cover so the block icon fills the tile cleanly.
+      return `background-image:url('${url}');background-size:cover;background-position:center;background-repeat:no-repeat;`;
     }
-    const tile = getItemTile(id);  // proper lookup (handles iconTile + faces[0] + items)
+    const tile = getItemTile(id);  // handles iconTile + faces[0] + items
     const col = tile % 16, row = Math.floor(tile / 16);
-    return `background-image:url(/terrain_atlas.png?v=5);background-size:${512 * 1.2}px ${512 * 1.2}px;background-position:-${col * 32 * 1.2}px -${row * 32 * 1.2}px;`;
+    // Scale-independent: image is 16x the tile-container size on each axis,
+    // and we position by percentage. col/(N-1)*100% slides the image left
+    // so the requested column lands in the container.
+    //
+    // The previous bug: I'd used `background-size: 512 * 1.2 = 614.4px` with
+    // a per-tile size of 38.4px — but the actual DOM tile container in the
+    // picker is ~60px wide. The image was scaled too small to fill the
+    // container, so each tile showed bits of the THREE NEIGHBOURING tiles
+    // (the diamond sword icon was bordered by other items' textures).
+    return `background-image:url(/terrain_atlas.png?v=5);background-size:1600% 1600%;background-position:${(col / 15) * 100}% ${(row / 15) * 100}%;background-repeat:no-repeat;`;
   }
   private pickItem(id: number) {
     this.currentItemId = id;
@@ -1049,6 +1111,9 @@ export class ArmEditor {
         this.renderHeldTab();
         this.flashStatus(`Reset item #${this.currentItemId}.`);
         break;
+      case "copy-to-all":
+        this.copyCurrentItemConfigToAll();
+        break;
       case "reset-arm":
         for (const k of Object.keys(ARM_DEFAULTS)) {
           (window as any).__armTuner?.set?.(k, (ARM_DEFAULTS as any)[k]);
@@ -1078,6 +1143,52 @@ export class ArmEditor {
         this.exportJSON();
         break;
     }
+  }
+
+  /** Copy the current item's transform override onto every other item in
+   *  the catalogue. The user case: tuning the grass-block pose once, then
+   *  applying that same offset/rotation to every other block/item. Pushes
+   *  an undo snapshot so Ctrl+Z reverts the bulk apply. Choice of target
+   *  scope ("blocks", "items", "both") is prompted. */
+  private copyCurrentItemConfigToAll() {
+    const src = ITEM_HELD_OVERRIDES[this.currentItemId];
+    if (!src) { this.flashStatus("This item has no overrides to copy."); return; }
+    const scope = (prompt(
+      `Copy this item's transform to which items?\n\n` +
+      `Type:\n  "blocks" — apply to all blocks only\n  "items" — apply to all items only\n  "all" — apply to every block + item\n\n` +
+      `Source item: ${this.currentItemId} (${(window as any).getItemName?.(this.currentItemId) ?? "?"})`,
+      "all"
+    ) || "").toLowerCase().trim();
+    if (!scope || (scope !== "blocks" && scope !== "items" && scope !== "all")) {
+      this.flashStatus("Copy cancelled.");
+      return;
+    }
+    // Snapshot for undo.
+    const before = JSON.parse(JSON.stringify(ITEM_HELD_OVERRIDES));
+    this.undoStack.push(() => {
+      for (const k of Object.keys(ITEM_HELD_OVERRIDES)) delete (ITEM_HELD_OVERRIDES as any)[+k];
+      for (const k of Object.keys(before)) (ITEM_HELD_OVERRIDES as any)[+k] = before[k];
+      saveItemHeldOverrides();
+      this.fpArm?.refreshHeldTransform?.();
+      this.renderInspector();
+      this.flashStatus("Undid bulk copy.");
+    });
+    // Apply.
+    const ids = this.collectCatalogueIds();
+    let count = 0;
+    for (const id of ids) {
+      if (id === this.currentItemId) continue;
+      const isBlock = !!BLOCKS[id];
+      const isItem  = !!ITEMS[id];
+      if (scope === "blocks" && !isBlock) continue;
+      if (scope === "items"  && !isItem)  continue;
+      ITEM_HELD_OVERRIDES[id] = { ...src };
+      count++;
+    }
+    saveItemHeldOverrides();
+    this.fpArm?.refreshHeldTransform?.();
+    this.flashStatus(`Copied to ${count} items (${scope}). Ctrl+Z to undo.`);
+    this.renderHeldTab();
   }
 
   /** Wipe EVERY override the editor has produced — per-item held

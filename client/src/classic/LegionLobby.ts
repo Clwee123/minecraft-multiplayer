@@ -446,9 +446,10 @@ export class LegionLobby {
     labelSprite.position.set(plateX, gy + 2.0, plateZ);
     // Rotate the plate's local +Z to point AWAY from the plaza centre
     // (so its FRONT face points toward the centre where players walk in).
-    // PlaneGeometry's normal is +Z by default; we rotate around Y so the
-    // plane is perpendicular to the player's approach direction.
     labelSprite.rotation.y = -facing + Math.PI / 2;
+    // Fixed world-space size — does NOT change with player distance.
+    const SIGN_SIZE = 2.6;
+    labelSprite.scale.set(SIGN_SIZE, SIGN_SIZE, 1);
     this.scene.add(labelSprite);
     // Animated "shimmer" plane in front of the portal for liveliness.
     const shimmerGeo = new THREE.PlaneGeometry(0.9, 2.7);
@@ -878,11 +879,10 @@ export class LegionLobby {
       const dz = this.pos.z - p.pos.z;
       const d = Math.hypot(dx, dz);
       if (d < nearestD) { nearest = p; nearestD = d; }
-      const t = Math.max(0, Math.min(1, 1 - d / PROXIMITY));
-      const k = p.baseScale * (1 + t * 0.4);
-      // Uniform scale — the PlaneGeometry already encodes the portrait
-      // aspect (W:H = 1:1.33), so we just scale both axes proportionally.
-      p.labelSprite.scale.set(k, k, 1);
+      // The plate stays at constant world size — the user explicitly
+      // asked for it not to grow when they get close. baseScale is applied
+      // once when the plate is created (see placePortal); we no longer
+      // touch scale here.
       p.shimmerT = (p.shimmerT ?? Math.random() * 6.28) + dt;
       const mat = p.shimmer.material as THREE.MeshBasicMaterial;
       mat.opacity = 0.25 + Math.sin(p.shimmerT * 2) * 0.12;
@@ -916,8 +916,13 @@ export class LegionLobby {
       this.promptOverlayPortalId = null;
       return;
     }
-    // Project the portal's anchor position (slightly above its trigger
-    // point) to screen NDC, then to pixels.
+    // Project the portal's anchor position to screen NDC. The camera's
+    // matrixWorld and projectionMatrix must be up to date for project()
+    // to return the right NDC. The "laggy prompt" the user reported was
+    // caused by projecting BEFORE THREE flushes the camera matrices
+    // (renderer.render does that internally for the scene tree, but the
+    // camera's own matrixWorld needs an explicit refresh here).
+    this.camera.updateMatrixWorld(true);
     const v = new THREE.Vector3(target.pos.x, target.pos.y + 2.2, target.pos.z);
     v.project(this.camera);
     // v.z > 1 means behind the camera (or beyond far plane).
@@ -1123,13 +1128,15 @@ function makePortalThumbnailPlate(label: string, modeId: ModeId): THREE.Mesh {
   // (placePortal) sets its rotation so each waypoint faces the centre
   // of the plaza like a sign someone hung on the portal frame.
   const geo = new THREE.PlaneGeometry(1, H / W);   // matches canvas aspect
+  // Normal z-test + render-order — the plate participates in the depth
+  // queue like every other piece of world geometry. Was depthTest:false
+  // + renderOrder 1000 which made it punch through walls.
   const mat = new THREE.MeshBasicMaterial({
-    map: tex, transparent: true, depthTest: false, depthWrite: false,
+    map: tex, transparent: true,
     side: THREE.DoubleSide,
+    alphaTest: 0.01,
   });
   const mesh = new THREE.Mesh(geo, mat);
-  mesh.renderOrder = 1000;
-  mesh.frustumCulled = false;
   return mesh;
 }
 
