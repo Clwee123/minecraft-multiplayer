@@ -849,64 +849,93 @@
       font-size: 10px; cursor: pointer;
       text-shadow: 1px 1px 0 #2a2a2a;
     }
-    /* Each friend row = a stone button. Hover lights the bevel for the */
-    /* familiar "selected server" look. Status-aware: online friends pop, */
-    /* offline are desaturated. Online rows are sorted to the top by JS. */
+    /* Each friend row = a stone button. Three states (online / in-game /
+     * offline) are styled distinctly via background + a left "status bar"
+     * accent strip — no opacity dimming or grayscale filter, those made
+     * everything in the list look murky. Offline still reads as muted but
+     * the text is fully legible. */
     .friend-row {
+      position: relative;
       display: flex; align-items: center; gap: 10px;
-      padding: 8px;
-      background: rgba(60, 60, 70, 0.7);
-      border-top:    2px solid rgba(255,255,255,0.18);
-      border-left:   2px solid rgba(255,255,255,0.18);
-      border-right:  2px solid rgba(0,0,0,0.35);
-      border-bottom: 2px solid rgba(0,0,0,0.35);
-      margin-bottom: 4px;
-      transition: filter 0.1s, background 0.1s;
+      padding: 9px 10px 9px 14px;        /* extra left padding for status strip */
+      background: #1d1f26;
+      border-top:    2px solid #4a4d57;
+      border-left:   2px solid #4a4d57;
+      border-right:  2px solid #0a0b10;
+      border-bottom: 2px solid #0a0b10;
+      margin-bottom: 5px;
+      transition: background 0.1s, border-color 0.1s;
+    }
+    /* Colored vertical strip on the left edge — green online, gold in-game,
+     * gray offline. Visual at-a-glance status without needing to read the
+     * label below the name. */
+    .friend-row::before {
+      content: "";
+      position: absolute;
+      top: 0; bottom: 0; left: 0;
+      width: 4px;
+      background: #4a4d57;
     }
     .friend-row:hover {
-      filter: brightness(1.18);
-      background: rgba(80, 80, 92, 0.85);
+      background: #2a2d36;
+      border-top-color: #6a6d77;
+      border-left-color: #6a6d77;
     }
-    /* Online & in-game: brighter background, no stripes. */
-    .friend-row.status-online,
+    /* Online: bright bg, green accent strip, full-white name. */
+    .friend-row.status-online {
+      background: #232a26;
+      border-top-color: #5e8e6a;
+      border-left-color: #5e8e6a;
+    }
+    .friend-row.status-online::before { background: #57e57c; }
+    .friend-row.status-online:hover {
+      background: #2e372f;
+    }
+    /* In-game: warm-tinted bg, gold accent strip. */
     .friend-row.status-in_game {
-      background: rgba(70, 80, 75, 0.85);
-      border-top-color:  rgba(120, 220, 130, 0.55);
-      border-left-color: rgba(120, 220, 130, 0.55);
+      background: #2a2820;
+      border-top-color: #a08a40;
+      border-left-color: #a08a40;
     }
-    .friend-row.status-in_game {
-      box-shadow: inset 0 0 0 1px rgba(255,210,63,0.45);
+    .friend-row.status-in_game::before { background: #ffd23f; }
+    .friend-row.status-in_game:hover {
+      background: #36321f;
     }
-    /* Offline: slightly dimmer + desaturated, but still readable. */
-    .friend-row.status-offline {
-      opacity: 0.72;
-      filter: grayscale(0.35);
-    }
-    .friend-row.status-offline:hover {
-      opacity: 0.9;
-      filter: grayscale(0.15);
-    }
+    /* Offline: same bg as base but the strip is dim gray. NO opacity / no
+     * grayscale filter — everything stays sharp + readable. The name color
+     * is what differentiates online (pure white) from offline (muted gray). */
+    .friend-row.status-offline::before { background: #3a3c44; }
     .friend-pfp {
-      width: 32px; height: 32px;
+      width: 34px; height: 34px;
       image-rendering: pixelated;
-      border: 2px solid #1a1a1a;
-      box-shadow: 0 0 0 1px #aaa;
+      border: 2px solid #0a0b10;
+      box-shadow: 0 0 0 1px #5a5d67;
     }
+    /* Faded pfp for offline players (cheap visual cue, no row-wide opacity). */
+    .friend-row.status-offline .friend-pfp { filter: grayscale(0.45) brightness(0.85); }
     .friend-meta { flex: 1; min-width: 0; }
     .friend-name {
       font-family: 'Minecraft', 'Courier New', monospace;
-      font-size: 13px; color: #fff;
-      text-shadow: 2px 2px 0 #2a2a2a;
+      font-size: 14px;
+      color: #ffffff;
+      /* Crisp 1-pixel shadow instead of fuzzy 2-pixel one — the old shadow
+       * was blurring the name into looking gray on a dark panel. */
+      text-shadow: 1px 1px 0 #000;
       white-space: nowrap; text-overflow: ellipsis; overflow: hidden;
+      letter-spacing: 0.3px;
     }
+    /* Online/in-game keep pure white. Offline drops to a muted blue-gray
+     * (still very legible — much better than 72% opacity). */
+    .friend-row.status-offline .friend-name { color: #9598a4; }
     .friend-status {
       font-family: 'Minecraft', 'Courier New', monospace;
-      font-size: 10px;
+      font-size: 11px;
       text-shadow: 1px 1px 0 #000;
+      margin-top: 1px;
     }
-    .friend-status.online  { color: #57e57c; }
-    .friend-status.in_game { color: #ffd23f; }
-    .friend-status.offline { color: #b0b0b0; }
+    .friend-status.online  { color: #6cf08c; }
+    .friend-status.in_game { color: #ffd64f; }
+    .friend-status.offline { color: #6f7280; }
     /* Vanilla green "Join Server" button colour palette. */
     .friend-invite-btn {
       padding: 6px 12px;
@@ -923,9 +952,21 @@
       font-family: 'Minecraft', 'Courier New', monospace;
     }
     .friend-invite-btn:hover { filter: brightness(1.2); }
+    /* Disabled invite (offline friend) — clean dark gray button, not the
+     * filtered green. Reads as "not available" without looking corrupted. */
     .friend-invite-btn:disabled {
-      opacity: 0.55; cursor: default; filter: grayscale(0.6);
+      cursor: default;
+      background:
+        linear-gradient(rgba(0,0,0,0.25), rgba(0,0,0,0.25)),
+        repeating-linear-gradient(0deg, #3a3c44 0 3px, #2e3038 3px 6px);
+      border-top-color:    #50535d;
+      border-left-color:   #50535d;
+      border-right-color:  #15161b;
+      border-bottom-color: #15161b;
+      color: #707380; text-shadow: 1px 1px 0 #000;
+      filter: none;
     }
+    .friend-invite-btn:disabled:hover { filter: none; }
 
     /* ── Loading ────────────────────────────────────────────────── */
     #loadingScreen {
