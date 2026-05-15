@@ -13,6 +13,7 @@ import { FurnaceUI } from "./FurnaceUI";
 import { ChestUI } from "./ChestUI";
 import { maybeBootArmEditor } from "./ArmEditor";
 import { LegionLobby } from "./LegionLobby";
+import { TorchLightManager } from "./TorchLight";
 import { ServerFinder, listRooms } from "./ServerFinder";
 import { ItemDrops } from "./ItemDrops";
 import { MODES, ModeId, buildBedwars, buildParkour, buildOneBlock, pickOneBlockNext, buildBuildBattle, buildHideAndSeek, buildShooter, buildInfection, buildSquidGames } from "./Modes";
@@ -73,6 +74,7 @@ hemi.layers.enable(FP_LAYER);
 
 // ── State ───────────────────────────────────────────────────────────────────
 let world: World;
+let torchLights: TorchLightManager | null = null;
 let player: Player;
 let inv: Inventory;
 let craftingUI: CraftingUI;
@@ -1960,6 +1962,10 @@ async function startGame(serverAddr: string | null) {
   world = new World(scene, seed, { infinite: cfg.useDefaultWorld });
   // Replay any block changes that happened in the room before we joined.
   if (mp?.isConnected()) mp.applyExistingBlockState();
+  // Real point-light pool for torches / glowstone / lava etc. Recycles
+  // 8 lights onto the nearest emissive blocks each frame (see
+  // TorchLight.ts). Hooks into game loop below via torchLights.update().
+  torchLights = new TorchLightManager(scene, world, 8);
 
   let spawnX: number, spawnY: number, spawnZ: number;
   if (mode === "bedwars_mp") {
@@ -2402,6 +2408,8 @@ async function startGame(serverAddr: string | null) {
     refreshHotbar();
     tickWater(waterT);
     breakParticles.update(dt, (x, y, z) => world.isSolid(x, y, z));
+    // Refresh torch/glowstone/lava point lights — nearest-N to the player.
+    torchLights?.update(player.pos.x, player.pos.y, player.pos.z);
     furnaceUI?.tick(dt);
 
     // First-person arm: chop continuously while LMB held in survival.

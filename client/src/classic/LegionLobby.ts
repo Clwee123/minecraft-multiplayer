@@ -32,6 +32,7 @@
 import * as THREE from "three";
 import { World } from "./World";
 import { spawnPlayer, preloadPlayerModel, applyEquippedSet } from "./PlayerModel";
+import { TorchLightManager } from "./TorchLight";
 import { preloadAtlas } from "./Textures";
 import { MODES, ModeId } from "./Modes";
 import { Legion } from "./Legion";
@@ -59,6 +60,8 @@ export class LegionLobby {
   // Until it's ready, this.world is null and the render loop guards against
   // calling its methods.
   private world: World | null = null;
+  /** Point-light pool for glowstone/torches around the lobby. */
+  private torchLights: TorchLightManager | null = null;
   private playerRig: { root: THREE.Object3D; mixer: any; walkAction: any; idleAction: any } | null = null;
   /** Bind-pose X-rotations of the four animated limb bones, captured at
    *  rig spawn. The walk-swing animation offsets FROM these so idle settles
@@ -190,6 +193,7 @@ export class LegionLobby {
         if (this.disposed) return;
         this.world = new World(this.scene, 12345, { infinite: false });
         this.buildLobby();
+        this.torchLights = new TorchLightManager(this.scene, this.world, 8);
         await preloadPlayerModel();
         if (this.disposed) return;
         const rig = spawnPlayer();
@@ -778,6 +782,7 @@ export class LegionLobby {
       this.world.updateAroundPlayer(this.pos.x, this.pos.z, 2);
       this.world.rebuildDirty(4, this.pos.x, this.pos.z);
     }
+    this.torchLights?.update(this.pos.x, this.pos.y, this.pos.z);
     this.renderer.render(this.scene, this.camera);
     this.rafId = requestAnimationFrame(this.loop);
   };
@@ -801,6 +806,7 @@ export class LegionLobby {
       (this.nicknameSprite.material as THREE.SpriteMaterial).map?.dispose?.();
       this.nicknameSprite.material.dispose();
     }
+    this.torchLights?.dispose();
     this.renderer.dispose();
     this.renderer.domElement.remove();
     this.titleEl.remove();

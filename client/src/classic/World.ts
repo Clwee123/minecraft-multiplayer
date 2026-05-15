@@ -131,6 +131,12 @@ export class World {
    *  (sitting on floor). Wall-mounted torches store the cardinal direction
    *  of the wall they're attached to. */
   torchDirs: Map<string, "up" | "+x" | "-x" | "+z" | "-z"> = new Map();
+  /** Set of "x,y,z" keys for every torch / glowstone / sea-lantern / lava
+   *  block in the world. The TorchLightManager (see below) picks the
+   *  nearest N entries each frame and pins a real THREE.PointLight to
+   *  them so they illuminate surrounding geometry, not just brighten
+   *  their own faces via material.emissive. */
+  emissiveBlocks: Set<string> = new Set();
   /** Coordinates of blocks placed during arena construction (Modes.ts). When
    *  `protectedBlocks` is non-empty, the LMB-break path refuses to destroy
    *  any block in this set — only blocks placed by players afterwards are
@@ -307,7 +313,8 @@ export class World {
     }
     const lx = x - cx * CHUNK_W;
     const lz = z - cz * CHUNK_W;
-    if (chunk.get(lx, y, lz) === type) return;
+    const prev = chunk.get(lx, y, lz);
+    if (prev === type) return;
     chunk.set(lx, y, lz, type);
     // Map-builder mode: stamp every non-air block we lay down as protected
     // so the LMB-break path will refuse to destroy it. Players can still
@@ -315,6 +322,15 @@ export class World {
     if (this.protectMode && type !== 0) {
       this.protectedBlocks.add(`${x},${y},${z}`);
     }
+    // Track emissive blocks so TorchLightManager knows where to drop
+    // PointLights. We only care about a handful of block types — torches,
+    // glowstone, sea-lantern, lava, lit furnace, dragon-egg, lit redstone
+    // lamp. Stays in sync with BLOCKS[*].emissive in Textures.ts.
+    const wasEmissive = isEmissiveBlock(prev);
+    const isEmissive  = isEmissiveBlock(type);
+    const ek = `${x},${y},${z}`;
+    if (wasEmissive && !isEmissive) this.emissiveBlocks.delete(ek);
+    else if (!wasEmissive && isEmissive) this.emissiveBlocks.add(ek);
     this.dirtyChunks.add(key);
     if (lx === 0)             this.dirtyChunks.add(`${cx - 1},${cz}`);
     if (lx === CHUNK_W - 1)   this.dirtyChunks.add(`${cx + 1},${cz}`);
@@ -889,6 +905,7 @@ export class World {
     for (const key of Array.from(this.chunks.keys())) this.unloadChunk(key);
     this.dirtyChunks.clear();
     this.protectedBlocks.clear();
+    this.emissiveBlocks.clear();
   }
 
   /** True if (x,y,z) was placed by a map builder under protectMode and the
@@ -1226,38 +1243,76 @@ function makeMesh(data: MeshData, mat: THREE.Material): THREE.Mesh | null {
  * texture lands at the top, exactly like the cross-shape would.
  */
 function addMiniColumn(data: MeshData, x: number, y: number, z: number, u0: number, v0: number, u1: number, v1: number, dir: "up" | "+x" | "-x" | "+z" | "-z" = "up") {
-  const w = 0.0625;  // 1/16 — vanilla torch is 2/16 wide, so 0.0625 each side of centre
-  const h = 0.625;   // 10/16 tall — vanilla torch height
-  // For wall-mounted torches push the bottom of the post toward the wall
-  // and raise the base a little so the flame visually leans away from the
-  // wall (matches vanilla close enough without doing real tilt geometry).
+  // Vanilla MC torch model — the geometry is a thin 2/16 × 10/16 post +
+  // a 2/16 × 2/16 top face where the flame tip sits. The TEXTURE is a
+  // full 16×16 tile, but only its central 2-pixel column maps onto the
+  // post sides and only a 2×2 region near the top maps onto the top
+  // face. The previous code mapped the FULL [u0..u1, v0..v1] across the
+  // tiny faces, which stretched the entire texture (and its transparent
+  // padding) into "tall thin yellow stripe" geometry — the user's
+  // screenshot. Compute proper sliced UVs in atlas space.
+  const POST_W  = 0.0625;     // 1/16 — half of the 2/16-wide post
+  const POST_H  = 0.625;      // 10/16 tall
+  // UV slice in TILE-LOCAL [0..1] space:
+  //   side post   = columns 7/16..9/16 (central 2 px), rows 6/16..16/16
+  //                 (bottom 10 px = the wooden post)
+  //   top (flame) = columns 7/16..9/16, rows 6/16..8/16 (the 2×2 just
+  //                 above the post — where the flame tip sits)
+  // Convert tile-local → atlas-space: u = u0 + tileLocal * (u1 - u0).
+  const du = u1 - u0, dv = v1 - v0;
+  const sideU0 = u0 + 7 / 16 * du,  sideU1 = u0 + 9 / 16 * du;
+  const sideV0 = v0 + 0 / 16 * dv,  sideV1 = v0 + 10 / 16 * dv;
+  const topU0  = u0 + 7 / 16 * du,  topU1  = u0 + 9 / 16 * du;
+  const topV0  = v0 + 6 / 16 * dv,  topV1  = v0 + 8 / 16 * dv;
+  // Wall-mounted torches: shift the bottom toward the wall + lift it
+  // slightly so the flame end leans out into the room. Matches vanilla
+  // close enough without bothering with tilt geometry.
   let baseX = 0.5, baseZ = 0.5, baseY = 0;
   if (dir === "+x") { baseX = 0.82; baseY = 0.2; }
   else if (dir === "-x") { baseX = 0.18; baseY = 0.2; }
   else if (dir === "+z") { baseZ = 0.82; baseY = 0.2; }
   else if (dir === "-z") { baseZ = 0.18; baseY = 0.2; }
   const cx = x + baseX, cz = z + baseZ;
-  const x0 = cx - w, x1 = cx + w;
-  const z0 = cz - w, z1 = cz + w;
-  const y0 = y + baseY, y1 = y + baseY + h;
-  const addQuad = (corners: number[][]) => {
+  const x0 = cx - POST_W, x1 = cx + POST_W;
+  const z0 = cz - POST_W, z1 = cz + POST_W;
+  const y0 = y + baseY,    y1 = y + baseY + POST_H;
+  const addQuad = (corners: number[][], uvU0: number, uvV0: number, uvU1: number, uvV1: number) => {
     const startIdx = data.pos.length / 3;
     for (let c = 0; c < 4; c++) {
       data.pos.push(corners[c][0], corners[c][1], corners[c][2]);
       data.col.push(1, 1, 1);
-      const u = (c === 0 || c === 3) ? u0 : u1;
-      const v = (c === 0 || c === 1) ? v0 : v1;
+      const u = (c === 0 || c === 3) ? uvU0 : uvU1;
+      const v = (c === 0 || c === 1) ? uvV0 : uvV1;
       data.uv.push(u, v);
     }
     data.idx.push(startIdx, startIdx + 1, startIdx + 2, startIdx, startIdx + 2, startIdx + 3);
   };
-  // Side faces
-  addQuad([[x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1]]); // +Z
-  addQuad([[x1, y0, z0], [x0, y0, z0], [x0, y1, z0], [x1, y1, z0]]); // -Z
-  addQuad([[x1, y0, z1], [x1, y0, z0], [x1, y1, z0], [x1, y1, z1]]); // +X
-  addQuad([[x0, y0, z0], [x0, y0, z1], [x0, y1, z1], [x0, y1, z0]]); // -X
-  // Top — the flame tip of the texture
-  addQuad([[x0, y1, z0], [x0, y1, z1], [x1, y1, z1], [x1, y1, z0]]);
+  // 4 side faces — each gets the central post UV strip
+  addQuad([[x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1]], sideU0, sideV0, sideU1, sideV1); // +Z
+  addQuad([[x1, y0, z0], [x0, y0, z0], [x0, y1, z0], [x1, y1, z0]], sideU0, sideV0, sideU1, sideV1); // -Z
+  addQuad([[x1, y0, z1], [x1, y0, z0], [x1, y1, z0], [x1, y1, z1]], sideU0, sideV0, sideU1, sideV1); // +X
+  addQuad([[x0, y0, z0], [x0, y0, z1], [x0, y1, z1], [x0, y1, z0]], sideU0, sideV0, sideU1, sideV1); // -X
+  // Top — the flame tip 2×2 region of the texture
+  addQuad([[x0, y1, z0], [x0, y1, z1], [x1, y1, z1], [x1, y1, z0]], topU0, topV0, topU1, topV1);
+}
+
+/** Block IDs that should emit a real point light, not just appear bright
+ *  via material.emissive. Kept in sync with BLOCKS[*].emissive in
+ *  Textures.ts — the small handful below covers torches, glowstone,
+ *  lit-furnace face, sea-lantern, lava, dragon-egg, redstone-lit-lamp,
+ *  redstone torch. */
+const EMISSIVE_IDS = new Set<number>([
+  42,   // torch
+  22,   // glowstone
+  38,   // lit furnace
+  157,  // sea lantern
+  46,   // lava
+  169,  // dragon egg
+  223,  // redstone lamp (lit)
+  225,  // redstone torch (lit)
+]);
+export function isEmissiveBlock(id: number): boolean {
+  return EMISSIVE_IDS.has(id);
 }
 
 function addCrossShape(data: MeshData, x: number, y: number, z: number, u0: number, v0: number, u1: number, v1: number) {
