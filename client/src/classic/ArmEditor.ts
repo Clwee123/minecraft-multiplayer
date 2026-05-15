@@ -45,7 +45,7 @@ import {
   getAnimOverrides,
   type FirstPersonArm,
 } from "./PlayerModel";
-import { preloadAtlas, BLOCKS, ITEMS, getItemName } from "./Textures";
+import { preloadAtlas, BLOCKS, ITEMS, getItemName, getItemTile } from "./Textures";
 import { blockIconCache, shouldRenderAsBlock } from "./BlockIconCache";
 
 type PoseId = "rest" | "mining" | "swing" | "eat" | "bow";
@@ -58,6 +58,13 @@ export class ArmEditor {
   private renderer: THREE.WebGLRenderer;
   private scene: THREE.Scene;
   private camera: THREE.PerspectiveCamera;
+  /** Secondary camera that renders the arm from the *real* first-person
+   *  viewpoint — placed where the game's main camera would be (0,0,0
+   *  looking down -Z). Drawn as a small inset viewport in the corner of
+   *  the editor so you can see how your tweaks look in-game without
+   *  leaving the editor. */
+  private fpPreviewCam: THREE.PerspectiveCamera;
+  private fpPreviewFrameEl!: HTMLDivElement;
   private orbit: any;          // OrbitControls
   private gizmo: any;          // TransformControls
 
@@ -286,6 +293,36 @@ export class ArmEditor {
     this.camera.position.set(0.9, 0.4, 0.9);
     this.camera.lookAt(0.2, -0.1, 0);
     this.scene.add(this.camera);
+
+    // Second camera for the FP preview inset — same FOV (70°) the game's
+    // main camera uses, parked at world origin looking down -Z. The FP arm
+    // was originally built in camera-local space relative to a 0,0,0 cam,
+    // so this matches exactly what the player would see.
+    this.fpPreviewCam = new THREE.PerspectiveCamera(70, 16 / 9, 0.05, 100);
+    this.fpPreviewCam.position.set(0, 0, 0);
+    this.fpPreviewCam.lookAt(0, 0, -1);
+    this.scene.add(this.fpPreviewCam);
+
+    // DOM frame around the FP inset — 16:9 ratio, top-left corner of the
+    // viewport. The actual pixels are drawn by the WebGL renderer with
+    // scissor + viewport in render(); this DIV is just the border + label.
+    this.fpPreviewFrameEl = document.createElement("div");
+    this.fpPreviewFrameEl.className = "ae-fp-frame";
+    this.fpPreviewFrameEl.innerHTML = `<div class="ae-fp-label">FIRST-PERSON PREVIEW · 16:9</div>`;
+    this.fpPreviewFrameEl.style.cssText = `
+      position: absolute; left: 14px; top: 60px;
+      width: 320px; aspect-ratio: 16 / 9;
+      border: 2px solid #4d7ef0; box-shadow: 0 6px 24px rgba(0,0,0,0.45);
+      pointer-events: none; z-index: 3; border-radius: 4px;
+      background: rgba(0,0,0,0.0);
+    `;
+    const lbl = this.fpPreviewFrameEl.querySelector(".ae-fp-label") as HTMLDivElement;
+    lbl.style.cssText = `
+      position: absolute; top: -22px; left: 0;
+      font-size: 10px; letter-spacing: 1px; color: #4d7ef0;
+      font-family: 'JetBrains Mono', 'Courier New', monospace;
+    `;
+    this.viewport.appendChild(this.fpPreviewFrameEl);
 
     // Lights — three-point so the rig reads clearly from any angle.
     this.scene.add(new THREE.AmbientLight(0xffffff, 0.55));
@@ -711,12 +748,16 @@ export class ArmEditor {
     return Array.from(ids).sort((a, b) => a - b);
   }
   private getTileBg(id: number): string {
+    // 3D iso-cube icons only for opaque cubic blocks — cross-shape flowers /
+    // saplings / sprites + iconTile-overridden blocks fall through to the
+    // flat atlas-tile path with the CORRECT tile (the bug here was
+    // `ITEMS[id]?.tile ?? 0` which gave 0 = grass-top for every non-cube
+    // block, e.g. crossShape flowers all showed as grass-block icons).
     if (shouldRenderAsBlock(id)) {
       const url = blockIconCache.get(id);
       return `background-image:url('${url}');`;
     }
-    // Sprite item icons use the atlas — sample a single tile via background-pos.
-    const tile = ITEMS[id]?.tile ?? 0;
+    const tile = getItemTile(id);  // proper lookup (handles iconTile + faces[0] + items)
     const col = tile % 16, row = Math.floor(tile / 16);
     return `background-image:url(/terrain_atlas.png?v=5);background-size:${512 * 1.2}px ${512 * 1.2}px;background-position:-${col * 32 * 1.2}px -${row * 32 * 1.2}px;`;
   }
@@ -853,7 +894,31 @@ export class ArmEditor {
       this.fpArm.update(0, { walkSpeed: 0, yawDelta: 0, onGround: true });
     }
 
+    // Main viewport — full canvas.
+    this.renderer.setScissorTest(false);
+    this.renderer.setViewport(0, 0, this.viewport.clientWidth, this.viewport.clientHeight);
     this.renderer.render(this.scene, this.camera);
+
+    // FP-preview inset. Use the DOM frame's bounding rect to position the
+    // WebGL viewport so they stay aligned even when the page resizes.
+    const r = this.fpPreviewFrameEl.getBoundingClientRect();
+    const vp = this.viewport.getBoundingClientRect();
+    const w = r.width, h = r.height;
+    // Three's viewport origin is bottom-left in canvas coords, not top-left.
+    const x = r.left - vp.left;
+    const y = vp.height - (r.top - vp.top) - h;
+    this.renderer.setScissorTest(true);
+    this.renderer.setScissor(x, y, w, h);
+    this.renderer.setViewport(x, y, w, h);
+    // Clear depth + colour inside the inset so the inset doesn't inherit
+    // the orbit-camera pixels behind it.
+    this.renderer.setClearColor(0x6ab1ff, 1);  // sky blue, matches in-game
+    this.renderer.clear(true, true, false);
+    this.renderer.render(this.scene, this.fpPreviewCam);
+    // Restore main viewport state for next frame.
+    this.renderer.setScissorTest(false);
+    this.renderer.setClearColor(0x1d1f26, 1);
+
     this.rafId = requestAnimationFrame(this.loop);
   };
 
