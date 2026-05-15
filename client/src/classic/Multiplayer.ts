@@ -62,6 +62,17 @@ export interface RemoteMob {
   mesh: THREE.Group;
   targetX: number; targetY: number; targetZ: number;
   targetRotY: number;
+  /** Cached terrain top at (rm.x, rm.z). Updated whenever the local
+   *  groundLookup succeeds; PERSISTED through chunk-unload events so the
+   *  mob doesn't flicker between server-Y and terrain-Y when chunks pop in
+   *  and out. Real MP MC does the same conceptually: server is authoritative
+   *  but clients smoothly fill in the gap from their own world knowledge. */
+  groundY: number | null;
+  /** Local vertical velocity for the "falling" path — used when the mob is
+   *  walking over a gap and our cached groundY suddenly drops (e.g. terrain
+   *  loads a few blocks lower than the previous tile). Lets the mob descend
+   *  smoothly under fake gravity instead of teleporting down. */
+  velY: number;
   /** HP badge floating above the mob. */
   healthBadge: (THREE.Sprite & { updateHp?: (hp: number, maxHp: number) => void }) | null;
 }
@@ -592,8 +603,18 @@ export class Multiplayer {
     const kind = String(mob?.type ?? mob?.kind ?? "zombie").toLowerCase();
     const group = buildSimpleMob(kind);
     const mx = Number.isFinite(mob?.x) ? mob.x : 0;
-    const my = Number.isFinite(mob?.y) ? mob.y : 64;
+    let my = Number.isFinite(mob?.y) ? mob.y : 64;
     const mz = Number.isFinite(mob?.z) ? mob.z : 0;
+    // Resolve initial Y to the actual terrain top right now so the mob
+    // doesn't lerp visibly from server's stub floor (e.g. y=32) up to the
+    // real surface (e.g. y=40) on first frame. If the chunk isn't loaded
+    // yet we keep the server value as a temporary placeholder; the render
+    // loop will correct it as soon as groundLookup starts returning data.
+    let initialGroundY: number | null = null;
+    if (this.groundLookup) {
+      const gy = this.groundLookup(mx, mz);
+      if (gy != null) { initialGroundY = gy; my = gy; }
+    }
     group.position.set(mx, my, mz);
     this.scene.add(group);
     const maxHp = (mob?.maxHealth ?? mob?.health ?? 20);
@@ -606,6 +627,8 @@ export class Multiplayer {
       maxHealth: maxHp,
       mesh: group,
       targetX: mx, targetY: my, targetZ: mz, targetRotY: mob?.rotY ?? 0,
+      groundY: initialGroundY,
+      velY: 0,
       healthBadge: badge,
     });
   }
@@ -913,23 +936,72 @@ export class Multiplayer {
       }
     }
 
+    // ── Remote mob position resolution ──
+    // Real MP MC clients display server-authoritative position smoothly:
+    // the server says "the cow is roughly here", the client extrapolates
+    // between snapshots and resolves Y to the actual terrain height. Our
+    // server has NO terrain knowledge, so we run that resolution entirely
+    // client-side, but with the same shape:
+    //
+    // 1. Lerp X/Z toward server's target (smooth horizontal motion).
+    // 2. Resolve "where is the ground here" via local terrain lookup.
+    //    Cache the answer on the mob so we don't flicker when chunks
+    //    unload momentarily (the prior code re-asked every frame and
+    //    fell back to server-Y on miss → visible teleport).
+    // 3. Smoothly approach groundY with bounded velocity. If ground is
+    //    far below us, apply fake gravity so the descent looks natural
+    //    instead of an instant snap.
+    //
+    // Net effect: mobs walk over hills like a vanilla MC entity instead
+    // of jumping between server-floor Y and terrain-top Y per frame.
+    const MOB_GRAVITY = 22;       // blocks/s² — close to vanilla 0.08 ticks
+    const MOB_LERP_Y_UP = 14;     // springy when climbing onto a block
+    const MOB_LERP_Y_DOWN_MAX = 4; // m/s — gentle settle for small drops
     for (const rm of this.remoteMobs.values()) {
       rm.x += (rm.targetX - rm.x) * k;
-      rm.y += (rm.targetY - rm.y) * k;
       rm.z += (rm.targetZ - rm.z) * k;
       rm.rotY += (rm.targetRotY - rm.rotY) * k;
-      // Ground-snap visually — server doesn't know our terrain height, so
-      // its y is a guess. We replace it with the actual surface block above.
-      let drawY = rm.y;
+      // ── Resolve ground at the mob's current (x, z) ──
+      // groundLookup returns null when the chunk hasn't been generated yet.
+      // We don't reset the cached groundY in that case — we just use the
+      // last good value, so the mob stays put visually until the chunk
+      // streams in. This is the bug the user reported as "teleporting
+      // between heights": the old code overwrote drawY = rm.y on miss,
+      // which was the server's flat floor of 32 → mobs visibly snapped
+      // down then up again.
       if (this.groundLookup) {
         const gy = this.groundLookup(rm.x, rm.z);
-        if (gy != null) drawY = gy;
+        if (gy != null) rm.groundY = gy;
       }
-      rm.mesh.position.set(rm.x, drawY, rm.z);
+      // Target Y: the cached terrain top if we have one, otherwise the
+      // server's report (used only on first-spawn before any chunk is
+      // loaded near the mob).
+      const targetY = rm.groundY ?? rm.targetY;
+      // ── Smooth Y movement ──
+      // Climbing up onto a higher block → snappy lerp so the mob doesn't
+      // sink into the side of the new step.
+      // Falling down (gap, edge, cliff) → fake gravity, capped descent.
+      if (targetY > rm.y) {
+        // Step up — fast lerp.
+        const lerp = Math.min(1, dt * MOB_LERP_Y_UP);
+        rm.y += (targetY - rm.y) * lerp;
+        rm.velY = 0;
+      } else if (targetY < rm.y - 0.25) {
+        // Falling. Accelerate downward and clamp to targetY at landing.
+        rm.velY = Math.max(rm.velY - MOB_GRAVITY * dt, -MOB_LERP_Y_DOWN_MAX * 4);
+        rm.y += rm.velY * dt;
+        if (rm.y <= targetY) { rm.y = targetY; rm.velY = 0; }
+      } else {
+        // Very small adjustment — just settle.
+        const lerp = Math.min(1, dt * MOB_LERP_Y_UP);
+        rm.y += (targetY - rm.y) * lerp;
+        rm.velY = 0;
+      }
+      rm.mesh.position.set(rm.x, rm.y, rm.z);
       rm.mesh.rotation.y = rm.rotY;
       if (rm.healthBadge) {
         // Float ~2 m above the mob's feet (similar to mob nametag height).
-        rm.healthBadge.position.set(rm.x, drawY + 2.0, rm.z);
+        rm.healthBadge.position.set(rm.x, rm.y + 2.0, rm.z);
       }
     }
   }
