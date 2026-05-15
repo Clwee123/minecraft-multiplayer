@@ -98,6 +98,17 @@ export class LegionLobby {
   private portals: PortalData[] = [];
   private nearestPortal: PortalData | null = null;
   private spawnPlatformY = 0; // resolved during arena build
+  /** Roblox-style hold-E proximity prompt — a 2D HUD element positioned
+   *  at the screen-space projection of the nearest portal. Stays a
+   *  constant pixel size regardless of distance (true waypoint feel).
+   *  Filled when the player holds E for HOLD_E_SECONDS. */
+  private promptOverlayEl!: HTMLDivElement;
+  private promptOverlayPortalId: string | null = null;
+  private holdEStart = 0;       // performance.now() when E was first held
+  private holdEActive = false;  // user is currently holding E in range
+  private static HOLD_E_SECONDS = 0.55;
+  private static PROMPT_RANGE = 4.0;  // metres — within this, prompt shows
+  private static TRIGGER_RANGE = 3.5; // metres — within this, E counts
   // DOM
   private promptEl: HTMLDivElement;
   private titleEl: HTMLDivElement;
@@ -193,6 +204,49 @@ export class LegionLobby {
       this.applyAvatarFromLegion();
     });
     Legion.onAvatarChanged?.(() => this.applyAvatarFromLegion());
+
+    // ── Hold-E proximity prompt overlay ──
+    // A 2D pill positioned at the screen-space projection of the nearest
+    // portal. Stays a constant pixel size regardless of distance — true
+    // Roblox "ProximityPrompt" behaviour. The circular SVG ring fills as
+    // the player holds E.
+    this.promptOverlayEl = document.createElement("div");
+    this.promptOverlayEl.id = "lobbyHoldEPrompt";
+    this.promptOverlayEl.style.cssText = `
+      position: fixed; left: 0; top: 0; z-index: 11;
+      transform: translate(-50%, -50%);
+      display: none; pointer-events: none;
+      font-family: 'Minecraft', 'Inter', system-ui, sans-serif;
+      filter: drop-shadow(0 4px 12px rgba(0,0,0,0.5));
+    `;
+    this.promptOverlayEl.innerHTML = `
+      <div style="
+        background: rgba(20,22,28,0.92);
+        border: 1px solid rgba(255,255,255,0.18);
+        padding: 8px 16px 8px 8px;
+        border-radius: 999px;
+        display: flex; align-items: center; gap: 12px;
+        color: #fff;
+      ">
+        <div style="position:relative;width:48px;height:48px;flex:none;">
+          <svg viewBox="0 0 48 48" style="position:absolute;inset:0;transform:rotate(-90deg);">
+            <circle cx="24" cy="24" r="21" fill="none" stroke="rgba(255,255,255,0.15)" stroke-width="3"/>
+            <circle id="lobbyHoldERing" cx="24" cy="24" r="21" fill="none"
+              stroke="#57e57c" stroke-width="3" stroke-linecap="round"
+              stroke-dasharray="131.95" stroke-dashoffset="131.95" />
+          </svg>
+          <div style="
+            position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+            font-weight:bold;font-size:20px;color:#fff;text-shadow:1px 1px 0 #000;
+          ">E</div>
+        </div>
+        <div style="display:flex;flex-direction:column;line-height:1.1;">
+          <div id="lobbyHoldEAction" style="font-size:11px;opacity:0.7;letter-spacing:1px;text-transform:uppercase;">Hold to join</div>
+          <div id="lobbyHoldELabel"  style="font-size:17px;font-weight:bold;letter-spacing:0.3px;">Mode</div>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(this.promptOverlayEl);
 
     // ── Async boot: atlas first (World needs it), then world + portals,
     //   then player GLB. Render loop starts immediately so the user sees
@@ -366,12 +420,15 @@ export class LegionLobby {
     }
     // Decorative glowstone on top centre.
     w.setBlock(tx, gy + 5, tz, 22);
-    // Roblox-style "E · {Mode} + thumbnail" plate floating above the
-    // portal frame. Always visible from any angle (depthTest off). The
-    // thumbnail PNG/JPG loads asynchronously and the canvas redraws once
-    // the image is ready. Scales up when the player is close.
+    // Roblox-style "thumbnail + name" plate FLOATING AT PLAYER EYE LEVEL
+    // (~gy+2) so it reads as a sign you'd look at, not a sky-high banner.
+    // The thumbnail PNG/JPG loads asynchronously; the canvas redraws once
+    // the image is ready. Scales up when the player is close. The "Hold
+    // E to join" prompt is a SEPARATE 2D HUD overlay (positioned via
+    // screen-space projection in update()) so it stays a constant size
+    // regardless of distance — see updatePromptOverlay().
     const labelSprite = makeRobloxPortalSprite(m.label, m.id);
-    labelSprite.position.set(tx + 0.5, gy + 7.5, tz + 0.5);
+    labelSprite.position.set(tx + 0.5, gy + 2.0, tz + 0.5);
     this.scene.add(labelSprite);
     // Animated "shimmer" plane in front of the portal for liveliness.
     const shimmerGeo = new THREE.PlaneGeometry(0.9, 2.7);
@@ -443,12 +500,20 @@ export class LegionLobby {
   private onKey = (e: KeyboardEvent) => {
     if ((e.target as HTMLElement)?.tagName === "INPUT") return;
     this.keys[e.code] = true;
-    if (e.code === "KeyE") this.tryEnterPortal();
     // Space scrolls the page by default — preventDefault so it counts as a
-    // jump input instead. Same for arrow keys (which scroll too) and Tab.
-    if (e.code === "Space" || e.code.startsWith("Arrow") || e.code === "Tab") {
+    // jump input instead. We ALSO edge-trigger the jump right here on
+    // keydown — the previous "check this.keys['Space'] in update()" path
+    // was unreliable on some browsers; this is robust.
+    if (e.code === "Space") {
       e.preventDefault();
+      if (this.onGround) {
+        this.vel.y = 8.4;
+        this.onGround = false;
+      }
     }
+    if (e.code.startsWith("Arrow") || e.code === "Tab") e.preventDefault();
+    // E: only starts the hold-to-enter charge. Discrete press still
+    // counts (handled in update loop).
   };
   private onKeyUp = (e: KeyboardEvent) => { this.keys[e.code] = false; };
   private onMouseDown = (e: MouseEvent) => {
@@ -771,34 +836,91 @@ export class LegionLobby {
     this.camera.lookAt(target);
 
     // ── Portal proximity ──
-    // Each portal sprite scales with distance to the player — base size
-    // for far-away portals, ~1.7× when within the trigger zone — matching
-    // the Roblox "small badge → big badge" pattern in the user's reference.
-    const PROXIMITY = 3.5;   // distance where the label starts growing
-    const TRIGGER   = 2.5;   // distance where E can be pressed
+    // Each in-world thumbnail sprite scales with distance (smaller when
+    // far, larger when near) — this is the "billboard above the portal"
+    // waypoint. The Roblox-style "Hold E to join" prompt is a SEPARATE
+    // 2D HUD overlay rendered in screen-space (constant pixel size)
+    // and only shown when within PROMPT_RANGE — see updatePromptOverlay().
+    const PROXIMITY = LegionLobby.PROMPT_RANGE;
     let nearest: PortalData | null = null;
-    let nearestD = TRIGGER;
+    let nearestD = LegionLobby.TRIGGER_RANGE;
     for (const p of this.portals) {
       const dx = this.pos.x - p.pos.x;
       const dz = this.pos.z - p.pos.z;
       const d = Math.hypot(dx, dz);
       if (d < nearestD) { nearest = p; nearestD = d; }
-      // Scale sprite: 1.0× when d >= PROXIMITY, lerps up to 1.5× as d → 0.
       const t = Math.max(0, Math.min(1, 1 - d / PROXIMITY));
       const k = p.baseScale * (1 + t * 0.5);
-      // Sprite is portrait (~5:7) — thumbnail on top + text + E pill below.
       p.labelSprite.scale.set(k, k * 1.4, 1);
-      // Animate shimmer pane on every portal.
       p.shimmerT = (p.shimmerT ?? Math.random() * 6.28) + dt;
       const mat = p.shimmer.material as THREE.MeshBasicMaterial;
       mat.opacity = 0.25 + Math.sin(p.shimmerT * 2) * 0.12;
     }
     this.nearestPortal = nearest;
-    // Hide the legacy bottom-centre prompt — the Roblox-style sprites ARE
-    // the prompt now. The bottom DIV stays alive for the "Entering …"
-    // flash on portal entry.
-    if (!nearest && this.promptEl.style.borderColor !== "#57e57c") {
+    // Drive the 2D hold-E overlay each frame.
+    this.updatePromptOverlay(nearest);
+    // Hide the legacy bottom-centre prompt unless it's mid-"Entering" flash.
+    if (this.promptEl.style.borderColor !== "#57e57c") {
       this.promptEl.style.display = "none";
+    }
+  }
+
+  /** Per-frame: project the nearest in-range portal's world position to
+   *  screen coords, position the prompt overlay there. Advance the
+   *  hold-E timer if the player is still holding E; trigger when it
+   *  reaches HOLD_E_SECONDS. */
+  private updatePromptOverlay(target: PortalData | null) {
+    const el = this.promptOverlayEl;
+    if (!target) {
+      el.style.display = "none";
+      this.holdEActive = false;
+      this.holdEStart = 0;
+      this.promptOverlayPortalId = null;
+      return;
+    }
+    // Project the portal's anchor position (slightly above its trigger
+    // point) to screen NDC, then to pixels.
+    const v = new THREE.Vector3(target.pos.x, target.pos.y + 2.2, target.pos.z);
+    v.project(this.camera);
+    // v.z > 1 means behind the camera (or beyond far plane).
+    if (v.z > 1) { el.style.display = "none"; return; }
+    const w = this.renderer.domElement.clientWidth;
+    const h = this.renderer.domElement.clientHeight;
+    const sx = (v.x + 1) * 0.5 * w;
+    const sy = (1 - v.y) * 0.5 * h;
+    el.style.display = "block";
+    el.style.left = sx + "px";
+    el.style.top  = sy + "px";
+    // Update the label text + mode name only when the target changes
+    // (cheap, but no need to thrash the DOM every frame).
+    if (this.promptOverlayPortalId !== target.id) {
+      this.promptOverlayPortalId = target.id;
+      const labelEl = el.querySelector("#lobbyHoldELabel") as HTMLElement;
+      if (labelEl) labelEl.textContent = target.label;
+    }
+    // Advance the hold-E timer.
+    const pressed = !!this.keys["KeyE"];
+    if (pressed && !this.holdEActive) {
+      this.holdEActive = true;
+      this.holdEStart  = performance.now();
+    } else if (!pressed && this.holdEActive) {
+      this.holdEActive = false;
+      this.holdEStart  = 0;
+    }
+    // Draw the progress ring. circumference = 2π·r = 2π·21 ≈ 131.95.
+    const ringEl = el.querySelector("#lobbyHoldERing") as SVGCircleElement | null;
+    if (ringEl) {
+      const C = 131.95;
+      const t = this.holdEActive ? (performance.now() - this.holdEStart) / 1000 : 0;
+      const frac = Math.max(0, Math.min(1, t / LegionLobby.HOLD_E_SECONDS));
+      ringEl.style.strokeDashoffset = String(C * (1 - frac));
+    }
+    // Trigger when held long enough — and rate-limit so we don't fire
+    // multiple times on one hold.
+    if (this.holdEActive && performance.now() - this.holdEStart >= LegionLobby.HOLD_E_SECONDS * 1000) {
+      this.holdEActive = false;
+      this.holdEStart  = 0;
+      this.tryEnterPortal();
     }
   }
 
@@ -864,6 +986,7 @@ export class LegionLobby {
       this.nicknameSprite.material.dispose();
     }
     this.torchLights?.dispose();
+    this.promptOverlayEl?.remove();
     // Best-effort disconnect from the lobby Colyseus room so others see us
     // leave immediately on portal entry.
     try { (this.mp as any)?.room?.leave?.(); } catch {}

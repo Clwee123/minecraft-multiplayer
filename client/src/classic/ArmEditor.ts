@@ -296,6 +296,9 @@ export class ArmEditor {
     this.renderer.setSize(this.viewport.clientWidth, this.viewport.clientHeight);
     this.renderer.setClearColor(0x1d1f26);
     this.viewport.appendChild(this.renderer.domElement);
+    // Mouse listeners on the canvas (fly mode, wheel-speed). These must
+    // run AFTER renderer creation since they need its domElement.
+    this.installPostRendererInputs();
 
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x1d1f26);
@@ -574,15 +577,26 @@ export class ArmEditor {
       this.flyKeys.delete(e.key.toLowerCase());
     });
 
-    // ── Fly-mode mouse handling ──
-    // RMB down → engage fly; RMB up → release. While engaged the cursor
-    // is hidden (locked-feeling) and mouse delta drives camera yaw/pitch.
-    this.renderer.domElement.addEventListener("contextmenu", (e) => e.preventDefault());
-    this.renderer.domElement.addEventListener("mousedown", (e) => {
+    // The renderer-domElement-dependent mouse listeners (RMB fly,
+    // wheel-speed) attach in installPostRendererInputs() — called AFTER
+    // the renderer is constructed in the main constructor.
+  }
+
+  /** Mouse listeners that need `this.renderer.domElement`. buildToolbar
+   *  runs BEFORE the renderer is created (so its parts can position
+   *  themselves on the viewport DIV), so these were crashing with
+   *  "Cannot read properties of undefined (reading 'domElement')" when
+   *  attached there. Called from the constructor immediately after
+   *  `this.renderer` is built. */
+  private installPostRendererInputs() {
+    const dom = this.renderer.domElement;
+    // RMB engages fly mode (cursor hidden); released turns it off.
+    dom.addEventListener("contextmenu", (e) => e.preventDefault());
+    dom.addEventListener("mousedown", (e) => {
       if (e.button === 2) {
         this.flyMode = true;
         this.orbit.enabled = false;
-        this.renderer.domElement.style.cursor = "none";
+        dom.style.cursor = "none";
       }
     });
     window.addEventListener("mouseup", (e) => {
@@ -590,7 +604,7 @@ export class ArmEditor {
         this.flyMode = false;
         this.flyKeys.clear();
         this.orbit.enabled = true;
-        this.renderer.domElement.style.cursor = "";
+        dom.style.cursor = "";
       }
     });
     window.addEventListener("mousemove", (e) => {
@@ -600,11 +614,9 @@ export class ArmEditor {
     });
     // Mouse wheel in fly mode → adjust flight speed. Outside fly mode
     // OrbitControls handles the wheel for dolly-zoom.
-    this.renderer.domElement.addEventListener("wheel", (e) => {
+    dom.addEventListener("wheel", (e) => {
       if (!this.flyMode) return;
       e.preventDefault();
-      // Scroll up → faster; scroll down → slower. Multiplicative so it
-      // feels logarithmic like Unity.
       const factor = e.deltaY < 0 ? 1.18 : 1 / 1.18;
       this.flySpeed = Math.max(0.2, Math.min(40, this.flySpeed * factor));
     }, { passive: false });
