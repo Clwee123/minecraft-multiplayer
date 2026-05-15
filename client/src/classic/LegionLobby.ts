@@ -44,8 +44,10 @@ interface PortalData {
   pos: THREE.Vector3;     // ground centre (where the player stands to enter)
   facing: number;         // yaw the portal faces (radians)
   group: THREE.Group;     // logical handle (not in scene — see placePortal)
-  /** Persistent Roblox-style waypoint sprite floating above the portal. */
-  labelSprite: THREE.Sprite;
+  /** Fixed-orientation thumbnail plate floating in front of the portal.
+   *  Acts like a sign someone hung — does NOT billboard to the camera,
+   *  just sits at its placed rotation. */
+  labelSprite: THREE.Mesh;
   /** Animated "shimmer" plane in front of the portal (pulses opacity). */
   shimmer: THREE.Mesh;
   /** Per-shimmer phase used by the opacity oscillation. */
@@ -98,6 +100,10 @@ export class LegionLobby {
   private portals: PortalData[] = [];
   private nearestPortal: PortalData | null = null;
   private spawnPlatformY = 0; // resolved during arena build
+  /** World position where the player initially spawned + where the
+   *  fall-through-safety respawn teleports them back to. Set in
+   *  buildLobby alongside this.pos. */
+  private spawnPos = new THREE.Vector3();
   /** Roblox-style hold-E proximity prompt — a 2D HUD element positioned
    *  at the screen-space projection of the nearest portal. Stays a
    *  constant pixel size regardless of distance (true waypoint feel).
@@ -106,6 +112,12 @@ export class LegionLobby {
   private promptOverlayPortalId: string | null = null;
   private holdEStart = 0;       // performance.now() when E was first held
   private holdEActive = false;  // user is currently holding E in range
+  /** True once the hold-E ring has completed and we've fired the join
+   *  callback. Stays true until the lobby is disposed (the user is
+   *  about to leave anyway). While set, the prompt overlay is hidden
+   *  so the user doesn't see a flickering "you can still hold E" UI
+   *  during the brief teardown. */
+  private pendingJoin = false;
   private static HOLD_E_SECONDS = 0.55;
   private static PROMPT_RANGE = 4.0;  // metres — within this, prompt shows
   private static TRIGGER_RANGE = 3.5; // metres — within this, E counts
@@ -323,11 +335,12 @@ export class LegionLobby {
     this.world.protectMode = true;
     const cx = 128, cz = 128, y = 40;
     // ── Spawn position ──
-    // Spawn a couple of blocks IN THE AIR above the spawn tile so gravity
-    // settles the player onto the floor cleanly. Previously we spawned at
-    // y+1.01 exactly, which when combined with a fractional drift could
-    // leave the rig partially clipped through the stone-brick floor.
-    this.pos.set(cx + 0.5, y + 3, cz + 4.5);
+    // Spawn on the floor (y+1.01 = just above the floor block top at y+1).
+    // The standing-on snap in resolveCollision keeps the player from
+    // floor-clipping. We spawn south of centre so we don't drop the
+    // player INSIDE the central diamond beacon.
+    this.pos.set(cx + 0.5, y + 1.01, cz + 4.5);
+    this.spawnPos.copy(this.pos);
     this.spawnPlatformY = y + 1;
     const R = 18;
     // Floor (stone bricks centre + sandstone outer ring + cobble walkway).
@@ -420,15 +433,22 @@ export class LegionLobby {
     }
     // Decorative glowstone on top centre.
     w.setBlock(tx, gy + 5, tz, 22);
-    // Roblox-style "thumbnail + name" plate FLOATING AT PLAYER EYE LEVEL
-    // (~gy+2) so it reads as a sign you'd look at, not a sky-high banner.
-    // The thumbnail PNG/JPG loads asynchronously; the canvas redraws once
-    // the image is ready. Scales up when the player is close. The "Hold
-    // E to join" prompt is a SEPARATE 2D HUD overlay (positioned via
-    // screen-space projection in update()) so it stays a constant size
-    // regardless of distance — see updatePromptOverlay().
-    const labelSprite = makeRobloxPortalSprite(m.label, m.id);
-    labelSprite.position.set(tx + 0.5, gy + 2.0, tz + 0.5);
+    // Thumbnail + mode name plate, hung at player-eye level (~gy+2) in
+    // FRONT of the portal frame. Fixed orientation — rotated to face the
+    // centre of the plaza so the sign looks like someone nailed it to
+    // the portal, NOT a billboard that follows the camera around. The
+    // hold-E prompt is a separate 2D HUD overlay (see updatePromptOverlay).
+    const labelSprite = makePortalThumbnailPlate(m.label, m.id);
+    // Place the plate one block IN FRONT of the portal opening (along
+    // `facing`, which points toward the plaza centre).
+    const plateX = tx + Math.cos(facing) * 0.6 + 0.5;
+    const plateZ = tz + Math.sin(facing) * 0.6 + 0.5;
+    labelSprite.position.set(plateX, gy + 2.0, plateZ);
+    // Rotate the plate's local +Z to point AWAY from the plaza centre
+    // (so its FRONT face points toward the centre where players walk in).
+    // PlaneGeometry's normal is +Z by default; we rotate around Y so the
+    // plane is perpendicular to the player's approach direction.
+    labelSprite.rotation.y = -facing + Math.PI / 2;
     this.scene.add(labelSprite);
     // Animated "shimmer" plane in front of the portal for liveliness.
     const shimmerGeo = new THREE.PlaneGeometry(0.9, 2.7);
@@ -463,7 +483,7 @@ export class LegionLobby {
       group,
       labelSprite,
       shimmer,  // direct ref for the animation loop
-      baseScale: 3.0,  // sprite scale when player is far from this portal
+      baseScale: 2.5,  // world-space height when player is far
     } as any);
   }
 
@@ -492,9 +512,15 @@ export class LegionLobby {
     this.renderer.domElement.addEventListener("mousedown", this.onMouseDown);
     window.addEventListener("mousemove", this.onMouseMove);
     window.addEventListener("mouseup",   this.onMouseUp);
-    // Avoid the browser context menu eating right-click → makes the lobby's
-    // mouse rotation feel free.
     this.renderer.domElement.addEventListener("contextmenu", (e) => e.preventDefault());
+    // Critical for the jump fix: if the user has clicked the guest-rename
+    // input, focus stays there and Space → "type space into input" instead
+    // of jumping. Blurring on any canvas click hands focus back to the
+    // game so WASD/Space behave consistently.
+    this.renderer.domElement.addEventListener("mousedown", () => {
+      const active = document.activeElement as HTMLElement | null;
+      if (active && active.tagName === "INPUT") active.blur();
+    });
   }
 
   private onKey = (e: KeyboardEvent) => {
@@ -769,9 +795,12 @@ export class LegionLobby {
     if (this.vel.y < -40) this.vel.y = -40;
     // Apply with collision
     this.resolveCollision(dt);
-    // Safety: if the player fell off the platform, respawn at spawn pad.
+    // Safety: if the player fell off the platform, respawn at the
+    // ORIGINAL spawn (south of centre on a clear floor tile). The old
+    // teleport went to (128.5, _, 128.5) which is INSIDE the diamond
+    // beacon — trapping the player inside solid blocks.
     if (this.pos.y < 20) {
-      this.pos.set(128.5, this.spawnPlatformY + 1.01, 128.5);
+      this.pos.copy(this.spawnPos);
       this.vel.set(0, 0, 0);
     }
 
@@ -850,8 +879,10 @@ export class LegionLobby {
       const d = Math.hypot(dx, dz);
       if (d < nearestD) { nearest = p; nearestD = d; }
       const t = Math.max(0, Math.min(1, 1 - d / PROXIMITY));
-      const k = p.baseScale * (1 + t * 0.5);
-      p.labelSprite.scale.set(k, k * 1.4, 1);
+      const k = p.baseScale * (1 + t * 0.4);
+      // Uniform scale — the PlaneGeometry already encodes the portrait
+      // aspect (W:H = 1:1.33), so we just scale both axes proportionally.
+      p.labelSprite.scale.set(k, k, 1);
       p.shimmerT = (p.shimmerT ?? Math.random() * 6.28) + dt;
       const mat = p.shimmer.material as THREE.MeshBasicMaterial;
       mat.opacity = 0.25 + Math.sin(p.shimmerT * 2) * 0.12;
@@ -871,6 +902,13 @@ export class LegionLobby {
    *  reaches HOLD_E_SECONDS. */
   private updatePromptOverlay(target: PortalData | null) {
     const el = this.promptOverlayEl;
+    // Once the user has triggered a join, hide the prompt entirely — the
+    // join handoff is in flight and showing the prompt would just be
+    // confusing (a still-fillable ring after the action already fired).
+    if (this.pendingJoin) {
+      el.style.display = "none";
+      return;
+    }
     if (!target) {
       el.style.display = "none";
       this.holdEActive = false;
@@ -915,11 +953,13 @@ export class LegionLobby {
       const frac = Math.max(0, Math.min(1, t / LegionLobby.HOLD_E_SECONDS));
       ringEl.style.strokeDashoffset = String(C * (1 - frac));
     }
-    // Trigger when held long enough — and rate-limit so we don't fire
-    // multiple times on one hold.
+    // Trigger when held long enough — and ONCE. pendingJoin gates the
+    // prompt off until dispose, so we can't fire twice.
     if (this.holdEActive && performance.now() - this.holdEStart >= LegionLobby.HOLD_E_SECONDS * 1000) {
       this.holdEActive = false;
       this.holdEStart  = 0;
+      this.pendingJoin = true;
+      el.style.display = "none";
       this.tryEnterPortal();
     }
   }
@@ -1018,17 +1058,15 @@ const MODE_THUMBS: Record<ModeId, string> = {
   squidgames_mp:    "/screenshots/squidgames.webp",
 };
 
-/** Roblox-style portal waypoint:
- *    ┌─────────────┐
- *    │  thumbnail  │   ← the mode's screenshot (loaded async)
- *    ├─────────────┤
- *    │   E  Mode   │   ← circled "E" key + bold mode name
- *    └─────────────┘
- *  Always camera-billboarded + always-on-top so it works as a waypoint
- *  from anywhere on the plaza. The thumbnail PNG/JPG loads in the
- *  background; the sprite redraws its texture when the image is ready. */
-function makeRobloxPortalSprite(label: string, modeId: ModeId): THREE.Sprite {
-  const W = 512, H = 720;
+/** Portal waypoint plate — thumbnail + mode name only. The hold-E
+ *  prompt is its own 2D HUD overlay (see updatePromptOverlay) so this
+ *  sprite no longer carries an "E" disc or "Enter game" sub-caption.
+ *  Returns a Mesh (NOT a Sprite) so callers can pin a fixed orientation
+ *  on each one — see placePortal where each plate gets rotated to face
+ *  the spawn beacon, mimicking a sign someone hung on the portal. */
+function makePortalThumbnailPlate(label: string, modeId: ModeId): THREE.Mesh {
+  // Canvas is portrait — thumbnail on top, name strip below. Aspect ~3:4.
+  const W = 512, H = 680;
   const canvas = document.createElement("canvas");
   canvas.width = W; canvas.height = H;
   const ctx = canvas.getContext("2d")!;
@@ -1038,17 +1076,15 @@ function makeRobloxPortalSprite(label: string, modeId: ModeId): THREE.Sprite {
     ctx.fillStyle = "rgba(20, 22, 28, 0.92)";
     roundedRect(ctx, 8, 8, W - 16, H - 16, 26);
     ctx.fill();
-    // Thumbnail panel (top half).
-    const tx = 24, ty = 24, tw = W - 48, th = 380;
+    // Thumbnail panel (most of the height).
+    const tx = 24, ty = 24, tw = W - 48, th = 500;
     ctx.fillStyle = "#0f1115";
     roundedRect(ctx, tx, ty, tw, th, 18);
     ctx.fill();
     if (thumb) {
       ctx.save();
-      // Clip to rounded rect so the JPG is contained.
       roundedRect(ctx, tx, ty, tw, th, 18);
       ctx.clip();
-      // Cover-fit the image.
       const iw = thumb.naturalWidth, ih = thumb.naturalHeight;
       const ar = iw / ih, frameAr = tw / th;
       let dw: number, dh: number, dx: number, dy: number;
@@ -1057,42 +1093,24 @@ function makeRobloxPortalSprite(label: string, modeId: ModeId): THREE.Sprite {
       ctx.drawImage(thumb, dx, dy, dw, dh);
       ctx.restore();
     } else {
-      // Loading placeholder.
       ctx.fillStyle = "rgba(255,255,255,0.4)";
       ctx.font = "500 22px 'Inter', system-ui, sans-serif";
       ctx.textAlign = "center"; ctx.textBaseline = "middle";
       ctx.fillText("Loading…", W / 2, ty + th / 2);
     }
-    // "E" disc on the bottom row.
-    const ex = 90, ey = ty + th + 100;
-    const er = 56;
-    ctx.fillStyle = "rgba(255,255,255,0.10)";
-    ctx.beginPath(); ctx.arc(ex, ey, er, 0, Math.PI * 2); ctx.fill();
-    ctx.strokeStyle = "rgba(255,255,255,0.92)";
-    ctx.lineWidth = 5;
-    ctx.beginPath(); ctx.arc(ex, ey, er, 0, Math.PI * 2); ctx.stroke();
+    // Mode name strip below the thumbnail. Centred bold white.
     ctx.fillStyle = "#ffffff";
     ctx.font = "bold 64px 'Inter', system-ui, sans-serif";
     ctx.textAlign = "center"; ctx.textBaseline = "middle";
-    ctx.fillText("E", ex, ey + 2);
-    // Mode name — bold white, right of the E.
-    ctx.textAlign = "left";
-    ctx.font = "bold 60px 'Inter', system-ui, sans-serif";
     ctx.shadowColor = "rgba(0,0,0,0.7)";
     ctx.shadowOffsetX = 2; ctx.shadowOffsetY = 2;
-    ctx.fillText(label, ex + er + 24, ey - 4);
+    ctx.fillText(label, W / 2, ty + th + 70);
     ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 0;
-    // "Enter game" caption below the name.
-    ctx.fillStyle = "rgba(255,255,255,0.62)";
-    ctx.font = "500 28px 'Inter', system-ui, sans-serif";
-    ctx.fillText("Enter game", ex + er + 24, ey + 50);
   };
-  // Draw the frame once immediately (placeholder).
   drawFrame(null);
   const tex = new THREE.CanvasTexture(canvas);
   tex.minFilter = THREE.LinearFilter;
   tex.magFilter = THREE.LinearFilter;
-  // Kick off the thumbnail load; redraw + flag texture dirty when it lands.
   const url = MODE_THUMBS[modeId];
   if (url) {
     const img = new Image();
@@ -1101,12 +1119,18 @@ function makeRobloxPortalSprite(label: string, modeId: ModeId): THREE.Sprite {
     img.onerror = () => { console.warn("[lobby] thumb failed", url); };
     img.src = url;
   }
-  const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false });
-  const sprite = new THREE.Sprite(mat);
-  // Portrait aspect ratio matching the canvas (W:H = 512:720).
-  sprite.scale.set(1, 1.4, 1);
-  sprite.renderOrder = 1000;
-  return sprite;
+  // Plane is a fixed-orientation flat mesh — NOT a Sprite. The caller
+  // (placePortal) sets its rotation so each waypoint faces the centre
+  // of the plaza like a sign someone hung on the portal frame.
+  const geo = new THREE.PlaneGeometry(1, H / W);   // matches canvas aspect
+  const mat = new THREE.MeshBasicMaterial({
+    map: tex, transparent: true, depthTest: false, depthWrite: false,
+    side: THREE.DoubleSide,
+  });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.renderOrder = 1000;
+  mesh.frustumCulled = false;
+  return mesh;
 }
 
 /** Minecraft-style nametag floating above a player head — dark rounded
