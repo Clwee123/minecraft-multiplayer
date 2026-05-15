@@ -66,6 +66,65 @@ export const MODES: Record<ModeId, ModeConfig> = {
                        forceSkinId: "69f0939aaa72454b9f9c045a" },
 };
 
+// ── Build Battle plot constants ──
+// Centres MUST match server/src/rooms/GameRoom.ts (BB_PLOTS / BB_FLOOR_Y).
+export const BB_CX = 128, BB_CZ = 128, BB_FLOOR_Y = 40;
+export const BB_PLOTS: Array<{ x: number; z: number; marker: number; floor: number; rim: number; theme: string }> = [
+  { x: BB_CX - 22, z: BB_CZ - 22, marker: 14, floor: 1,  rim: 5,   theme: "grass"  },
+  { x: BB_CX + 22, z: BB_CZ - 22, marker: 15, floor: 4,  rim: 27,  theme: "desert" },
+  { x: BB_CX - 22, z: BB_CZ + 22, marker: 41, floor: 23, rim: 24,  theme: "snow"   },
+  { x: BB_CX + 22, z: BB_CZ + 22, marker: 40, floor: 48, rim: 150, theme: "nether" },
+];
+export const BB_PLOT_HALF = 6;
+
+/** Repaint the four plot regions back to their pristine themed state.
+ *  Called when the round resets so player-placed blocks vanish. The base
+ *  arena (rotunda + paths) isn't touched because it never changes. */
+export function resetBuildBattlePlots(world: World) {
+  const y = BB_FLOOR_Y;
+  // Wipe the build column above each plot floor first (up to the lamp posts
+  // we're about to repaint at y+3). Anything higher stays — generous head-
+  // room means a 30-block-tall castle survives an old reset glitch but the
+  // common 1-3 block builds get cleaned reliably.
+  for (const p of BB_PLOTS) {
+    for (let dx = -BB_PLOT_HALF; dx <= BB_PLOT_HALF; dx++) for (let dz = -BB_PLOT_HALF; dz <= BB_PLOT_HALF; dz++) {
+      for (let dy = 1; dy < 30; dy++) world.setBlock(p.x + dx, y + dy, p.z + dz, 0);
+    }
+  }
+  world.protectMode = true;
+  try {
+    for (const p of BB_PLOTS) {
+      // Floor + rim
+      for (let dx = -6; dx <= 6; dx++) for (let dz = -6; dz <= 6; dz++) {
+        const onEdge = Math.abs(dx) === 6 || Math.abs(dz) === 6;
+        world.setBlock(p.x + dx, y, p.z + dz, onEdge ? p.rim : p.floor);
+      }
+      // Knee walls
+      for (let dx = -6; dx <= 6; dx++) {
+        world.setBlock(p.x + dx, y + 1, p.z - 6, p.rim);
+        world.setBlock(p.x + dx, y + 1, p.z + 6, p.rim);
+      }
+      for (let dz = -6; dz <= 6; dz++) {
+        world.setBlock(p.x - 6, y + 1, p.z + dz, p.rim);
+        world.setBlock(p.x + 6, y + 1, p.z + dz, p.rim);
+      }
+      // Corner pillars + glowstone caps
+      for (const [dx, dz] of [[-6, -6], [6, -6], [-6, 6], [6, 6]]) {
+        for (let h = 1; h <= 2; h++) world.setBlock(p.x + dx, y + h, p.z + dz, p.rim);
+        world.setBlock(p.x + dx, y + 3, p.z + dz, 22);
+      }
+      // Plot marker + decorative theme touches.
+      world.setBlock(p.x - 5, y + 1, p.z - 5, p.marker);
+      if (p.theme === "grass")  { world.setBlock(p.x + 5, y + 1, p.z + 5, 30); world.setBlock(p.x - 4, y + 1, p.z + 4, 31); }
+      if (p.theme === "desert") { world.setBlock(p.x + 5, y + 1, p.z + 5, 45); world.setBlock(p.x - 4, y + 1, p.z + 4, 168); }
+      if (p.theme === "snow")   { world.setBlock(p.x + 5, y + 1, p.z + 5, 28); }
+      if (p.theme === "nether") { world.setBlock(p.x + 5, y + 1, p.z + 5, 22); }
+    }
+  } finally {
+    world.protectMode = false;
+  }
+}
+
 /**
  * Build a Build-Battle arena: a centre spawn platform plus four 12×12
  * grass plots ringed in sandstone, separated by walking paths. Each plot
@@ -74,7 +133,7 @@ export const MODES: Record<ModeId, ModeConfig> = {
 export function buildBuildBattle(world: World): { spawnX: number; spawnY: number; spawnZ: number } {
   world.clearAll();
   return withProtection(world, () => {
-    const cx = 128, cz = 128, y = 40;
+    const cx = BB_CX, cz = BB_CZ, y = BB_FLOOR_Y;
     // ── Central spawn rotunda ──
     // Octagonal pad in stone-brick with a glowstone ring on the rim and a
     // diamond-block centerpiece so the spawn reads instantly from any plot.

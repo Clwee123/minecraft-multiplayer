@@ -46,6 +46,8 @@ export class PlayerState extends Schema {
   /** Per-round score: kills (shooter), tug-of-war pulls, marble picks, etc.
    *  Reset on round restart. */
   @type("uint16")  score: number = 0;
+  /** Build Battle: which 0..3 plot this player owns this round. -1 = none. */
+  @type("int8")    plotIdx: number = -1;
 }
 
 export class BlockChange extends Schema {
@@ -102,6 +104,19 @@ export class GameState extends Schema {
   /** Per-minigame timer — e.g. seconds left in current RLGL window. The main
    *  phase timer is in phaseEndsAt; this is a shorter sub-timer. */
   @type("uint32")             subStateEndsAt = 0;
+  // ── Build Battle ──
+  /** Random theme picked at build-phase start ("Castle", "Spaceship", ...). */
+  @type("string")             bbTheme    = "";
+  /** Voting phase: which plot (0..3) is currently being judged. -1 = none. */
+  @type("int8")               bbVoteIdx  = -1;
+  /** Per-(voter, plot) star rating, key = `${voterSession}:${plotIdx}`, value 1..5. */
+  @type({ map: "uint8" })     bbVotes    = new MapSchema<number>();
+  /** Total stars per plot 0..3 — computed at end of voting. 0 if unowned. */
+  @type(["uint16"])           bbScores   = new ArraySchema<number>(0, 0, 0, 0);
+  /** Result phase: winning player's session id + display name + score. */
+  @type("string")             bbWinnerId    = "";
+  @type("string")             bbWinnerName  = "";
+  @type("uint16")             bbWinnerScore = 0;
 }
 
 /** Phase durations in seconds. Length of the array also defines the cycle. */
@@ -121,6 +136,41 @@ const MODE_PHASES: Record<string, number[]> = {
 const MODE_MAPS: Record<string, string[]> = {
   shooter: ["arena", "warehouse", "courtyard"],
 };
+
+// ── Build Battle constants ──
+// Plot centres MUST match client/src/classic/Modes.ts buildBuildBattle().
+// Floor sits at y=40; players build on top so we treat y >= 41 as build space.
+const BB_CX = 128, BB_CZ = 128, BB_FLOOR_Y = 40;
+const BB_PLOTS: Array<{ x: number; z: number }> = [
+  { x: BB_CX - 22, z: BB_CZ - 22 },
+  { x: BB_CX + 22, z: BB_CZ - 22 },
+  { x: BB_CX - 22, z: BB_CZ + 22 },
+  { x: BB_CX + 22, z: BB_CZ + 22 },
+];
+/** Half-extent of the build area on x/z (the rim is at ±6). */
+const BB_PLOT_HALF = 6;
+/** Per-plot rotation duration during voting phase (90s / 4 plots ≈ 22s each,
+ *  with a 2-s gap before the first rotate so people see the banner). */
+const BB_VOTE_PER_PLOT = 22;
+/** Curated theme list — kept short and family-friendly. */
+const BB_THEMES = [
+  "Castle", "Spaceship", "Underwater World", "Volcano", "Treehouse",
+  "Pyramid", "Lighthouse", "Secret Garden", "Dungeon", "Pirate Ship",
+  "Igloo", "Windmill", "Bridge", "Wizard's Tower", "Cottage",
+  "Temple", "Hedge Maze", "Statue", "Fountain", "Watchtower",
+  "Bunker", "Ferris Wheel", "Skyscraper", "Sailing Boat", "Crystal Cave",
+  "Farmhouse", "Mansion", "Monument", "Throne Room", "Floating Island",
+];
+
+function bbPlotContains(plotIdx: number, x: number, z: number): boolean {
+  const p = BB_PLOTS[plotIdx];
+  if (!p) return false;
+  return Math.abs(x - p.x) <= BB_PLOT_HALF && Math.abs(z - p.z) <= BB_PLOT_HALF;
+}
+function bbWhichPlot(x: number, z: number): number {
+  for (let i = 0; i < BB_PLOTS.length; i++) if (bbPlotContains(i, x, z)) return i;
+  return -1;
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -268,7 +318,21 @@ export class GameRoom extends Room<GameState> {
       }
     });
 
+    // Build Battle plot guard: during the build phase, only allow edits
+    // inside the player's assigned plot bounds (and only above the floor).
+    // Outside of build phase, refuse all edits so the arena stays clean
+    // during voting/results. Other modes are unaffected.
+    const bbGate = (client: Client, x: number, y: number, z: number): boolean => {
+      if (this.state.mode !== "buildbattle") return true;
+      if (this.state.modePhase !== 1) return false;
+      if (y <= BB_FLOOR_Y) return false;
+      const p = this.state.players.get(client.sessionId);
+      if (!p || p.plotIdx < 0) return false;
+      return bbPlotContains(p.plotIdx, x, z);
+    };
+
     this.onMessage("addBlock", (client, data: any) => {
+      if (!bbGate(client, data.x, data.y, data.z)) return;
       const bc = new BlockChange();
       bc.x = data.x; bc.y = data.y; bc.z = data.z;
       bc.action = "add"; bc.blockType = data.blockType;
@@ -277,10 +341,28 @@ export class GameRoom extends Room<GameState> {
     });
 
     this.onMessage("removeBlock", (client, data: any) => {
+      if (!bbGate(client, data.x, data.y, data.z)) return;
       const bc = new BlockChange();
       bc.x = data.x; bc.y = data.y; bc.z = data.z; bc.action = "remove";
       this.state.blockChanges.push(bc);
       this.broadcast("blockUpdate", { x: data.x, y: data.y, z: data.z, action: "remove" }, { except: client });
+    });
+
+    // Build Battle: cast a 1..5 star vote on a plot. Voters cannot vote on
+    // their own plot; re-voting overwrites the previous score.
+    this.onMessage("bbVote", (client, data: any) => {
+      if (this.state.mode !== "buildbattle") return;
+      if (this.state.modePhase !== 2) return;
+      const plotIdx = (data?.plotIdx | 0);
+      const stars = Math.max(1, Math.min(5, (data?.stars | 0)));
+      if (plotIdx < 0 || plotIdx >= BB_PLOTS.length) return;
+      // Only let players vote on the plot currently being judged so a
+      // malicious client can't pre-rate everyone in 1 second.
+      if (this.state.bbVoteIdx !== plotIdx) return;
+      const me = this.state.players.get(client.sessionId);
+      if (!me) return;
+      if (me.plotIdx === plotIdx) return; // no self-votes
+      this.state.bbVotes.set(`${client.sessionId}:${plotIdx}`, stars);
     });
 
     this.onMessage("chat", (client, data: any) => {
@@ -502,6 +584,8 @@ export class GameRoom extends Room<GameState> {
       this.handleInfectionPhase(next);
     } else if (this.state.mode === "squidgames") {
       this.handleSquidGamesPhase(next);
+    } else if (this.state.mode === "buildbattle") {
+      this.handleBuildBattlePhase(next);
     }
     if (this.state.mode === "shooter") {
       // Phase 0 = match, Phase 1 = vote. After the vote ends (we just
@@ -642,6 +726,127 @@ export class GameRoom extends Room<GameState> {
     if (this.timeLoop)    clearInterval(this.timeLoop);
     if (this.phaseLoop)   clearInterval(this.phaseLoop);
     if (this.subTickLoop) clearInterval(this.subTickLoop);
+  }
+
+  // ── Build Battle mode ─────────────────────────────────────────────────────
+  //
+  // Phase 0 = waiting (30s): clear last round's blocks, reset assignments,
+  //           pick a fresh theme so players can plan during the wait.
+  // Phase 1 = build   (300s): assign each player a plot (round-robin), tp
+  //           them onto it. addBlock/removeBlock are gated by bbGate to the
+  //           player's plot bounds, above the floor.
+  // Phase 2 = voting  (90s): rotate through occupied plots ~22s each.
+  //           Clients send `bbVote` with stars 1..5; server tallies into
+  //           bbScores at end of each plot window.
+  // Phase 3 = results (30s): pick winner, broadcast, tp everyone to the
+  //           winning plot. Then phase 0 resets the arena again.
+  private handleBuildBattlePhase(next: number) {
+    if (next === 0) {
+      // ── Reset round ──
+      // Wipe the previous round's player blocks (server side) so the floor
+      // becomes a blank canvas again, then tell clients to repaint plots.
+      // Iterate backwards so splice indices stay stable.
+      for (let i = this.state.blockChanges.length - 1; i >= 0; i--) {
+        const bc = this.state.blockChanges[i];
+        if (bc.y > BB_FLOOR_Y && bbWhichPlot(bc.x, bc.z) >= 0) {
+          this.state.blockChanges.splice(i, 1);
+        }
+      }
+      this.state.bbVotes.clear();
+      for (let i = 0; i < 4; i++) this.state.bbScores[i] = 0;
+      this.state.bbVoteIdx = -1;
+      this.state.bbWinnerId = "";
+      this.state.bbWinnerName = "";
+      this.state.bbWinnerScore = 0;
+      this.state.players.forEach(p => { p.plotIdx = -1; p.score = 0; });
+      // Pick a theme right away so the waiting banner can show "Next theme: …".
+      this.state.bbTheme = BB_THEMES[Math.floor(Math.random() * BB_THEMES.length)];
+      // Tell clients to repaint plot floors/walls (cheap — 4 small regions).
+      this.broadcast("bbReset", {});
+      this.broadcast("chat", { name: "Server", text: `🎨 Next theme: ${this.state.bbTheme}` });
+    } else if (next === 1) {
+      // ── Build phase: assign plots round-robin, teleport players. ──
+      const ids = Array.from(this.state.players.keys());
+      // Shuffle so the same Legion ID doesn't always land on plot 0.
+      for (let i = ids.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [ids[i], ids[j]] = [ids[j], ids[i]];
+      }
+      ids.forEach((id, idx) => {
+        if (idx >= BB_PLOTS.length) return;  // 5th+ player spectates this round
+        const p = this.state.players.get(id)!;
+        p.plotIdx = idx;
+        const plot = BB_PLOTS[idx];
+        p.x = plot.x + 0.5; p.y = BB_FLOOR_Y + 1.001; p.z = plot.z + 0.5;
+      });
+      this.broadcast("bbTeleport", {});
+      this.broadcast("chat", { name: "Server", text: `🔨 Build phase: theme is "${this.state.bbTheme}". You have 5 minutes!` });
+    } else if (next === 2) {
+      // ── Voting phase: rotate through assigned plots ~22s each. ──
+      const ownedPlots: number[] = [];
+      this.state.players.forEach(p => { if (p.plotIdx >= 0 && !ownedPlots.includes(p.plotIdx)) ownedPlots.push(p.plotIdx); });
+      ownedPlots.sort((a, b) => a - b);
+      if (ownedPlots.length === 0) return;
+      let rotIdx = 0;
+      const beginViewing = (plotIdx: number) => {
+        this.state.bbVoteIdx = plotIdx;
+        this.state.subStateEndsAt = Math.floor(Date.now() / 1000) + BB_VOTE_PER_PLOT;
+        this.broadcast("bbTeleport", { plotIdx });
+        const owner = this.findPlotOwner(plotIdx);
+        const ownerName = owner ? (owner.displayName || owner.name) : "(unowned)";
+        this.broadcast("chat", { name: "Server", text: `⭐ Now judging Plot ${plotIdx + 1} — ${ownerName}` });
+      };
+      beginViewing(ownedPlots[rotIdx]);
+      this.subTickLoop = setInterval(() => {
+        // Tally votes for the plot we just finished judging.
+        const finishedPlot = ownedPlots[rotIdx];
+        let total = 0;
+        this.state.bbVotes.forEach((stars, key) => {
+          const parts = key.split(":");
+          if (parts.length === 2 && parseInt(parts[1], 10) === finishedPlot) total += stars;
+        });
+        this.state.bbScores[finishedPlot] = total;
+        const owner = this.findPlotOwner(finishedPlot);
+        if (owner) owner.score = (total & 0xffff);
+        rotIdx++;
+        if (rotIdx >= ownedPlots.length) {
+          // All plots judged — leave bbVoteIdx on the last one and stop the
+          // sub-tick. Phase 2→3 transition will pick a winner.
+          this.state.bbVoteIdx = -1;
+          this.state.subStateEndsAt = 0;
+          if (this.subTickLoop) { clearInterval(this.subTickLoop); this.subTickLoop = null; }
+          return;
+        }
+        beginViewing(ownedPlots[rotIdx]);
+      }, BB_VOTE_PER_PLOT * 1000);
+    } else if (next === 3) {
+      // ── Results: pick winner, teleport everyone to the winning plot. ──
+      // bbScores is already populated by the voting sub-tick (or zero for
+      // unfinished tallies if the phase ran short).
+      let winIdx = -1, winScore = -1;
+      for (let i = 0; i < BB_PLOTS.length; i++) {
+        const s = this.state.bbScores[i] | 0;
+        if (s > winScore) { winScore = s; winIdx = i; }
+      }
+      const winner = winIdx >= 0 ? this.findPlotOwner(winIdx) : null;
+      if (winner) {
+        this.state.bbWinnerId = winner.id;
+        this.state.bbWinnerName = winner.displayName || winner.name;
+        this.state.bbWinnerScore = winScore as any;
+        this.state.bbVoteIdx = winIdx;
+        this.broadcast("bbTeleport", { plotIdx: winIdx });
+        this.broadcast("chat", { name: "Server", text: `🏆 Winner: ${this.state.bbWinnerName} with ${winScore} stars!` });
+      } else {
+        this.broadcast("chat", { name: "Server", text: "No builds this round — skipping results." });
+      }
+    }
+  }
+
+  /** Find the player whose plotIdx === idx (or null). */
+  private findPlotOwner(idx: number): PlayerState | null {
+    let out: PlayerState | null = null;
+    this.state.players.forEach(p => { if (p.plotIdx === idx) out = p; });
+    return out;
   }
 
   // ── Infection mode ────────────────────────────────────────────────────────

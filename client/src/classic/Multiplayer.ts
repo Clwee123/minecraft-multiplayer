@@ -119,6 +119,33 @@ export class Multiplayer {
   /** Per-minigame sub-state — see GameRoom.ts. e.g. RLGL "green"/"red". */
   public subState = "";
   public subStateEndsAtMs = 0;
+  // ── Build Battle (mirrored from state in reconcileFromState) ──
+  public bbTheme = "";
+  public bbVoteIdx = -1;
+  /** Star total per plot 0..3, computed server-side at end of each plot window. */
+  public bbScores: number[] = [0, 0, 0, 0];
+  public bbWinnerId = "";
+  public bbWinnerName = "";
+  public bbWinnerScore = 0;
+  /** Stars THIS player has cast on each plot 0..3 (0 = not voted). */
+  public bbMyVotes: number[] = [0, 0, 0, 0];
+  /** Server tells us to teleport — either to our assigned plot (msg has no
+   *  plotIdx) or to a specific plot (voting rotation / winner reveal). */
+  onBuildBattleTeleport?: (plotIdx: number | null) => void;
+  /** Server cleared all plots — main.ts repaints them. */
+  onBuildBattleReset?: () => void;
+  /** Cast a 1..5 star rating on the plot currently being judged. */
+  bbVote(plotIdx: number, stars: number) {
+    this.room?.send("bbVote", { plotIdx, stars });
+  }
+  /** Read OUR assigned plotIdx (-1 if none / not buildbattle). */
+  getMyPlotIdx(): number {
+    const state: any = this.room?.state;
+    if (!state?.players || !this.sessionId) return -1;
+    const me: any = state.players.get ? state.players.get(this.sessionId) : state.players[this.sessionId];
+    const v = me?.plotIdx;
+    return typeof v === "number" ? v : -1;
+  }
   /** Cast a vote for the next map (Shooter, only during vote phase). */
   voteMap(index: number) { this.room?.send("voteMap", { index }); }
   // ── Squid Games minigame inputs ──
@@ -319,6 +346,11 @@ export class Multiplayer {
       this.room.onMessage("inventory", noop);
       this.room.onMessage("voteStart",  (msg: any) => { this.onVoteStart?.(Array.isArray(msg?.maps) ? msg.maps : []); });
       this.room.onMessage("roundStart", (msg: any) => { this.onRoundStart?.(String(msg?.map || "")); });
+      this.room.onMessage("bbTeleport", (msg: any) => {
+        const idx = (msg && typeof msg.plotIdx === "number") ? (msg.plotIdx | 0) : null;
+        this.onBuildBattleTeleport?.(idx);
+      });
+      this.room.onMessage("bbReset", () => { this.onBuildBattleReset?.(); });
       // Server graceful-shutdown warning. Stash the reason so when the
       // socket actually closes a few seconds later, onDisconnected
       // surfaces the right "why" instead of a generic message.
@@ -699,6 +731,32 @@ export class Multiplayer {
     if (typeof state.mapIndex === "number")    this.mapIndex     = state.mapIndex;
     if (typeof state.subState === "string")    this.subState    = state.subState;
     if (typeof state.subStateEndsAt === "number") this.subStateEndsAtMs = state.subStateEndsAt * 1000;
+
+    // Build Battle — mirror everything the HUD/voting UI needs.
+    if (typeof state.bbTheme === "string")     this.bbTheme = state.bbTheme;
+    if (typeof state.bbVoteIdx === "number")   this.bbVoteIdx = state.bbVoteIdx;
+    if (typeof state.bbWinnerId === "string")  this.bbWinnerId = state.bbWinnerId;
+    if (typeof state.bbWinnerName === "string") this.bbWinnerName = state.bbWinnerName;
+    if (typeof state.bbWinnerScore === "number") this.bbWinnerScore = state.bbWinnerScore;
+    if (state.bbScores && typeof state.bbScores.forEach === "function") {
+      const out = [0, 0, 0, 0];
+      state.bbScores.forEach((v: number, i: number) => { if (i >= 0 && i < 4) out[i] = v | 0; });
+      this.bbScores = out;
+    }
+    if (state.bbVotes && this.sessionId) {
+      const mine = [0, 0, 0, 0];
+      const iter = (cb: (key: string, val: number) => void) => {
+        if (typeof state.bbVotes.forEach === "function") state.bbVotes.forEach((v: number, k: string) => cb(k, v));
+        else for (const k in state.bbVotes) cb(k, state.bbVotes[k]);
+      };
+      iter((key, val) => {
+        const parts = key.split(":");
+        if (parts.length !== 2 || parts[0] !== this.sessionId) return;
+        const idx = parseInt(parts[1], 10);
+        if (idx >= 0 && idx < 4) mine[idx] = val | 0;
+      });
+      this.bbMyVotes = mine;
+    }
 
     // Own-health reconcile. The server is authoritative: state.players[me]
     // .health IS the truth, and we just mirror it onto the local Player.

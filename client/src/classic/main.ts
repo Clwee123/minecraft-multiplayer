@@ -16,7 +16,7 @@ import { LegionLobby } from "./LegionLobby";
 import { TorchLightManager } from "./TorchLight";
 import { ServerFinder, listRooms } from "./ServerFinder";
 import { ItemDrops } from "./ItemDrops";
-import { MODES, ModeId, buildBedwars, buildParkour, buildOneBlock, pickOneBlockNext, buildBuildBattle, buildHideAndSeek, buildShooter, buildInfection, buildSquidGames } from "./Modes";
+import { MODES, ModeId, buildBedwars, buildParkour, buildOneBlock, pickOneBlockNext, buildBuildBattle, buildHideAndSeek, buildShooter, buildInfection, buildSquidGames, BB_PLOTS, BB_FLOOR_Y, resetBuildBattlePlots } from "./Modes";
 import { preloadPlayerModel, buildFirstPersonArm, FirstPersonArm, applySkinToCharacter, swapPart } from "./PlayerModel";
 import { BreakHighlight, BreakParticles } from "./BreakEffects";
 import { Legion, LegionUser, LegionFriend, readInstantJoinIntent } from "./Legion";
@@ -104,10 +104,10 @@ function startModeStates(modeId: ModeId) {
   // every client now sees the same countdown to the millisecond.
   if (modeId === "buildbattle_mp") {
     _modePhases = [
-      { name: "Waiting for players", help: "Round starts soon — pick a plot",            durationSec: 30 },
-      { name: "Build Phase",         help: "Build something cool on your plot!",         durationSec: 300 },
-      { name: "Voting",              help: "Walk around — votes coming in next update",  durationSec: 90 },
-      { name: "Results",             help: "Resetting for next round…",                  durationSec: 30 },
+      { name: "Waiting for players", help: "Round starts soon — theme drops next",       durationSec: 30 },
+      { name: "Build Phase",         help: "Build the theme on your plot!",              durationSec: 300 },
+      { name: "Voting",              help: "Rate each build with 1-5 stars",             durationSec: 90 },
+      { name: "Results",             help: "And the winner is…",                          durationSec: 30 },
     ];
   } else if (modeId === "hideandseek_mp") {
     _modePhases = [
@@ -229,9 +229,67 @@ function paintModeExtras() {
       subInfo = `  ·  Step ${step + 1}/6 — press L or R`;
     }
     extra.textContent = `${roleTag}  ·  ${counts.alive} alive · ${counts.eliminated} out${subInfo}`;
+  } else if (mode === "buildbattle_mp") {
+    const theme = mp.bbTheme || "(picking…)";
+    const myPlot = mp.getMyPlotIdx();
+    const phase = mp.modePhase;
+    let line = `Theme: ${theme}`;
+    if (myPlot >= 0) line += `  ·  You: Plot ${myPlot + 1}`;
+    if (phase === 2 && mp.bbVoteIdx >= 0) {
+      line += `  ·  Judging Plot ${mp.bbVoteIdx + 1}`;
+    }
+    if (phase === 3 && mp.bbWinnerName) {
+      line += `  ·  🏆 ${mp.bbWinnerName} (${mp.bbWinnerScore}⭐)`;
+    }
+    extra.textContent = line;
+    paintBuildBattleVotePanel();
   } else if (extra) {
     extra.textContent = "";
+    hideBuildBattleVotePanel();
   }
+}
+
+/** Render the 1..5 star vote bar during BB phase 2. Hidden otherwise. The
+ *  panel reads mp.bbVoteIdx (which plot is being judged) + mp.bbMyVotes
+ *  (what we already voted) and posts back via mp.bbVote(). */
+function paintBuildBattleVotePanel() {
+  const panel = document.getElementById("bbVotePanel") as HTMLElement | null;
+  if (!panel || !mp) return;
+  const phase = mp.modePhase;
+  const judging = mp.bbVoteIdx;
+  const myPlot = mp.getMyPlotIdx();
+  // Hide outside voting phase, when no plot is being judged, or when WE own
+  // the plot currently being judged (no self-vote).
+  if (phase !== 2 || judging < 0 || judging === myPlot) {
+    panel.style.display = "none";
+    return;
+  }
+  panel.style.display = "block";
+  const mine = mp.bbMyVotes[judging] | 0;
+  const title = panel.querySelector(".title") as HTMLElement | null;
+  if (title) title.textContent = `Rate Plot ${judging + 1}`;
+  const stars = panel.querySelectorAll<HTMLButtonElement>(".bb-star");
+  stars.forEach((btn, i) => {
+    const v = i + 1;
+    btn.classList.toggle("on", mine >= v);
+  });
+}
+function hideBuildBattleVotePanel() {
+  const panel = document.getElementById("bbVotePanel");
+  if (panel) panel.style.display = "none";
+}
+/** Wire star buttons once on page load. Called from the boot path. */
+function initBuildBattleVotePanel() {
+  const panel = document.getElementById("bbVotePanel");
+  if (!panel) return;
+  panel.querySelectorAll<HTMLButtonElement>(".bb-star").forEach(btn => {
+    btn.addEventListener("click", () => {
+      if (!mp) return;
+      const stars = parseInt(btn.dataset.stars || "0", 10);
+      const idx = mp.bbVoteIdx;
+      if (stars >= 1 && stars <= 5 && idx >= 0) mp.bbVote(idx, stars);
+    });
+  });
 }
 let mp: Multiplayer | null = null;
 let mode: ModeId = "creative_offline";
@@ -1870,6 +1928,22 @@ async function startGame(serverAddr: string | null) {
         player.spawnAt(s.spawnX, s.spawnY, s.spawnZ);
       }
     };
+    // ── Build Battle round flow ──
+    // Server picks a theme + assigns plots and tells the client to teleport.
+    // bbReset rebuilds the four plot regions so leftover blocks vanish.
+    mp.onBuildBattleTeleport = (plotIdx) => {
+      if (mode !== "buildbattle_mp" || !player) return;
+      // null → use OUR assigned plot. Otherwise tp to the plot being judged.
+      const idx = plotIdx ?? mp?.getMyPlotIdx() ?? -1;
+      if (idx < 0 || idx >= BB_PLOTS.length) return;
+      const p = BB_PLOTS[idx];
+      player.spawnAt(p.x + 0.5, BB_FLOOR_Y + 1.5, p.z + 0.5);
+    };
+    mp.onBuildBattleReset = () => {
+      if (mode !== "buildbattle_mp" || !world) return;
+      resetBuildBattlePlots(world);
+      world.buildAllDirtyNow();
+    };
     mp.onMobKilled = (_id, _type, x, y, z, dropList) => {
       // Spawn each drop at the mob's position. ItemDrops handles the
       // bouncing visuals + grace-period before pickup. We don't gate on
@@ -2675,6 +2749,7 @@ function startInstantMultiplayer(intent: ReturnType<typeof readInstantJoinIntent
 Legion.init().then(() => {
   wireMenuButtons();
   renderLegionPanel(Legion.getUser());
+  initBuildBattleVotePanel();
 
   // ── Legion WebSDKType → 3D lobby ──
   // When loaded inside the Bloxity iframe (?legionsdk=true), replace the
