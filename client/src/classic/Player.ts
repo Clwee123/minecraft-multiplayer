@@ -108,6 +108,10 @@ export class Player {
   onPlace?: (x: number, y: number, z: number, type: number) => void;
   onHealthChange?: (hp: number) => void;
   onBreakProgress?: (progress: number) => void;
+  /** Fired when the LMB-break path hits a protected (map-built) block.
+   *  main.ts wires this to a one-shot chat hint so the player knows why
+   *  nothing happened. */
+  onProtectedHit?: () => void;
   /** Fired when the player jumps off the ground (one-shot). */
   onJump?: () => void;
   /** Fired when the player just landed on the ground (one-shot). */
@@ -228,6 +232,13 @@ export class Player {
     const prevType = this.world.getBlock(hit.x, hit.y, hit.z);
     const def = BLOCKS[prevType];
     if (!def || def.hardness === undefined) return;
+    // Map protection — built-in arena blocks (placed by Modes.ts builders
+    // under world.protectMode) can't be destroyed. Only player-placed blocks
+    // get through. Briefly flash a chat hint so the user understands why.
+    if (this.world.isProtected(hit.x, hit.y, hit.z)) {
+      this.onProtectedHit?.();
+      return;
+    }
     this.world.setBlock(hit.x, hit.y, hit.z, 0);
     this.onBreak?.(hit.x, hit.y, hit.z, prevType);
     // Survival drops handled by caller via onBreak callback
@@ -412,7 +423,14 @@ export class Player {
     // ── Survival: held-down mining ──
     if (this.gameMode === "survival" && this.mouseDown) {
       const hit = this.raycast();
-      if (hit) {
+      // Don't let the player even START a break on a protected map block —
+      // otherwise the crack overlay would creep up to 100% and then silently
+      // do nothing, which feels broken.
+      if (hit && this.world.isProtected(hit.x, hit.y, hit.z)) {
+        this.breakingAt = null;
+        this.breakProgress = 0;
+        this.onBreakProgress?.(0);
+      } else if (hit) {
         const same = this.breakingAt &&
           this.breakingAt.x === hit.x && this.breakingAt.y === hit.y && this.breakingAt.z === hit.z;
         if (!same) {

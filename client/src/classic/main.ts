@@ -907,19 +907,30 @@ function loadPersistentState(): boolean {
     }
     if (data.inv) {
       inv.selected = (data.inv.selected | 0) % 9;
-      for (let i = 0; i < 9 && i < (data.inv.hotbar?.length || 0); i++) {
-        const s = data.inv.hotbar[i];
-        inv.hotbar[i] = { id: s.id | 0, count: s.count | 0, damage: s.damage | 0 };
-      }
-      for (let i = 0; i < 27 && i < (data.inv.main?.length || 0); i++) {
-        const s = data.inv.main[i];
-        inv.main[i] = { id: s.id | 0, count: s.count | 0, damage: s.damage | 0 };
-      }
-      if (data.inv.armor) {
-        const slots: Array<"helmet" | "chestplate" | "leggings" | "boots"> = ["helmet", "chestplate", "leggings", "boots"];
-        for (const k of slots) {
-          const a = data.inv.armor[k];
-          if (a) inv.armor[k] = { id: a.id | 0, count: a.count | 0, damage: a.damage | 0 };
+      // CRITICAL: when the active mode defines a forced hotbar (Shooter,
+      // Infection, BuildBattle, etc.), DO NOT overwrite it with a stale
+      // localStorage snapshot from a previous session. The bug here was:
+      // join Shooter → main.ts sets hotbar to [bow, arrows, sword] →
+      // loadPersistentState runs after → restores empty hotbar from last
+      // Creative session → player spawns with no items. Same logic
+      // protects main inventory + armor for these dedicated PvP rounds.
+      const cfg = MODES[mode];
+      const forcedLoadout = !!cfg?.hotbar;
+      if (!forcedLoadout) {
+        for (let i = 0; i < 9 && i < (data.inv.hotbar?.length || 0); i++) {
+          const s = data.inv.hotbar[i];
+          inv.hotbar[i] = { id: s.id | 0, count: s.count | 0, damage: s.damage | 0 };
+        }
+        for (let i = 0; i < 27 && i < (data.inv.main?.length || 0); i++) {
+          const s = data.inv.main[i];
+          inv.main[i] = { id: s.id | 0, count: s.count | 0, damage: s.damage | 0 };
+        }
+        if (data.inv.armor) {
+          const slots: Array<"helmet" | "chestplate" | "leggings" | "boots"> = ["helmet", "chestplate", "leggings", "boots"];
+          for (const k of slots) {
+            const a = data.inv.armor[k];
+            if (a) inv.armor[k] = { id: a.id | 0, count: a.count | 0, damage: a.damage | 0 };
+          }
         }
       }
     }
@@ -2147,6 +2158,15 @@ async function startGame(serverAddr: string | null) {
   player.onAirChange = (air, max) => renderBubbles(air, max);
   player.onBreakProgress = (p) => {
     breakFx.setProgress(p);
+  };
+  // Rate-limited "you can't break the map" hint. Avoid spamming the chat
+  // if the player holds LMB on a protected block — only one line per ~5s.
+  let _lastProtectedMsg = 0;
+  player.onProtectedHit = () => {
+    const now = performance.now();
+    if (now - _lastProtectedMsg < 5000) return;
+    _lastProtectedMsg = now;
+    addChatLine("(map)", "This is part of the arena — you can only break blocks you placed.");
   };
 
   if (mp?.isConnected()) {

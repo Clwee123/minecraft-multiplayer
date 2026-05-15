@@ -131,6 +131,15 @@ export class World {
    *  (sitting on floor). Wall-mounted torches store the cardinal direction
    *  of the wall they're attached to. */
   torchDirs: Map<string, "up" | "+x" | "-x" | "+z" | "-z"> = new Map();
+  /** Coordinates of blocks placed during arena construction (Modes.ts). When
+   *  `protectedBlocks` is non-empty, the LMB-break path refuses to destroy
+   *  any block in this set — only blocks placed by players afterwards are
+   *  breakable. Cleared on each clearAll(). */
+  protectedBlocks: Set<string> = new Set();
+  /** When true, every subsequent setBlock() call also adds the coord to
+   *  `protectedBlocks`. Map builders flip this on before laying out the
+   *  arena, then off when done. */
+  protectMode = false;
 
   private opaqueMat: THREE.Material | null = null;
   private leavesMat: THREE.Material | null = null;
@@ -300,6 +309,12 @@ export class World {
     const lz = z - cz * CHUNK_W;
     if (chunk.get(lx, y, lz) === type) return;
     chunk.set(lx, y, lz, type);
+    // Map-builder mode: stamp every non-air block we lay down as protected
+    // so the LMB-break path will refuse to destroy it. Players can still
+    // break their own placements (placements bypass this flag).
+    if (this.protectMode && type !== 0) {
+      this.protectedBlocks.add(`${x},${y},${z}`);
+    }
     this.dirtyChunks.add(key);
     if (lx === 0)             this.dirtyChunks.add(`${cx - 1},${cz}`);
     if (lx === CHUNK_W - 1)   this.dirtyChunks.add(`${cx + 1},${cz}`);
@@ -873,6 +888,13 @@ export class World {
   clearAll() {
     for (const key of Array.from(this.chunks.keys())) this.unloadChunk(key);
     this.dirtyChunks.clear();
+    this.protectedBlocks.clear();
+  }
+
+  /** True if (x,y,z) was placed by a map builder under protectMode and the
+   *  LMB-break path should refuse to remove it. */
+  isProtected(x: number, y: number, z: number): boolean {
+    return this.protectedBlocks.has(`${x},${y},${z}`);
   }
 
   // ── Meshing ────────────────────────────────────────────────────────────────

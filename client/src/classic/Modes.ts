@@ -4,6 +4,15 @@
  */
 import { World, SEA_LEVEL } from "./World";
 
+/** Wrap an arena-build function so EVERY setBlock it does is marked as a
+ *  protected (map) block. Players will then be unable to destroy any of it
+ *  through the LMB-break path — only blocks they place themselves later. */
+function withProtection<T>(world: World, build: () => T): T {
+  world.protectMode = true;
+  try { return build(); }
+  finally { world.protectMode = false; }
+}
+
 export type ModeId =
   | "survival_offline"
   | "survival_mp"
@@ -64,46 +73,77 @@ export const MODES: Record<ModeId, ModeConfig> = {
  */
 export function buildBuildBattle(world: World): { spawnX: number; spawnY: number; spawnZ: number } {
   world.clearAll();
-  const cx = 128, cz = 128, y = 40;
-  // Central spawn pad
-  for (let dx = -3; dx <= 3; dx++) for (let dz = -3; dz <= 3; dz++) {
-    world.setBlock(cx + dx, y, cz + dz, 26);             // stone bricks
-  }
-  // Four plots at (±20, ±20)
-  const plots = [
-    { x: cx - 22, z: cz - 22, marker: 14 }, // white wool marker
-    { x: cx + 22, z: cz - 22, marker: 15 }, // red wool marker
-    { x: cx - 22, z: cz + 22, marker: 41 }, // diamond block marker
-    { x: cx + 22, z: cz + 22, marker: 40 }, // gold block marker
-  ];
-  for (const p of plots) {
-    // 13×13 plot (12×12 build area + 1-wide perimeter)
-    for (let dx = -6; dx <= 6; dx++) for (let dz = -6; dz <= 6; dz++) {
-      const onEdge = Math.abs(dx) === 6 || Math.abs(dz) === 6;
-      world.setBlock(p.x + dx, y, p.z + dz, onEdge ? 27 : 1);  // sandstone rim, grass interior
+  return withProtection(world, () => {
+    const cx = 128, cz = 128, y = 40;
+    // ── Central spawn rotunda ──
+    // Octagonal pad in stone-brick with a glowstone ring on the rim and a
+    // diamond-block centerpiece so the spawn reads instantly from any plot.
+    const SR = 4;
+    for (let dx = -SR; dx <= SR; dx++) for (let dz = -SR; dz <= SR; dz++) {
+      const d = Math.hypot(dx, dz);
+      if (d > SR + 0.2) continue;
+      // Stone brick + mossy cobble accents for a worn marble feel.
+      const onRing = d > SR - 0.6;
+      world.setBlock(cx + dx, y, cz + dz, onRing ? 17 : 26);
     }
-    // 1-block wall around so people don't accidentally walk into a neighbour's plot
-    for (let dx = -6; dx <= 6; dx++) {
-      world.setBlock(p.x + dx, y + 1, p.z - 6, 27);
-      world.setBlock(p.x + dx, y + 1, p.z + 6, 27);
+    world.setBlock(cx, y + 1, cz, 41);   // diamond pillar
+    world.setBlock(cx, y + 2, cz, 41);
+    world.setBlock(cx, y + 3, cz, 22);   // glowstone capstone — lights the lobby
+    // 4 corner glowstone braziers on the rotunda rim
+    for (const [bx, bz] of [[-3, -3], [3, -3], [-3, 3], [3, 3]]) {
+      world.setBlock(cx + bx, y + 1, cz + bz, 12); // brick base
+      world.setBlock(cx + bx, y + 2, cz + bz, 22); // glowstone flame
     }
-    for (let dz = -6; dz <= 6; dz++) {
-      world.setBlock(p.x - 6, y + 1, p.z + dz, 27);
-      world.setBlock(p.x + 6, y + 1, p.z + dz, 27);
+    // ── Four 12×12 build plots, each themed differently ──
+    // Themes give players something to react to — grass plot, sand plot,
+    // snow plot, nether plot — so a hot pink palette next to a beach
+    // doesn't blend together visually.
+    const plots = [
+      { x: cx - 22, z: cz - 22, marker: 14, floor: 1,   rim: 5,   theme: "grass"  }, // grass + oak
+      { x: cx + 22, z: cz - 22, marker: 15, floor: 4,   rim: 27,  theme: "desert" }, // sand + sandstone
+      { x: cx - 22, z: cz + 22, marker: 41, floor: 23,  rim: 24,  theme: "snow"   }, // snow + ice rim
+      { x: cx + 22, z: cz + 22, marker: 40, floor: 48,  rim: 150, theme: "nether" }, // netherrack + nether brick
+    ];
+    for (const p of plots) {
+      // 13×13 plot with themed rim + themed interior floor.
+      for (let dx = -6; dx <= 6; dx++) for (let dz = -6; dz <= 6; dz++) {
+        const onEdge = Math.abs(dx) === 6 || Math.abs(dz) === 6;
+        world.setBlock(p.x + dx, y, p.z + dz, onEdge ? p.rim : p.floor);
+      }
+      // Short knee wall (1 high) so plots stay distinct without blocking view.
+      for (let dx = -6; dx <= 6; dx++) {
+        world.setBlock(p.x + dx, y + 1, p.z - 6, p.rim);
+        world.setBlock(p.x + dx, y + 1, p.z + 6, p.rim);
+      }
+      for (let dz = -6; dz <= 6; dz++) {
+        world.setBlock(p.x - 6, y + 1, p.z + dz, p.rim);
+        world.setBlock(p.x + 6, y + 1, p.z + dz, p.rim);
+      }
+      // Corner pillars (3 tall) with a glowstone lamp so each plot is lit.
+      for (const [dx, dz] of [[-6, -6], [6, -6], [-6, 6], [6, 6]]) {
+        for (let h = 1; h <= 2; h++) world.setBlock(p.x + dx, y + h, p.z + dz, p.rim);
+        world.setBlock(p.x + dx, y + 3, p.z + dz, 22);  // glowstone lantern top
+      }
+      // Plot-marker block — coloured material lets you pick "yours" at a glance.
+      world.setBlock(p.x - 5, y + 1, p.z - 5, p.marker);
+      // Decorative theme touch — one flower / cactus / shrub per plot.
+      if (p.theme === "grass")  { world.setBlock(p.x + 5, y + 1, p.z + 5, 30); world.setBlock(p.x - 4, y + 1, p.z + 4, 31); }
+      if (p.theme === "desert") { world.setBlock(p.x + 5, y + 1, p.z + 5, 45); world.setBlock(p.x - 4, y + 1, p.z + 4, 168); }
+      if (p.theme === "snow")   { world.setBlock(p.x + 5, y + 1, p.z + 5, 28); }
+      if (p.theme === "nether") { world.setBlock(p.x + 5, y + 1, p.z + 5, 22); }
     }
-    // Plot marker / colour tile near a corner
-    world.setBlock(p.x - 5, y + 1, p.z - 5, p.marker);
-  }
-  // Cobble paths from centre to each plot
-  const pathOff: Array<[number, number]> = [[-1, -1], [1, -1], [-1, 1], [1, 1]];
-  for (let i = 0; i < 4; i++) {
-    const [sx, sz] = pathOff[i];
-    for (let t = 4; t < 18; t++) {
-      world.setBlock(cx + sx * t, y, cz + sz * t, 9);
-      world.setBlock(cx + sx * t + 1, y, cz + sz * t, 9);
+    // ── Sandstone paths from centre to each plot (themed by destination) ──
+    const pathOff: Array<[number, number, number]> = [
+      [-1, -1, 27], [1, -1, 27], [-1, 1, 27], [1, 1, 27],
+    ];
+    for (const [sx, sz, mat] of pathOff) {
+      for (let t = 5; t < 17; t++) {
+        world.setBlock(cx + sx * t,     y, cz + sz * t, mat);
+        world.setBlock(cx + sx * t + 1, y, cz + sz * t, mat);
+      }
     }
-  }
-  return { spawnX: cx + 0.5, spawnY: y + 1.001, spawnZ: cz + 0.5 };
+    return { spawnX: cx + 0.5, spawnY: y + 1.001, spawnZ: cz + 0.5 };
+  });
 }
 
 /**
@@ -113,32 +153,84 @@ export function buildBuildBattle(world: World): { spawnX: number; spawnY: number
  */
 export function buildHideAndSeek(world: World): { spawnX: number; spawnY: number; spawnZ: number } {
   world.clearAll();
-  const cx = 128, cz = 128, y = 38;
-  const R = 36;
-  // Circular grass island
-  for (let dx = -R; dx <= R; dx++) for (let dz = -R; dz <= R; dz++) {
-    const d = Math.hypot(dx, dz);
-    if (d > R) continue;
-    const top = d > R - 1.2 ? 4 : 1;  // sand at the edge, grass interior
-    world.setBlock(cx + dx, y, cz + dz, top);
-    if (top === 1) world.setBlock(cx + dx, y - 1, cz + dz, 2); // dirt sub
+  return withProtection(world, () => {
+    const cx = 128, cz = 128, y = 38;
+    const R = 36;
+    // ── Circular grass island ──
+    // Patchy surface: most grass, but ~12% dirt, scattered tall grass blades
+    // and flowers for a real-meadow texture (the old uniform-grass slab was
+    // too sterile). Sand around the rim simulates a beach.
+    for (let dx = -R; dx <= R; dx++) for (let dz = -R; dz <= R; dz++) {
+      const d = Math.hypot(dx, dz);
+      if (d > R) continue;
+      const top = d > R - 1.4 ? 4 : 1;  // sand rim, grass interior
+      world.setBlock(cx + dx, y, cz + dz, top);
+      if (top === 1) world.setBlock(cx + dx, y - 1, cz + dz, 2); // dirt sub
+      // Decorate the grass area only — sparse flowers + tall grass.
+      if (top === 1) {
+        const hash = ((dx * 73856093) ^ (dz * 19349663)) >>> 0;
+        if ((hash & 31) === 0) world.setBlock(cx + dx, y + 1, cz + dz, 30); // red flower
+        else if ((hash & 31) === 5) world.setBlock(cx + dx, y + 1, cz + dz, 31); // yellow
+        else if ((hash & 15) === 7) world.setBlock(cx + dx, y + 1, cz + dz, 32); // tall grass
+      }
+    }
+    // ── Small pond (decorative water hazard you can hide behind) ──
+    const pond: Array<[number, number]> = [[8, -2], [9, -2], [10, -2], [8, -1], [9, -1], [10, -1], [11, -1], [9, 0], [10, 0]];
+    for (const [px, pz] of pond) {
+      world.setBlock(cx + px, y,     cz + pz, 7);   // water
+      world.setBlock(cx + px, y - 1, cz + pz, 2);   // dirt bed
+    }
+    // Sandy beach around the pond
+    for (const [px, pz] of [[7, -1], [7, 0], [11, 0], [11, -2], [8, -3], [10, -3]] as [number, number][]) {
+      world.setBlock(cx + px, y, cz + pz, 4);
+    }
+    // ── Trees (deterministic spread, mix of oak + spruce) ──
+    const trees: Array<[number, number, "oak" | "spruce"]> = [
+      [-22, -18, "oak"], [-10, -25, "oak"], [4, -28, "spruce"], [18, -22, "oak"], [26, -10, "spruce"],
+      [-28, 0, "oak"],   [-16, 6, "spruce"],   [-14, 14, "oak"],  [22, 18, "oak"],   [-6, 22, "spruce"],
+      [14, 26, "oak"],   [28, -6, "oak"],   [0, 28, "spruce"],   [-26, 14, "oak"],
+    ];
+    for (const [tx, tz, kind] of trees) {
+      if (kind === "spruce") placeSpruceTree(world, cx + tx, y + 1, cz + tz);
+      else                   placeOakTree(world, cx + tx, y + 1, cz + tz);
+    }
+    // Scattered boulder clusters — short stone bumps the seeker has to clear.
+    const boulders: Array<[number, number]> = [[-30, -4], [22, -26], [-4, -24], [30, 16], [-20, 24], [10, -10]];
+    for (const [bx, bz] of boulders) placeBoulder(world, cx + bx, y + 1, cz + bz);
+    // ── Four small huts — varied themes ──
+    placeSmallHut(world, cx - 14, y + 1, cz - 8,  "oak");
+    placeSmallHut(world, cx + 12, y + 1, cz - 14, "spruce");
+    placeSmallHut(world, cx + 16, y + 1, cz + 8,  "stone");
+    placeSmallHut(world, cx - 18, y + 1, cz + 12, "oak");
+    // Tiny mushroom patch in the south-east corner — extra hiding spots.
+    for (const [mx, mz] of [[18, -2], [20, -3], [19, -1]] as [number, number][]) {
+      world.setBlock(cx + mx, y + 1, cz + mz, 34);
+    }
+    return { spawnX: cx + 0.5, spawnY: y + 1.001, spawnZ: cz + 0.5 };
+  });
+}
+
+/** Helper — 6-tall spruce with a tapered canopy. */
+function placeSpruceTree(world: World, x: number, y: number, z: number) {
+  for (let i = 0; i < 6; i++) world.setBlock(x, y + i, z, 28); // spruce log
+  // Conical canopy: wide low, narrow high.
+  const layers: Array<[number, number]> = [[3, 0], [3, 1], [2, 2], [2, 3], [1, 4], [1, 5]];
+  for (const [r, dy] of layers) {
+    for (let dx = -r; dx <= r; dx++) for (let dz = -r; dz <= r; dz++) {
+      if (dx === 0 && dz === 0) continue;
+      if (Math.abs(dx) + Math.abs(dz) > r + 1) continue;
+      world.setBlock(x + dx, y + dy + 1, z + dz, 29);
+    }
   }
-  // Trees (deterministic spread)
-  const trees: Array<[number, number]> = [
-    [-22, -18], [-10, -25], [4, -28], [18, -22], [26, -10],
-    [-28, 0],   [-16, 6],   [10, 10],  [22, 18],   [-6, 22],
-    [14, 26],   [28, -6],   [0, 28],   [-26, 14],
-  ];
-  for (const [tx, tz] of trees) placeOakTree(world, cx + tx, y + 1, cz + tz);
-  // Four small huts to hide in
-  const huts: Array<{ x: number; z: number }> = [
-    { x: cx - 14, z: cz - 8 },
-    { x: cx + 12, z: cz - 14 },
-    { x: cx + 16, z: cz + 8 },
-    { x: cx - 18, z: cz + 12 },
-  ];
-  for (const h of huts) placeSmallHut(world, h.x, y + 1, h.z);
-  return { spawnX: cx + 0.5, spawnY: y + 1.001, spawnZ: cz + 0.5 };
+}
+
+/** Helper — small stone+mossy-cobble boulder cluster, ~3 blocks across. */
+function placeBoulder(world: World, x: number, y: number, z: number) {
+  world.setBlock(x,     y, z,     3);  // stone
+  world.setBlock(x + 1, y, z,     17); // mossy
+  world.setBlock(x,     y, z + 1, 17);
+  world.setBlock(x + 1, y, z + 1, 3);
+  world.setBlock(x,     y + 1, z, 9);  // cobble caps
 }
 
 /** Helper — 5-tall oak tree with a 3×3×2 canopy. */
@@ -152,35 +244,49 @@ function placeOakTree(world: World, x: number, y: number, z: number) {
   }
 }
 
-/** Helper — 4×4 wooden hut with a door slot, used by Hide and Seek. */
-function placeSmallHut(world: World, x: number, y: number, z: number) {
+/** Helper — 4×4 themed hut with a door slot and a glowstone interior light,
+ *  used by Hide and Seek. Three themes:
+ *    "oak"    → plank walls, oak-log roof
+ *    "spruce" → spruce-log walls, spruce-log roof, mossier feel
+ *    "stone"  → cobble walls, stone-brick roof
+ *  Each leaves a 1×2 doorway on the +Z side so seekers can peek inside. */
+function placeSmallHut(world: World, x: number, y: number, z: number, theme: "oak" | "spruce" | "stone" = "oak") {
+  const wall   = theme === "stone" ? 9  : theme === "spruce" ? 28 : 8;
+  const floor  = theme === "stone" ? 26 : 8;
+  const roof   = theme === "stone" ? 26 : theme === "spruce" ? 28 : 5;
   // Plank floor
   for (let dx = -2; dx <= 2; dx++) for (let dz = -2; dz <= 2; dz++) {
-    world.setBlock(x + dx, y - 1, z + dz, 8);
+    world.setBlock(x + dx, y - 1, z + dz, floor);
   }
-  // Plank walls 3 tall
+  // Walls 3 tall
   for (let h = 0; h < 3; h++) {
     for (let dx = -2; dx <= 2; dx++) {
-      world.setBlock(x + dx, y + h, z - 2, 8);
-      world.setBlock(x + dx, y + h, z + 2, 8);
+      world.setBlock(x + dx, y + h, z - 2, wall);
+      world.setBlock(x + dx, y + h, z + 2, wall);
     }
     for (let dz = -2; dz <= 2; dz++) {
-      world.setBlock(x - 2, y + h, z + dz, 8);
-      world.setBlock(x + 2, y + h, z + dz, 8);
+      world.setBlock(x - 2, y + h, z + dz, wall);
+      world.setBlock(x + 2, y + h, z + dz, wall);
     }
   }
-  // Punch out a door
-  world.setBlock(x, y,     z + 2, 0);
-  world.setBlock(x, y + 1, z + 2, 0);
-  // Log-roof
+  // Doorway + window on opposite wall.
+  world.setBlock(x,     y,     z + 2, 0);
+  world.setBlock(x,     y + 1, z + 2, 0);
+  world.setBlock(x,     y + 1, z - 2, 11); // glass window
+  // Roof.
   for (let dx = -2; dx <= 2; dx++) for (let dz = -2; dz <= 2; dz++) {
-    world.setBlock(x + dx, y + 3, z + dz, 5);
+    world.setBlock(x + dx, y + 3, z + dz, roof);
   }
+  // Glowstone tucked under the roof so the interior is lit.
+  world.setBlock(x, y + 2, z, 22);
 }
 
 /** Build a Bedwars-style world: small island arena, central diamond pile + generators. */
 export function buildBedwars(world: World): { spawnX: number; spawnY: number; spawnZ: number } {
   world.clearAll();
+  return withProtection(world, () => buildBedwarsInner(world));
+}
+function buildBedwarsInner(world: World): { spawnX: number; spawnY: number; spawnZ: number } {
   const cx = 128, cz = 128;
   const platY = 40;
   // Central island (8x8 stone bricks)
@@ -231,6 +337,9 @@ export function buildBedwars(world: World): { spawnX: number; spawnY: number; sp
 /** Build a Parkour world: a long zig-zag of platforms with increasing difficulty. */
 export function buildParkour(world: World): { spawnX: number; spawnY: number; spawnZ: number } {
   world.clearAll();
+  return withProtection(world, () => buildParkourInner(world));
+}
+function buildParkourInner(world: World): { spawnX: number; spawnY: number; spawnZ: number } {
   let x = 128, y = 50, z = 128;
   // Starting platform
   for (let dx = -2; dx <= 2; dx++)
@@ -275,6 +384,8 @@ export function buildParkour(world: World): { spawnX: number; spawnY: number; sp
 /** Build a OneBlock world: empty space with a single platform block. */
 export function buildOneBlock(world: World): { spawnX: number; spawnY: number; spawnZ: number } {
   world.clearAll();
+  // No protection — the whole point of OneBlock is breaking the central
+  // block over and over to summon new ones.
   const x = 128, y = 40, z = 128;
   world.setBlock(x, y, z, 1); // grass to start
   // Tiny ring around for safety until first respawn
@@ -321,60 +432,116 @@ export const SHOOTER_MAPS = ["arena", "warehouse", "courtyard"] as const;
 
 export function buildShooter(world: World, mapIndex = 0): { spawnX: number; spawnY: number; spawnZ: number } {
   world.clearAll();
-  const cx = 128, cz = 128, y = 40;
-  const R = 30;
-  const map = SHOOTER_MAPS[mapIndex % SHOOTER_MAPS.length];
-  // Per-map material palette. Layout below is shared; only the surface
-  // blocks change so each map has a distinct vibe without doubling code.
-  const palette = map === "warehouse"
-    ? { floor: 8 /*planks*/,  wall: 5 /*log*/,    pillar: 17 /*mossy cobble*/, accent: 39 /*iron block*/ }
-    : map === "courtyard"
-    ? { floor: 1 /*grass*/,   wall: 27 /*sandstone*/, pillar: 12 /*bricks*/,     accent: 40 /*gold*/ }
-    :                          { floor: 26 /*stone bricks*/, wall: 26, pillar: 9 /*cobble*/, accent: 41 /*diamond*/ };
-  // Ground floor with a gravel rim.
-  for (let dx = -R; dx <= R; dx++) for (let dz = -R; dz <= R; dz++) {
-    const onEdge = Math.abs(dx) === R || Math.abs(dz) === R;
-    world.setBlock(cx + dx, y, cz + dz, onEdge ? 10 : palette.floor);
-  }
-  // Boundary wall (4 tall).
-  for (let dx = -R; dx <= R; dx++) for (let dy = 1; dy <= 4; dy++) {
-    world.setBlock(cx + dx, y + dy, cz - R, palette.wall);
-    world.setBlock(cx + dx, y + dy, cz + R, palette.wall);
-  }
-  for (let dz = -R; dz <= R; dz++) for (let dy = 1; dy <= 4; dy++) {
-    world.setBlock(cx - R, y + dy, cz + dz, palette.wall);
-    world.setBlock(cx + R, y + dy, cz + dz, palette.wall);
-  }
-  // Cover placement varies per map for tactical variety.
-  const covers: Array<[number, number, "wall" | "pillar"]> =
-    map === "warehouse"
-      ? [[-10, -10, "wall"], [10, 10, "wall"], [-10, 10, "wall"], [10, -10, "wall"],
-         [0, 0, "pillar"], [-18, 0, "pillar"], [18, 0, "pillar"], [0, -18, "pillar"], [0, 18, "pillar"]]
+  return withProtection(world, () => {
+    const cx = 128, cz = 128, y = 40;
+    const R = 30;
+    const map = SHOOTER_MAPS[mapIndex % SHOOTER_MAPS.length];
+    // Per-map material palette. Each pack has 6 slots so we can do
+    // floor / wall / pillar / accent / trim / light without ifs everywhere.
+    const palette = map === "warehouse"
+      ? { floor: 8,   wall: 28,  pillar: 17, accent: 39,  trim: 5,   light: 22, sky: false }
       : map === "courtyard"
-      ? [[-15, 0, "wall"], [15, 0, "wall"], [0, -15, "wall"], [0, 15, "wall"],
-         [-8, -8, "pillar"], [8, 8, "pillar"], [-8, 8, "pillar"], [8, -8, "pillar"]]
-      : [[-18, -4, "wall"], [16, -8, "pillar"], [-6, 12, "wall"], [4, -16, "pillar"],
-         [12, 14, "wall"], [-12, -14, "pillar"], [18, 4, "pillar"], [-20, 8, "wall"],
-         [0, 20, "wall"], [0, -20, "wall"], [22, 0, "pillar"], [-22, 0, "pillar"]];
-  for (const [dx, dz, kind] of covers) {
-    if (kind === "pillar") {
-      for (let py = 1; py <= 3; py++) {
-        world.setBlock(cx + dx,     y + py, cz + dz, palette.pillar);
-        world.setBlock(cx + dx + 1, y + py, cz + dz, palette.pillar);
-        world.setBlock(cx + dx,     y + py, cz + dz + 1, palette.pillar);
-        world.setBlock(cx + dx + 1, y + py, cz + dz + 1, palette.pillar);
+      ? { floor: 1,   wall: 27,  pillar: 12, accent: 40,  trim: 167, light: 157, sky: true  }
+      :                  /* arena: */
+        { floor: 26,  wall: 9,   pillar: 151, accent: 41, trim: 26,  light: 22, sky: false };
+    // ── Outer ring (1-block trim band) ──
+    // Gives the arena a finished "stadium" edge instead of just dropping
+    // off into the void. Trim color matches the per-map theme.
+    for (let dx = -R - 1; dx <= R + 1; dx++) for (let dz = -R - 1; dz <= R + 1; dz++) {
+      const onRim = Math.abs(dx) === R + 1 || Math.abs(dz) === R + 1;
+      if (onRim) world.setBlock(cx + dx, y, cz + dz, palette.trim);
+    }
+    // ── Floor ──
+    for (let dx = -R; dx <= R; dx++) for (let dz = -R; dz <= R; dz++) {
+      const onEdge = Math.abs(dx) === R || Math.abs(dz) === R;
+      world.setBlock(cx + dx, y, cz + dz, onEdge ? palette.trim : palette.floor);
+    }
+    // ── Floor pattern: every 6 blocks, lay a 1×1 accent tile so the floor
+    //    isn't a monochrome slab. Subtle grid feels much nicer to traverse.
+    for (let dx = -R + 3; dx <= R - 3; dx += 6) for (let dz = -R + 3; dz <= R - 3; dz += 6) {
+      world.setBlock(cx + dx, y, cz + dz, palette.pillar);
+    }
+    // ── Boundary wall (5 tall) with crenellation on top row ──
+    for (let dx = -R; dx <= R; dx++) for (let dy = 1; dy <= 5; dy++) {
+      const top = dy === 5;
+      // Crenellation: skip every other top block to give the top a castle
+      // silhouette. Skip pattern shifts so corners stay solid.
+      const skip = top && ((dx + 1000) % 2 === 0);
+      if (skip) continue;
+      world.setBlock(cx + dx, y + dy, cz - R, palette.wall);
+      world.setBlock(cx + dx, y + dy, cz + R, palette.wall);
+    }
+    for (let dz = -R + 1; dz <= R - 1; dz++) for (let dy = 1; dy <= 5; dy++) {
+      const top = dy === 5;
+      const skip = top && ((dz + 1000) % 2 === 0);
+      if (skip) continue;
+      world.setBlock(cx - R, y + dy, cz + dz, palette.wall);
+      world.setBlock(cx + R, y + dy, cz + dz, palette.wall);
+    }
+    // ── Corner watch-towers (3-block radius pillars, 6 tall) ──
+    // Gives sightlines from elevation, lights the corners, breaks the wall
+    // monotony. Each tower has a glowstone lamp on top.
+    const towers: [number, number][] = [[-R, -R], [R, -R], [-R, R], [R, R]];
+    for (const [tx, tz] of towers) {
+      for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) {
+        for (let h = 1; h <= 6; h++) world.setBlock(cx + tx + dx, y + h, cz + tz + dz, palette.pillar);
       }
-    } else {
-      for (let wx = 0; wx < 5; wx++) for (let wy = 1; wy <= 3; wy++) {
-        world.setBlock(cx + dx + wx, y + wy, cz + dz, palette.pillar);
+      world.setBlock(cx + tx, y + 7, cz + tz, palette.light);
+    }
+    // ── Wall-mounted torches along the inner perimeter every 8 blocks ──
+    for (let dx = -R + 6; dx < R - 5; dx += 8) {
+      world.setBlock(cx + dx, y + 3, cz - R + 1, 42);   // torch on inner face
+      world.setBlock(cx + dx, y + 3, cz + R - 1, 42);
+    }
+    for (let dz = -R + 6; dz < R - 5; dz += 8) {
+      world.setBlock(cx - R + 1, y + 3, cz + dz, 42);
+      world.setBlock(cx + R - 1, y + 3, cz + dz, 42);
+    }
+    // ── Cover placement varies per map for tactical variety ──
+    const covers: Array<[number, number, "wall" | "pillar" | "block"]> =
+      map === "warehouse"
+        ? [[-12, -10, "wall"], [12, 10, "wall"], [-12, 10, "wall"], [12, -10, "wall"],
+           [0, 0, "pillar"], [-18, 0, "pillar"], [18, 0, "pillar"], [0, -18, "pillar"], [0, 18, "pillar"],
+           [-6, -6, "block"], [6, 6, "block"], [-6, 6, "block"], [6, -6, "block"]]
+        : map === "courtyard"
+        ? [[-15, 0, "wall"], [15, 0, "wall"], [0, -15, "wall"], [0, 15, "wall"],
+           [-8, -8, "pillar"], [8, 8, "pillar"], [-8, 8, "pillar"], [8, -8, "pillar"],
+           [-20, -10, "block"], [20, 10, "block"], [-20, 10, "block"], [20, -10, "block"]]
+        : [[-18, -4, "wall"], [16, -8, "pillar"], [-6, 12, "wall"], [4, -16, "pillar"],
+           [12, 14, "wall"], [-12, -14, "pillar"], [18, 4, "pillar"], [-20, 8, "wall"],
+           [0, 20, "wall"], [0, -20, "wall"], [22, 0, "pillar"], [-22, 0, "pillar"],
+           [-10, 0, "block"], [10, 0, "block"], [0, -8, "block"], [0, 8, "block"]];
+    for (const [dx, dz, kind] of covers) {
+      if (kind === "pillar") {
+        for (let py = 1; py <= 3; py++) {
+          world.setBlock(cx + dx,     y + py, cz + dz,     palette.pillar);
+          world.setBlock(cx + dx + 1, y + py, cz + dz,     palette.pillar);
+          world.setBlock(cx + dx,     y + py, cz + dz + 1, palette.pillar);
+          world.setBlock(cx + dx + 1, y + py, cz + dz + 1, palette.pillar);
+        }
+        // Cap with trim block so pillars don't look like raw stacks.
+        world.setBlock(cx + dx,     y + 4, cz + dz,     palette.trim);
+        world.setBlock(cx + dx + 1, y + 4, cz + dz,     palette.trim);
+        world.setBlock(cx + dx,     y + 4, cz + dz + 1, palette.trim);
+        world.setBlock(cx + dx + 1, y + 4, cz + dz + 1, palette.trim);
+      } else if (kind === "block") {
+        // 1×1 chest-high cover — perfect for crouching behind.
+        for (let py = 1; py <= 2; py++) world.setBlock(cx + dx, y + py, cz + dz, palette.accent);
+      } else {
+        // 5-long wall, 3 tall, with a single accent block in the middle.
+        for (let wx = 0; wx < 5; wx++) for (let wy = 1; wy <= 3; wy++) {
+          const mid = wx === 2 && wy === 2;
+          world.setBlock(cx + dx + wx, y + wy, cz + dz, mid ? palette.accent : palette.pillar);
+        }
       }
     }
-  }
-  // Centre spawn pad — slightly elevated, accent block.
-  for (let dx = -2; dx <= 2; dx++) for (let dz = -2; dz <= 2; dz++) {
-    world.setBlock(cx + dx, y + 1, cz + dz, palette.accent);
-  }
-  return { spawnX: cx + 0.5, spawnY: y + 2.001, spawnZ: cz + 0.5 };
+    // ── Centre spawn pad — raised 1, accent ring, glowstone heart ──
+    for (let dx = -2; dx <= 2; dx++) for (let dz = -2; dz <= 2; dz++) {
+      const onRing = Math.abs(dx) === 2 || Math.abs(dz) === 2;
+      world.setBlock(cx + dx, y + 1, cz + dz, onRing ? palette.accent : palette.light);
+    }
+    return { spawnX: cx + 0.5, spawnY: y + 2.001, spawnZ: cz + 0.5 };
+  });
 }
 
 /**
@@ -384,38 +551,119 @@ export function buildShooter(world: World, mapIndex = 0): { spawnX: number; spaw
  */
 export function buildInfection(world: World): { spawnX: number; spawnY: number; spawnZ: number } {
   world.clearAll();
-  const cx = 128, cz = 128, y = 40;
-  const R = 40;
-  // Grass ground
-  for (let dx = -R; dx <= R; dx++) for (let dz = -R; dz <= R; dz++) {
-    if (Math.hypot(dx, dz) > R) continue;
-    world.setBlock(cx + dx, y, cz + dz, 1);
-    world.setBlock(cx + dx, y - 1, cz + dz, 2);
-  }
-  // 4-block fence wall ringing the compound
-  for (let a = 0; a < Math.PI * 2; a += 0.06) {
-    const x = Math.round(Math.cos(a) * R);
-    const z = Math.round(Math.sin(a) * R);
-    for (let h = 1; h <= 4; h++) world.setBlock(cx + x, y + h, cz + z, 28); // spruce log
-  }
-  // 4 small "safe houses" the survivors can fall back to
-  const houses: Array<[number, number]> = [[-18, -18], [18, -18], [-18, 18], [18, 18]];
-  for (const [hx, hz] of houses) {
-    for (let dx = -3; dx <= 3; dx++) for (let dz = -3; dz <= 3; dz++) {
-      const onEdge = Math.abs(dx) === 3 || Math.abs(dz) === 3;
-      world.setBlock(cx + hx + dx, y - 1, cz + hz + dz, 8);    // floor
-      if (onEdge) for (let h = 1; h <= 3; h++) world.setBlock(cx + hx + dx, y + h, cz + hz + dz, 8);
-      world.setBlock(cx + hx + dx, y + 4, cz + hz + dz, 5);     // log roof
+  return withProtection(world, () => {
+    const cx = 128, cz = 128, y = 40;
+    const R = 40;
+    // ── Ruined-village grass ground with patches of dirt + gravel ──
+    for (let dx = -R; dx <= R; dx++) for (let dz = -R; dz <= R; dz++) {
+      const d = Math.hypot(dx, dz);
+      if (d > R) continue;
+      // Patchy decay — hash-based but deterministic.
+      const hash = ((dx * 73856093) ^ (dz * 19349663)) >>> 0;
+      let top = 1; // grass default
+      if ((hash & 15) < 3) top = 2;        // ~20% dirt
+      else if ((hash & 31) === 0) top = 10; // ~3% gravel scar
+      world.setBlock(cx + dx, y, cz + dz, top);
+      world.setBlock(cx + dx, y - 1, cz + dz, 2);
+      // Sparse dead bushes + tall grass for an abandoned vibe.
+      if (top === 1 && (hash & 63) === 17) world.setBlock(cx + dx, y + 1, cz + dz, 168);
+      if (top === 1 && (hash & 63) === 33) world.setBlock(cx + dx, y + 1, cz + dz, 32);
     }
-    // Doorway
-    world.setBlock(cx + hx, y + 1, cz + hz + 3, 0);
-    world.setBlock(cx + hx, y + 2, cz + hz + 3, 0);
+    // ── Outer ring: cobblestone + mossy-cobble wall, 4 tall, with gaps ──
+    // Spaced gaps = "the fence is broken in places" feel, encourages routing.
+    for (let a = 0; a < Math.PI * 2; a += 0.05) {
+      const x = Math.round(Math.cos(a) * R);
+      const z = Math.round(Math.sin(a) * R);
+      // ~15% chance to leave a single-block gap.
+      const gap = (((x * 31 + z * 17) & 31) < 5);
+      if (gap) continue;
+      for (let h = 1; h <= 4; h++) {
+        const blk = h === 1 ? 17 : (h === 4 ? 17 : 9);  // bottom + cap are mossy, mid is cobble
+        world.setBlock(cx + x, y + h, cz + z, blk);
+      }
+    }
+    // ── Central plaza ── stone-brick base with a glowstone well in the middle
+    // so the lobby reads clearly. Slight mossy decay for tone.
+    for (let dx = -5; dx <= 5; dx++) for (let dz = -5; dz <= 5; dz++) {
+      const d = Math.hypot(dx, dz);
+      if (d > 5.2) continue;
+      const blk = ((dx * 13 + dz * 7) & 15) === 0 ? 17 : 26;
+      world.setBlock(cx + dx, y, cz + dz, blk);
+    }
+    // Central beacon — glowstone well + brick lip — visible from the rim
+    world.setBlock(cx, y, cz, 22);
+    for (const [bx, bz] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) world.setBlock(cx + bx, y, cz + bz, 12);
+    // ── Four safe houses (themed: oak, stone, sandstone, spruce) ──
+    placeSafeHouse(world, cx - 18, y + 1, cz - 18, "oak");
+    placeSafeHouse(world, cx + 18, y + 1, cz - 18, "stone");
+    placeSafeHouse(world, cx - 18, y + 1, cz + 18, "sandstone");
+    placeSafeHouse(world, cx + 18, y + 1, cz + 18, "spruce");
+    // ── Path planks from plaza to each safehouse (gravel road) ──
+    for (const [tx, tz] of [[-18, -18], [18, -18], [-18, 18], [18, 18]] as [number, number][]) {
+      const steps = 12;
+      for (let s = 1; s < steps; s++) {
+        const fx = cx + Math.round((tx * s) / steps);
+        const fz = cz + Math.round((tz * s) / steps);
+        world.setBlock(fx, y, fz, 10);
+      }
+    }
+    // ── Scattered overturned-cart / loot stash decorations ──
+    placeWreck(world, cx - 8, y + 1, cz + 4);
+    placeWreck(world, cx + 6, y + 1, cz - 6);
+    placeWreck(world, cx + 12, y + 1, cz + 14);
+    return { spawnX: cx + 0.5, spawnY: y + 1.001, spawnZ: cz + 0.5 };
+  });
+}
+
+/** Themed safe-house variant for Infection — 5×5 footprint, 4 tall, with a
+ *  doorway on the inside-facing wall and a glowstone interior light. The
+ *  roof is broken (random missing tiles) to read as a ruin. */
+function placeSafeHouse(world: World, x: number, y: number, z: number, theme: "oak" | "stone" | "sandstone" | "spruce") {
+  const wall = theme === "oak"       ? 8
+             : theme === "stone"     ? 9
+             : theme === "sandstone" ? 27
+                                     : 28;
+  const floor = theme === "stone" ? 26 : (theme === "sandstone" ? 27 : 8);
+  const roof  = theme === "oak" ? 5 : (theme === "spruce" ? 28 : wall);
+  // Floor.
+  for (let dx = -2; dx <= 2; dx++) for (let dz = -2; dz <= 2; dz++) {
+    world.setBlock(x + dx, y - 1, z + dz, floor);
   }
-  // Central plaza
-  for (let dx = -4; dx <= 4; dx++) for (let dz = -4; dz <= 4; dz++) {
-    world.setBlock(cx + dx, y, cz + dz, 9);
+  // 3-tall walls.
+  for (let h = 0; h < 3; h++) {
+    for (let dx = -2; dx <= 2; dx++) {
+      world.setBlock(x + dx, y + h, z - 2, wall);
+      world.setBlock(x + dx, y + h, z + 2, wall);
+    }
+    for (let dz = -2; dz <= 2; dz++) {
+      world.setBlock(x - 2, y + h, z + dz, wall);
+      world.setBlock(x + 2, y + h, z + dz, wall);
+    }
   }
-  return { spawnX: cx + 0.5, spawnY: y + 1.001, spawnZ: cz + 0.5 };
+  // Doorway on +Z side.
+  world.setBlock(x, y,     z + 2, 0);
+  world.setBlock(x, y + 1, z + 2, 0);
+  // Window cut-outs (glass) on other walls.
+  world.setBlock(x - 2, y + 1, z, 11);
+  world.setBlock(x + 2, y + 1, z, 11);
+  // Broken roof — some tiles missing for the "ruined" look.
+  for (let dx = -2; dx <= 2; dx++) for (let dz = -2; dz <= 2; dz++) {
+    const hash = ((x + dx) * 31 + (z + dz) * 17 + 7) >>> 0;
+    if ((hash & 7) === 0) continue;  // ~12% missing
+    world.setBlock(x + dx, y + 3, z + dz, roof);
+  }
+  // Glowstone tucked under the centre — small interior light.
+  world.setBlock(x, y + 2, z, 22);
+}
+
+/** A small wreck (overturned cart-ish): mix of logs, planks, a glowing
+ *  lantern. Pure decor. */
+function placeWreck(world: World, x: number, y: number, z: number) {
+  world.setBlock(x,     y, z,     5);
+  world.setBlock(x + 1, y, z,     5);
+  world.setBlock(x,     y, z + 1, 8);
+  world.setBlock(x + 1, y + 1, z, 8);
+  world.setBlock(x,     y + 1, z + 1, 22);  // glowstone in the gap
 }
 
 /**
@@ -428,33 +676,192 @@ export function buildInfection(world: World): { spawnX: number; spawnY: number; 
  */
 export function buildSquidGames(world: World): { spawnX: number; spawnY: number; spawnZ: number } {
   world.clearAll();
-  const cx = 128, cz = 128, y = 40;
-  // Central pink-wool lobby (the iconic stairs colour)
-  const R = 12;
-  for (let dx = -R; dx <= R; dx++) for (let dz = -R; dz <= R; dz++) {
-    if (Math.hypot(dx, dz) > R) continue;
-    world.setBlock(cx + dx, y, cz + dz, 15);   // red wool floor (closest to MC pink)
-  }
-  // 5 doorway pillars around the ring (pentagon).
-  const doors = 5;
-  for (let i = 0; i < doors; i++) {
-    const ang = (i / doors) * Math.PI * 2;
-    const dx = Math.round(Math.cos(ang) * (R - 1));
-    const dz = Math.round(Math.sin(ang) * (R - 1));
-    for (let h = 1; h <= 4; h++) {
-      world.setBlock(cx + dx,     y + h, cz + dz,     14);  // white wool pillar
-      world.setBlock(cx + dx + 1, y + h, cz + dz,     14);
+  return withProtection(world, () => {
+    const cx = 128, cz = 128, y = 40;
+    // ── Central pink-wool lobby ──
+    // The arena is shaped like a stylised "○△□" stage: a big pink-wool plaza
+    // ringed with white-wool corridors, with the 5 minigame zones spread
+    // around the outside so the player can SEE each one even before they
+    // start. We keep them all at the same Y so falls aren't fatal in non-
+    // bridge phases (the glass-bridge zone has a deliberate drop).
+    const R = 14;
+    for (let dx = -R; dx <= R; dx++) for (let dz = -R; dz <= R; dz++) {
+      const d = Math.hypot(dx, dz);
+      if (d > R) continue;
+      // Concentric ring pattern in red+white wool for the iconic look.
+      const ring = Math.floor(d / 2);
+      const blk = (ring % 2 === 0) ? 15 : 14;
+      world.setBlock(cx + dx, y, cz + dz, blk);
     }
-    // Door number block — colour each one differently for now
-    world.setBlock(cx + dx, y + 5, cz + dz, [40, 41, 22, 39, 170][i]);
+    // Central squid emblem — diamond-block silhouette (○△□ stand-in).
+    for (const [dx, dz] of [[0, 0], [0, -1], [0, 1], [-1, 0], [1, 0]]) {
+      world.setBlock(cx + dx, y, cz + dz, 41);
+    }
+    // ── Outer perimeter wall (pink + white wool, 5 tall) ──
+    // Crenellated top so it reads as a stadium.
+    const outerR = R + 2;
+    for (let a = 0; a < Math.PI * 2; a += 0.04) {
+      const x = Math.round(Math.cos(a) * outerR);
+      const z = Math.round(Math.sin(a) * outerR);
+      for (let h = 1; h <= 5; h++) {
+        const top = h === 5;
+        const skip = top && (((x * 7 + z * 3) & 1) === 0);
+        if (skip) continue;
+        const blk = ((x + z) & 1) ? 15 : 14;
+        world.setBlock(cx + x, y + h, cz + z, blk);
+      }
+    }
+    // ── Five "door" markers at the cardinal/intercardinal compass points ──
+    // Each is a numbered + colour-coded pillar with a sign-style accent on
+    // top so the contestants can rally near "their" door.
+    const doors = 5;
+    const doorColors = [40, 41, 22, 39, 170];  // gold/diamond/glowstone/iron/coal
+    for (let i = 0; i < doors; i++) {
+      const ang = (i / doors) * Math.PI * 2 - Math.PI / 2;
+      const dx = Math.round(Math.cos(ang) * (R - 2));
+      const dz = Math.round(Math.sin(ang) * (R - 2));
+      // 4-tall white-wool pillar with door colour cap.
+      for (let h = 1; h <= 4; h++) {
+        world.setBlock(cx + dx,     y + h, cz + dz,     14);
+      }
+      world.setBlock(cx + dx, y + 5, cz + dz, doorColors[i]);
+      // Doormat block in front (red wool) to read the door footprint.
+      const fx = Math.round(Math.cos(ang) * (R - 4));
+      const fz = Math.round(Math.sin(ang) * (R - 4));
+      world.setBlock(cx + fx, y, cz + fz, 15);
+    }
+    // ── North zone: Red Light Green Light "playing field" ──
+    // Long sand strip stretching north, with a brown-wool "doll" tower at the
+    // far end so the red-light/green-light fiction is legible from anywhere
+    // on the field. Players run from -Z end (start line) to +Z (doll).
+    {
+      const startZ = cz - R - 4;
+      const fieldLen = 30;
+      for (let dx = -8; dx <= 8; dx++) for (let dz = 0; dz < fieldLen; dz++) {
+        world.setBlock(cx + dx, y, startZ - dz, 4); // sand field
+      }
+      // Start line (white wool stripe) + finish line (red wool stripe).
+      for (let dx = -8; dx <= 8; dx++) {
+        world.setBlock(cx + dx, y, startZ, 14);
+        world.setBlock(cx + dx, y, startZ - fieldLen + 1, 15);
+      }
+      // The doll: a 5×7×3 wood-and-wool figure at the far end, facing the players.
+      const dollX = cx, dollZ = startZ - fieldLen - 3;
+      placeRlglDoll(world, dollX, y + 1, dollZ);
+    }
+    // ── East zone: Honeycomb minigame (3 numbered shape pads) ──
+    {
+      const baseX = cx + R + 6, baseZ = cz;
+      // Platform.
+      for (let dx = 0; dx < 16; dx++) for (let dz = -6; dz <= 6; dz++) {
+        world.setBlock(baseX + dx, y, baseZ + dz, 167); // hay floor (warm honeycomb tone)
+      }
+      // Three numbered pads (shape 1/2/3 → coloured wool, with glowstone underlay).
+      const pads = [
+        { dx: 4,  dz: -4, top: 40, label: 1 },
+        { dx: 8,  dz:  0, top: 41, label: 2 },
+        { dx: 12, dz:  4, top: 39, label: 3 },
+      ];
+      for (const p of pads) {
+        for (let ax = -1; ax <= 1; ax++) for (let az = -1; az <= 1; az++) {
+          world.setBlock(baseX + p.dx + ax, y + 1, baseZ + p.dz + az, p.top);
+        }
+        world.setBlock(baseX + p.dx, y + 2, baseZ + p.dz, 22); // glowstone marker on top
+      }
+    }
+    // ── South zone: Tug of War rope and team pads ──
+    {
+      const baseZ = cz + R + 4;
+      // Red team mat
+      for (let dx = -8; dx <= -4; dx++) for (let dz = 0; dz < 5; dz++) {
+        world.setBlock(cx + dx, y, baseZ + dz, 15);
+      }
+      // Blue team mat (proxy: white wool)
+      for (let dx = 4; dx <= 8; dx++) for (let dz = 0; dz < 5; dz++) {
+        world.setBlock(cx + dx, y, baseZ + dz, 14);
+      }
+      // Rope (planks) connecting them.
+      for (let dx = -3; dx <= 3; dx++) world.setBlock(cx + dx, y, baseZ + 2, 8);
+      // Centre flag — iron block on a small pillar.
+      world.setBlock(cx, y + 1, baseZ + 2, 39);
+      world.setBlock(cx, y + 2, baseZ + 2, 22);
+    }
+    // ── West zone: Marbles (small "alley" with two stools) ──
+    {
+      const baseX = cx - R - 6, baseZ = cz;
+      for (let dx = -10; dx <= 0; dx++) for (let dz = -3; dz <= 3; dz++) {
+        world.setBlock(baseX + dx, y, baseZ + dz, 26); // stonebrick alley
+      }
+      // Two opposing stools (player A + player B).
+      world.setBlock(baseX - 2, y + 1, baseZ - 1, 5);
+      world.setBlock(baseX - 2, y + 1, baseZ + 1, 5);
+      world.setBlock(baseX - 8, y + 1, baseZ - 1, 5);
+      world.setBlock(baseX - 8, y + 1, baseZ + 1, 5);
+      // Lanterns at each end.
+      world.setBlock(baseX - 1, y + 2, baseZ, 157); // sea lantern
+      world.setBlock(baseX - 9, y + 2, baseZ, 157);
+    }
+    // ── Glass Bridge — to the far north-east, raised 4 high ──
+    {
+      const baseX = cx + 20, baseZ = cz - R - 6;
+      // Support pillars at the start (so the bridge is clearly elevated).
+      for (let h = 0; h <= 4; h++) {
+        world.setBlock(baseX, y + h, baseZ, 151); // quartz column
+        world.setBlock(baseX + 2, y + h, baseZ, 151);
+      }
+      // 6 pairs of glass panels. Alternating safe/cracked is just decoration —
+      // the server-side mechanic decides at runtime which side eliminates.
+      for (let s = 0; s < 6; s++) {
+        const bz = baseZ - 2 - s * 2;
+        world.setBlock(baseX,     y + 4, bz, 11); // glass
+        world.setBlock(baseX + 2, y + 4, bz, 11);
+      }
+      // Finish platform with a gold-block reward marker.
+      for (let dx = 0; dx <= 2; dx++) for (let dz = -1; dz <= 1; dz++) {
+        world.setBlock(baseX + dx, y + 4, baseZ - 16 + dz, 151);
+      }
+      world.setBlock(baseX + 1, y + 5, baseZ - 16, 40);
+      world.setBlock(baseX + 1, y + 6, baseZ - 16, 22);
+    }
+    // ── Pink corridor sign: glowstone-lit perimeter so the lobby is bright ──
+    for (let dx = -R + 3; dx <= R - 3; dx += 4) {
+      world.setBlock(cx + dx, y + 1, cz - R + 1, 22);
+      world.setBlock(cx + dx, y + 1, cz + R - 1, 22);
+    }
+    for (let dz = -R + 3; dz <= R - 3; dz += 4) {
+      world.setBlock(cx - R + 1, y + 1, cz + dz, 22);
+      world.setBlock(cx + R - 1, y + 1, cz + dz, 22);
+    }
+    return { spawnX: cx + 0.5, spawnY: y + 1.001, spawnZ: cz + 0.5 };
+  });
+}
+
+/** The iconic Squid Games doll: an oversized blocky figure (yellow shirt,
+ *  orange dress, brown hair, pink head) at the far end of the RLGL field.
+ *  Pure decoration — the actual "watching" state is server-driven. */
+function placeRlglDoll(world: World, x: number, y: number, z: number) {
+  // Dress (orange clay) — 3 wide × 3 tall trunk.
+  for (let dx = -1; dx <= 1; dx++) for (let dy = 0; dy < 3; dy++) {
+    world.setBlock(x + dx, y + dy, z, 160);  // hardened clay (orange)
   }
-  // Glass stepping bridge to the south — a quick visual nod to game 5.
-  for (let s = 0; s < 18; s++) {
-    const zb = cz + R + 4 + s;
-    const ok = (s % 2 === 0);
-    world.setBlock(cx - 1, y, zb, ok ? 11 : 7);
-    world.setBlock(cx + 1, y, zb, ok ? 7  : 11);
+  // Shirt (yellow → use hay) — top row.
+  for (let dx = -1; dx <= 1; dx++) world.setBlock(x + dx, y + 3, z, 167);
+  // Head — pink (red wool stand-in), 3×3×3 with a 1-block neck.
+  world.setBlock(x, y + 4, z, 8); // plank "neck"
+  for (let dx = -1; dx <= 1; dx++) for (let dy = 5; dy < 8; dy++) for (let dz = -1; dz <= 1; dz++) {
+    world.setBlock(x + dx, y + dy, z + dz, 15);
   }
-  return { spawnX: cx + 0.5, spawnY: y + 1.001, spawnZ: cz + 0.5 };
+  // Eyes (coal block) on the +Z face (toward the players).
+  world.setBlock(x - 1, y + 6, z - 2, 170);
+  world.setBlock(x + 1, y + 6, z - 2, 170);
+  // Hair (brown — use mossy cobble).
+  for (let dx = -2; dx <= 2; dx++) for (let dz = -2; dz <= 2; dz++) {
+    if (Math.abs(dx) === 2 || Math.abs(dz) === 2) world.setBlock(x + dx, y + 8, z + dz, 5);
+  }
+  // Arms (plank tubes hanging at sides).
+  for (let dy = 1; dy < 3; dy++) {
+    world.setBlock(x - 2, y + dy, z, 8);
+    world.setBlock(x + 2, y + dy, z, 8);
+  }
 }
 
