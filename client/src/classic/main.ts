@@ -12,6 +12,7 @@ import { TradeUI } from "./TradeUI";
 import { FurnaceUI } from "./FurnaceUI";
 import { ChestUI } from "./ChestUI";
 import { maybeBootArmEditor } from "./ArmEditor";
+import { LegionLobby } from "./LegionLobby";
 import { ServerFinder, listRooms } from "./ServerFinder";
 import { ItemDrops } from "./ItemDrops";
 import { MODES, ModeId, buildBedwars, buildParkour, buildOneBlock, pickOneBlockNext, buildBuildBattle, buildHideAndSeek, buildShooter, buildInfection, buildSquidGames } from "./Modes";
@@ -250,12 +251,58 @@ const DAY_LENGTH_SECONDS = 180; // 3-minute cycle, matches server tick rate
 let hunger = 20;
 let hungerTimer = 0;
 
+// Active Legion lobby instance (only when WebSDKType === "legion"). Stashed
+// so we can dispose it when the user walks into a portal and the game
+// boots over the top.
+let _legionLobby: LegionLobby | null = null;
+
+/** Hide the 2D main menu and spin up the 3D Legion lobby. The lobby calls
+ *  back into startGame() when the player walks into a portal. */
+function bootLegionLobby() {
+  const menu = document.getElementById("mainMenu");
+  if (menu) menu.style.display = "none";
+  // Hide the main game renderer canvas so the lobby's canvas is the only
+  // visible viewport.
+  renderer.domElement.style.display = "none";
+  _legionLobby = new LegionLobby((modeId) => {
+    // Portal entry → tear down lobby + boot the matching mode using the
+    // same flow as a mode-card click.
+    _legionLobby?.dispose();
+    _legionLobby = null;
+    renderer.domElement.style.display = "";
+    mode = modeId;
+    const cfg = MODES[modeId];
+    // Pick a sensible display name. Legion users have one already; guests
+    // use whatever's in localStorage / the (hidden) input.
+    const u = Legion.getUser();
+    playerName = (u?.displayName || u?.username || localStorage.getItem("mc.playerName") || "Player").trim();
+    localStorage.setItem("mc.playerName", playerName);
+    startGame(cfg.isMultiplayer ? DEFAULT_SERVER : null);
+  });
+}
+
+// ── Web-SDK type ───────────────────────────────────────────────────────────
+// The game can be loaded from two contexts:
+//   "vanilla" — the main public website (default)
+//   "legion"  — inside a Bloxity iframe (?legionsdk=true).
+//               In this mode the menu becomes a 3D Hypixel-style lobby
+//               with walkable portals instead of mode cards.
+export type WebSDKType = "vanilla" | "legion";
+export function getWebSDKType(): WebSDKType {
+  const v = new URLSearchParams(location.search).get("legionsdk");
+  return v === "true" || v === "1" ? "legion" : "vanilla";
+}
+
+// Default server. Used to be a user-editable input field; we hardcode it
+// now so there's one less thing to mess up. Local dev still works because
+// localhost detection below substitutes localhost:8471.
+const DEFAULT_SERVER = (location.hostname === "localhost" || location.hostname === "127.0.0.1")
+  ? "localhost:8471" : "159.223.140.36";
+
 // ── Main menu ───────────────────────────────────────────────────────────────
 function wireMenuButtons() {
   const nameInput = document.getElementById("nameInput") as HTMLInputElement;
-  const serverInput = document.getElementById("serverInput") as HTMLInputElement;
-  const isLocal = location.hostname === "localhost" || location.hostname === "127.0.0.1";
-  serverInput.value = isLocal ? "localhost:8471" : "159.223.140.36";
+  const nameRow   = document.getElementById("nameRow")   as HTMLElement | null;
   const savedName = localStorage.getItem("mc.playerName");
   nameInput.value = savedName ?? ("Player" + Math.floor(Math.random() * 1000));
   document.querySelectorAll<HTMLElement>(".mode-card").forEach(card => {
@@ -269,7 +316,7 @@ function wireMenuButtons() {
       localStorage.setItem("mc.playerName", playerName);
       mode = modeId;
       const cfg = MODES[modeId];
-      startGame(cfg.isMultiplayer ? serverInput.value.trim() : null);
+      startGame(cfg.isMultiplayer ? DEFAULT_SERVER : null);
     });
   });
 
@@ -282,7 +329,7 @@ function wireMenuButtons() {
   logoutBtn?.addEventListener("click", () => Legion.logout());
 
   // Server finder — list all open rooms, click to join by id.
-  serverFinder = new ServerFinder(() => serverInput.value.trim());
+  serverFinder = new ServerFinder(() => DEFAULT_SERVER);
   serverFinder.onJoin = (roomId, roomMode) => {
     playerName = nameInput.value.trim() || "Player";
     localStorage.setItem("mc.playerName", playerName);
@@ -295,27 +342,32 @@ function wireMenuButtons() {
     };
     mode = ((roomMode && fallback[roomMode]) || "survival_mp") as ModeId;
     pendingRoomId = roomId;
-    startGame(serverInput.value.trim());
+    startGame(DEFAULT_SERVER);
   };
   document.getElementById("browseServersBtn")?.addEventListener("click", () => {
     serverFinder?.show();
   });
 
   // ── Live CCU counters per mode card ───────────────────────────────────
-  refreshModeCCU(serverInput.value.trim());
+  refreshModeCCU(DEFAULT_SERVER);
   setInterval(() => {
     // Don't bother polling once the user has clicked into a game.
     if (document.getElementById("mainMenu")?.style.display === "none") return;
-    refreshModeCCU(serverInput.value.trim());
+    refreshModeCCU(DEFAULT_SERVER);
   }, 10_000);
 
-  // When Legion user state changes, update name input + login banner
+  // When Legion user state changes, update name input + login banner +
+  // toggle the visibility of the name row (logged-in users have a display
+  // name already — no point in showing the input to them).
   Legion.onUserChanged((u) => {
     renderLegionPanel(u);
     if (u) {
       const display = u.displayName || u.username;
       nameInput.value = display;
       localStorage.setItem("mc.playerName", display);
+      if (nameRow) nameRow.style.display = "none";
+    } else {
+      if (nameRow) nameRow.style.display = "";
     }
   });
 }
@@ -2570,6 +2622,15 @@ function startInstantMultiplayer(intent: ReturnType<typeof readInstantJoinIntent
 Legion.init().then(() => {
   wireMenuButtons();
   renderLegionPanel(Legion.getUser());
+
+  // ── Legion WebSDKType → 3D lobby ──
+  // When loaded inside the Bloxity iframe (?legionsdk=true), replace the
+  // 2D mode-card menu with a walkable 3D lobby. The lobby calls back into
+  // startGame() when the player walks into a portal — same path as a
+  // mode-card click on the vanilla menu.
+  if (getWebSDKType() === "legion" && !_bootIntent.instantMultiplayer) {
+    bootLegionLobby();
+  }
 
   Legion.onAvatarChanged((avatar) => {
     if (fpArm) {

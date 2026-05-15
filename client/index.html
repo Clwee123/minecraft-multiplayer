@@ -1643,14 +1643,15 @@
         </div>
       </div>
 
-      <div class="menu-row">
+      <!-- Name row: shown for guests, hidden when Legion user is logged in
+           (their display name is used directly). Toggled from main.ts. -->
+      <div class="menu-row" id="nameRow">
         <label>Name:</label>
         <input id="nameInput" type="text" maxlength="20" placeholder="Player" />
       </div>
-      <div class="menu-row">
-        <label>Server:</label>
-        <input id="serverInput" type="text" placeholder="159.223.140.36" />
-        <button id="browseServersBtn" class="legion-btn secondary" style="margin-left:6px;">Browse rooms</button>
+      <!-- Server input was here. Removed — we hardcode 159.223.140.36 now. -->
+      <div class="menu-row" style="justify-content:flex-end;">
+        <button id="browseServersBtn" class="legion-btn secondary">Browse rooms</button>
       </div>
       <div class="mode-grid" id="modeGrid">
         <div class="mode-card" data-mode="survival_mp">
