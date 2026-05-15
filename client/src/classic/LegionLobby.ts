@@ -114,20 +114,24 @@ export class LegionLobby {
     // user sees just the sky for the ~50-100ms it takes the atlas to load.
 
     // ── HUD overlays ──
+    // Title: bottom-left, small, doesn't obscure portal labels.
     this.titleEl = document.createElement("div");
     this.titleEl.id = "lobbyTitle";
     this.titleEl.style.cssText = `
-      position: fixed; top: 24px; left: 50%; transform: translateX(-50%);
+      position: fixed; bottom: 16px; left: 16px;
       z-index: 10; color: #fff; pointer-events: none;
       font-family: 'Minecraft', 'Inter', system-ui, sans-serif;
-      text-align: center; text-shadow: 3px 3px 0 #000, 0 0 18px rgba(0,0,0,0.6);
+      text-shadow: 2px 2px 0 #000;
     `;
     this.titleEl.innerHTML = `
-      <div style="font-size:36px;letter-spacing:2px;font-weight:700;">⛏ MINECRAFT LOBBY</div>
-      <div style="font-size:14px;margin-top:6px;opacity:0.85;">Walk into a portal to enter a game · WASD to move · drag mouse to look · Space to jump</div>
+      <div style="font-size:20px;letter-spacing:1px;font-weight:700;">⛏ MINECRAFT LOBBY</div>
+      <div style="font-size:11px;margin-top:3px;opacity:0.8;line-height:1.4;">
+        WASD move · Shift sprint · Space jump · mouse drag to look · E to enter a portal
+      </div>
     `;
     document.body.appendChild(this.titleEl);
 
+    // Portal proximity prompt: bottom-centre, tall accent border, easy to scan.
     this.promptEl = document.createElement("div");
     this.promptEl.id = "lobbyPrompt";
     this.promptEl.style.cssText = `
@@ -141,16 +145,24 @@ export class LegionLobby {
     `;
     document.body.appendChild(this.promptEl);
 
+    // Top-right HUD: Bloxity auth (login/logout/profile) — same UX as the
+    // 2D menu's legion banner. Sits in its own DOM card so pointer-events
+    // work (the title/prompt are pointer-events:none for camera drag).
     this.hudEl = document.createElement("div");
+    this.hudEl.id = "lobbyHud";
     this.hudEl.style.cssText = `
       position: fixed; top: 12px; right: 12px; z-index: 10;
       color: #fff; font-family: 'Minecraft', 'Inter', system-ui, sans-serif;
       font-size: 12px; text-shadow: 1px 1px 0 #000;
-      display: flex; align-items: center; gap: 8px;
-      padding: 8px 12px; background: rgba(0,0,0,0.5); border-radius: 6px;
+      display: flex; align-items: center; gap: 10px;
+      padding: 8px 12px; background: rgba(10,12,16,0.72);
+      border: 1px solid rgba(255,255,255,0.18); border-radius: 6px;
+      max-width: 340px;
     `;
     document.body.appendChild(this.hudEl);
     this.refreshHud();
+    // Re-render the HUD whenever Legion auth state changes.
+    Legion.onUserChanged?.(() => this.refreshHud());
 
     // ── Async boot: atlas first (World needs it), then world + portals,
     //   then player GLB. Render loop starts immediately so the user sees
@@ -194,7 +206,11 @@ export class LegionLobby {
     // ring around the centre platform for atmosphere.
     this.world.protectMode = true;
     const cx = 128, cz = 128, y = 40;
-    this.pos.set(cx + 0.5, y + 1.01, cz + 0.5);
+    // ── Spawn position ──
+    // Spawn at a clear tile a few blocks SOUTH of centre so we don't drop
+    // the player INSIDE the central beacon (which would AABB-block every
+    // direction → "can't move" bug the user reported).
+    this.pos.set(cx + 0.5, y + 1.01, cz + 4.5);
     this.spawnPlatformY = y + 1;
     const R = 18;
     // Floor (stone bricks centre + sandstone outer ring + cobble walkway).
@@ -210,17 +226,20 @@ export class LegionLobby {
       this.world.setBlock(cx + dx, y - 1, cz + dz, 27);
       this.world.setBlock(cx + dx, y - 2, cz + dz, 27);
     }
-    // Central diamond pillar — Hypixel-vibe spawn beacon.
+    // Central diamond beacon — purely cosmetic, sits OFF the spawn tile.
+    // We elevate it on a 1-block sandstone plinth so the spawn tile (now
+    // at +z=4) is fully walkable.
     this.world.setBlock(cx, y + 1, cz, 41);
     this.world.setBlock(cx, y + 2, cz, 41);
     this.world.setBlock(cx, y + 3, cz, 22);
-    // Ring of glowstone every 60°.
+    // Glowstone "torches" on the floor every 60° around the central pad.
+    // Single-block height — won't trap the player like the previous
+    // 2-tall pillars did.
     for (let i = 0; i < 6; i++) {
       const a = (i / 6) * Math.PI * 2;
       const lx = Math.round(Math.cos(a) * 6);
       const lz = Math.round(Math.sin(a) * 6);
-      this.world.setBlock(cx + lx, y + 1, cz + lz, 27);  // base
-      this.world.setBlock(cx + lx, y + 2, cz + lz, 22);  // glowstone capstone
+      this.world.setBlock(cx + lx, y + 1, cz + lz, 22);  // glowstone (1 high)
     }
     // 12 portals around the rim — 30° apart, just inside the outer ring.
     // Each portal is themed with a different inner block colour.
@@ -284,9 +303,10 @@ export class LegionLobby {
     }
     // Decorative glowstone on top centre.
     w.setBlock(tx, gy + 5, tz, 22);
-    // Floating sprite label above the portal.
-    const labelSprite = makeLabelSprite(m.label);
-    labelSprite.position.set(tx + 0.5, gy + 5.8, tz + 0.5);
+    // Floating sprite label above the portal. Bigger + brighter than the
+    // first pass so it's actually readable from across the plaza.
+    const labelSprite = makeLabelSprite(m.label, this.shimmerColorFor(m.id));
+    labelSprite.position.set(tx + 0.5, gy + 6.5, tz + 0.5);
     this.scene.add(labelSprite);
     // Animated "shimmer" plane in front of the portal for liveliness.
     const shimmerGeo = new THREE.PlaneGeometry(0.9, 2.7);
@@ -382,12 +402,42 @@ export class LegionLobby {
 
   private refreshHud() {
     const u = Legion.getUser?.();
-    const name = u?.displayName || u?.username || "Guest";
-    const pfp  = u?.pfp || "";
-    this.hudEl.innerHTML = `
-      ${pfp ? `<img src="${pfp}" style="width:28px;height:28px;border-radius:50%;border:1px solid #fff;" />` : ""}
-      <span>${escapeHtml(name)}</span>
-    `;
+    if (u) {
+      // Logged in — show pfp, name, logout button.
+      this.hudEl.innerHTML = `
+        ${u.pfp ? `<img src="${escapeHtml(u.pfp)}" style="width:32px;height:32px;border-radius:50%;border:1px solid #fff;" />` : ""}
+        <div style="display:flex;flex-direction:column;gap:1px;min-width:0;">
+          <div style="font-weight:600;white-space:nowrap;text-overflow:ellipsis;overflow:hidden;max-width:160px;">
+            ${escapeHtml(u.displayName || u.username || "Player")}
+          </div>
+          ${u.username && u.displayName ? `<div style="font-size:10px;opacity:0.6;">@${escapeHtml(u.username)}</div>` : ""}
+        </div>
+        <button id="lobbyLogout" style="
+          background:#3a3d48;color:#fff;border:1px solid #585c68;
+          padding:5px 10px;font-size:11px;cursor:pointer;border-radius:3px;
+          font-family:inherit;text-shadow:1px 1px 0 #000;
+        ">Logout</button>
+      `;
+      this.hudEl.querySelector<HTMLButtonElement>("#lobbyLogout")?.addEventListener("click", () => {
+        Legion.logout?.();
+      });
+    } else {
+      // Guest — show login CTA.
+      this.hudEl.innerHTML = `
+        <div style="opacity:0.85;">👤 Playing as guest</div>
+        <button id="lobbyLogin" style="
+          background:linear-gradient(rgba(0,0,0,0.18), rgba(0,0,0,0.18)),
+                     repeating-linear-gradient(0deg, #2f7a37 0 3px, #266a2d 3px 6px);
+          color:#fff;border:none;border-top:2px solid #54c25e;border-left:2px solid #54c25e;
+          border-right:2px solid #1a3e1f;border-bottom:2px solid #1a3e1f;
+          padding:6px 12px;font-size:11px;cursor:pointer;
+          font-family:inherit;text-shadow:1px 1px 0 #000;letter-spacing:0.5px;
+        ">Login with Bloxity</button>
+      `;
+      this.hudEl.querySelector<HTMLButtonElement>("#lobbyLogin")?.addEventListener("click", () => {
+        Legion.showAuthPopup?.();
+      });
+    }
   }
 
   /** Lightweight AABB collision: keep the player out of solid blocks. */
@@ -592,26 +642,53 @@ function escapeHtml(s: string): string {
   return s.replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
 }
 
-/** Build a small canvas-text Sprite for portal labels — readable from any
- *  angle, no DOM cost. Texture is regenerated once per label string. */
-function makeLabelSprite(text: string): THREE.Sprite {
+/** Build a canvas-text Sprite for portal labels — billboarded so it
+ *  always faces the camera. We use a roomy 512×128 canvas + bold high-
+ *  contrast text + a coloured underline strip so each portal's label
+ *  stands out at distance and reads as a clickable signpost. */
+function makeLabelSprite(text: string, accentColor: number): THREE.Sprite {
   const canvas = document.createElement("canvas");
-  canvas.width = 256; canvas.height = 64;
+  canvas.width = 512; canvas.height = 128;
   const ctx = canvas.getContext("2d")!;
-  ctx.fillStyle = "rgba(0,0,0,0.55)";
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-  ctx.font = "bold 32px 'Minecraft', sans-serif";
-  ctx.fillStyle = "#fff";
+  // Dark rounded backdrop with accent bottom-border.
+  const r = 18;
+  ctx.fillStyle = "rgba(10,12,16,0.86)";
+  roundedRect(ctx, 6, 6, canvas.width - 12, canvas.height - 12 - 12, r);
+  ctx.fill();
+  // Accent strip at the bottom — the mode's portal colour, so blue for
+  // creative / green for survival / red for squidgames etc.
+  const accentHex = "#" + accentColor.toString(16).padStart(6, "0");
+  ctx.fillStyle = accentHex;
+  roundedRect(ctx, 6, canvas.height - 18, canvas.width - 12, 12, 4);
+  ctx.fill();
+  // Text.
+  ctx.font = "bold 56px 'Minecraft', 'Inter', sans-serif";
+  ctx.fillStyle = "#ffffff";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.shadowColor = "rgba(0,0,0,0.9)";
-  ctx.shadowOffsetX = 2; ctx.shadowOffsetY = 2;
-  ctx.fillText(text, canvas.width / 2, canvas.height / 2);
+  ctx.shadowColor = "rgba(0,0,0,0.95)";
+  ctx.shadowOffsetX = 3; ctx.shadowOffsetY = 3;
+  ctx.fillText(text, canvas.width / 2, canvas.height / 2 - 6);
   const tex = new THREE.CanvasTexture(canvas);
   tex.minFilter = THREE.LinearFilter;
   tex.magFilter = THREE.LinearFilter;
-  const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false });
+  const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, depthTest: false });
   const sprite = new THREE.Sprite(mat);
-  sprite.scale.set(2.2, 0.55, 1);
+  // Sized so the label is large + readable from across the plaza.
+  sprite.scale.set(4.5, 1.125, 1);
+  sprite.renderOrder = 1000;  // always-on-top so distant labels aren't fogged out
   return sprite;
+}
+function roundedRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
 }
