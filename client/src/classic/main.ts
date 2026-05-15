@@ -11,8 +11,7 @@ import { CreativeInventory } from "./CreativeInventory";
 import { TradeUI } from "./TradeUI";
 import { FurnaceUI } from "./FurnaceUI";
 import { ChestUI } from "./ChestUI";
-import { ArmDevPanel } from "./ArmDevPanel";
-import { ArmStudio } from "./ArmStudio";
+import { maybeBootArmEditor } from "./ArmEditor";
 import { ServerFinder, listRooms } from "./ServerFinder";
 import { ItemDrops } from "./ItemDrops";
 import { MODES, ModeId, buildBedwars, buildParkour, buildOneBlock, pickOneBlockNext, buildBuildBattle, buildHideAndSeek, buildShooter, buildInfection, buildSquidGames } from "./Modes";
@@ -24,6 +23,16 @@ import { blockIconCache, shouldRenderAsBlock } from "./BlockIconCache";
 import { KEY_BIND } from "./Player";
 
 // ── Renderer / scene ────────────────────────────────────────────────────────
+// ── `?devarm=1` short-circuit ──
+// When the URL contains devarm=1 we boot the dedicated full-screen arm
+// editor (ArmEditor.ts) instead of the game. It runs in its own THREE
+// scene with orbit camera, gizmo handles, and a complete inspector for
+// the held-item / arm / animation / bob tunables. Throwing here aborts
+// the rest of main.ts execution — the editor takes over the page.
+if (maybeBootArmEditor()) {
+  throw new Error("[devarm] entering arm-editor mode (this is expected; game boot aborted)");
+}
+
 const renderer = new THREE.WebGLRenderer({ antialias: false });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
 renderer.setSize(window.innerWidth, window.innerHeight);
@@ -2014,23 +2023,9 @@ async function startGame(serverAddr: string | null) {
     if (forcedSkin && mp?.isConnected()) {
       mp.sendAvatarUpdate({ skinId: forcedSkin }, {});
     }
-    // Dev panel — sliders to tune arm rest pose + swing. Hidden by default,
-    // shown when ?devarm=1 is in the URL or window.__armDev.show() is called.
-    new ArmDevPanel();
-    // Arm Studio — per-item held offset tuner. ?armstudio=1 to open it,
-    // or window.__armStudio.show() from the console.
-    const studio = new ArmStudio();
-    studio.fpArm = fpArm;
-    studio.onEquip = (id) => {
-      // Drop the picked item into the selected hotbar slot so the live arm
-      // picks it up via syncHeldItem. Count 999 keeps the slot stable while
-      // tuning.
-      if (!inv) return;
-      const sel = inv.selected;
-      inv.hotbar[sel] = { id, count: 999, damage: 0 };
-      refreshHotbar();
-      syncHeldItem();
-    };
+    // (Dev-arm tuning is now a dedicated full-screen editor — see
+    // ArmEditor.ts. It's launched separately via ?devarm=1 at boot and
+    // doesn't run inside a live game session.)
   }
 
   // Hooks
@@ -2360,25 +2355,15 @@ async function startGame(serverAddr: string | null) {
     // First-person arm: chop continuously while LMB held in survival.
     // Also pass walking speed + yaw delta so the arm bobs + sways like vanilla.
     if (fpArm) {
-      // ArmStudio pose override — when an animation is being previewed in
-      // the studio, force the arm into that pose every frame so the user
-      // can see live slider edits. null = no override, normal gameplay.
-      const studioOverride = (window as any).__armStudio?.getPoseOverride?.();
-      if (studioOverride) {
-        fpArm.setEating(studioOverride.eat ?? 0);
-        if (studioOverride.mining) fpArm.triggerMineSwing();
-        if (studioOverride.swing)  fpArm.triggerSwing(1);
-      } else {
-        // Eating overrides the mining/swing pose. Pass current eatProgress
-        // (0..1) so the arm raises to mouth + nibble-shakes while held RMB
-        // is consuming a food item.
-        fpArm.setEating(eatProgress > 0 ? eatProgress / EAT_TIME : 0);
-        // Bow draw pose — pose overrides swing/mine when active. Progress
-        // 0..1 clamps the visual stretch.
-        fpArm.setBowDraw(bowChargeT > 0 ? Math.min(1, bowChargeT / BOW_FULL_DRAW) : 0);
-        if (eatProgress === 0 && bowChargeT === 0 && lmbHeld && player.gameMode === "survival" && player.lastHit) {
-          fpArm.triggerMineSwing();
-        }
+      // Eating overrides the mining/swing pose. Pass current eatProgress
+      // (0..1) so the arm raises to mouth + nibble-shakes while held RMB
+      // is consuming a food item.
+      fpArm.setEating(eatProgress > 0 ? eatProgress / EAT_TIME : 0);
+      // Bow draw pose — pose overrides swing/mine when active. Progress
+      // 0..1 clamps the visual stretch.
+      fpArm.setBowDraw(bowChargeT > 0 ? Math.min(1, bowChargeT / BOW_FULL_DRAW) : 0);
+      if (eatProgress === 0 && bowChargeT === 0 && lmbHeld && player.gameMode === "survival" && player.lastHit) {
+        fpArm.triggerMineSwing();
       }
       const walkSpeed = Math.hypot(player.vel.x, player.vel.z);
       // Wrap yaw delta into (-PI, PI] so a wrap-around doesn't spike the sway.
