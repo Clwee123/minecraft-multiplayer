@@ -36,6 +36,7 @@ import { TorchLightManager } from "./TorchLight";
 import { preloadAtlas } from "./Textures";
 import { MODES, ModeId } from "./Modes";
 import { Legion } from "./Legion";
+import { Multiplayer } from "./Multiplayer";
 
 interface PortalData {
   id: ModeId;
@@ -62,6 +63,11 @@ export class LegionLobby {
   private world: World | null = null;
   /** Point-light pool for glowstone/torches around the lobby. */
   private torchLights: TorchLightManager | null = null;
+  /** Colyseus client for the shared 20-player lobby room. Connects async
+   *  after the scene boots; until connected, other players are invisible
+   *  (we just see ourselves). */
+  private mp: Multiplayer | null = null;
+  private mpSendAcc = 0;
   private playerRig: { root: THREE.Object3D; mixer: any; walkAction: any; idleAction: any } | null = null;
   /** Bind-pose X-rotations of the four animated limb bones, captured at
    *  rig spawn. The walk-swing animation offsets FROM these so idle settles
@@ -224,6 +230,20 @@ export class LegionLobby {
         // ship walk clips.
         if (rig.idleAction) { rig.idleAction.play(); rig.idleAction.weight = 1; }
         if (rig.walkAction) { rig.walkAction.play(); rig.walkAction.weight = 0; }
+        // ── Colyseus connection (20-player shared lobby) ──
+        // Once the rig is ready we connect to the lobby room so other
+        // Legion players show up in this plaza. The Multiplayer instance
+        // owns its own remote-player meshes and adds them to our scene.
+        const name = this.getLocalName();
+        this.mp = new Multiplayer(this.scene, name);
+        try {
+          await this.mp.connect(
+            location.hostname === "localhost" ? "localhost:8471" : "159.223.140.36",
+            "lobby" as any,
+          );
+        } catch (e) {
+          console.warn("[LegionLobby] Colyseus connect failed — running solo:", e);
+        }
       } catch (e) {
         console.warn("[LegionLobby] player rig failed to load:", e);
       }
@@ -342,11 +362,12 @@ export class LegionLobby {
     }
     // Decorative glowstone on top centre.
     w.setBlock(tx, gy + 5, tz, 22);
-    // Roblox-style "E · Enter game · {Mode}" pill, floating above the
-    // portal frame. Always visible from any angle. Scales up when the
-    // player is close.
-    const labelSprite = makeRobloxPortalSprite(m.label);
-    labelSprite.position.set(tx + 0.5, gy + 6, tz + 0.5);
+    // Roblox-style "E · {Mode} + thumbnail" plate floating above the
+    // portal frame. Always visible from any angle (depthTest off). The
+    // thumbnail PNG/JPG loads asynchronously and the canvas redraws once
+    // the image is ready. Scales up when the player is close.
+    const labelSprite = makeRobloxPortalSprite(m.label, m.id);
+    labelSprite.position.set(tx + 0.5, gy + 7.5, tz + 0.5);
     this.scene.add(labelSprite);
     // Animated "shimmer" plane in front of the portal for liveliness.
     const shimmerGeo = new THREE.PlaneGeometry(0.9, 2.7);
@@ -376,7 +397,7 @@ export class LegionLobby {
       facing,
       group,
       labelSprite,
-      baseScale: 1.6,  // sprite scale when player is far from this portal
+      baseScale: 3.0,  // sprite scale when player is far from this portal
     });
   }
 
@@ -414,6 +435,11 @@ export class LegionLobby {
     if ((e.target as HTMLElement)?.tagName === "INPUT") return;
     this.keys[e.code] = true;
     if (e.code === "KeyE") this.tryEnterPortal();
+    // Space scrolls the page by default — preventDefault so it counts as a
+    // jump input instead. Same for arrow keys (which scroll too) and Tab.
+    if (e.code === "Space" || e.code.startsWith("Arrow") || e.code === "Tab") {
+      e.preventDefault();
+    }
   };
   private onKeyUp = (e: KeyboardEvent) => { this.keys[e.code] = false; };
   private onMouseDown = (e: MouseEvent) => {
@@ -646,10 +672,15 @@ export class LegionLobby {
       const speed = this.keys["ShiftLeft"] ? 7.0 : 4.5;
       this.vel.x = wx * speed;
       this.vel.z = wz * speed;
-      // THREE.Object3D defaults to "forward = -Z" when rotation.y = 0, so
-      // we add π to atan2 result to make the rig face the direction it's
-      // actually walking.
-      this.yaw = Math.atan2(wx, wz) + Math.PI;
+      // Our GLB rig is authored with "forward = +Z" baked in (same reason
+      // Multiplayer.ts adds +π when applying remote rotY — to convert from
+      // Player's yaw=0-means-(-Z) convention to the rig's +Z forward).
+      // Here we set the mesh rotation directly, so atan2(wx, wz) alone
+      // already gives the angle for the rig to face the motion vector.
+      // The previous +Math.PI was rotating the rig 180° AWAY from its
+      // motion → moonwalking; and A/D felt inverted because the player's
+      // right side was now where their left used to be.
+      this.yaw = Math.atan2(wx, wz);
     } else {
       // Decelerate horizontal velocity.
       this.vel.x *= Math.max(0, 1 - dt * 14);
@@ -745,11 +776,11 @@ export class LegionLobby {
       const dz = this.pos.z - p.pos.z;
       const d = Math.hypot(dx, dz);
       if (d < nearestD) { nearest = p; nearestD = d; }
-      // Scale sprite: 1.0× when d >= PROXIMITY, lerps up to 1.7× as d → 0.
+      // Scale sprite: 1.0× when d >= PROXIMITY, lerps up to 1.5× as d → 0.
       const t = Math.max(0, Math.min(1, 1 - d / PROXIMITY));
-      const k = p.baseScale * (1 + t * 0.7);
-      // Sprite aspect 4:1 — keep that ratio.
-      p.labelSprite.scale.set(k, k * 0.25, 1);
+      const k = p.baseScale * (1 + t * 0.5);
+      // Sprite is portrait (~5:7) — thumbnail on top + text + E pill below.
+      p.labelSprite.scale.set(k, k * 1.4, 1);
       // Animate shimmer pane on every portal.
       p.group.children.forEach(child => {
         const ud = (child as any).userData;
@@ -783,6 +814,18 @@ export class LegionLobby {
       this.world.rebuildDirty(4, this.pos.x, this.pos.z);
     }
     this.torchLights?.update(this.pos.x, this.pos.y, this.pos.z);
+    // ── Multiplayer sync ──
+    // Throttle our position broadcast to ~20 Hz; let Multiplayer's own
+    // reconcile-from-state loop run every frame for smooth remote-player
+    // motion.
+    if (this.mp?.isConnected()) {
+      this.mpSendAcc += dt;
+      if (this.mpSendAcc >= 0.05) {
+        this.mpSendAcc = 0;
+        this.mp.sendMove(this.pos.x, this.pos.y, this.pos.z, this.yaw, 0, 0, false);
+      }
+      this.mp.update(dt, this.camera.position);
+    }
     this.renderer.render(this.scene, this.camera);
     this.rafId = requestAnimationFrame(this.loop);
   };
@@ -807,6 +850,9 @@ export class LegionLobby {
       this.nicknameSprite.material.dispose();
     }
     this.torchLights?.dispose();
+    // Best-effort disconnect from the lobby Colyseus room so others see us
+    // leave immediately on portal entry.
+    try { (this.mp as any)?.room?.leave?.(); } catch {}
     this.renderer.dispose();
     this.renderer.domElement.remove();
     this.titleEl.remove();
@@ -819,50 +865,109 @@ function escapeHtml(s: string): string {
   return s.replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
 }
 
-/** Roblox-style "E · Enter game · {Mode}" pill for a portal — a rounded
- *  dark capsule with a circled "E" key on the left and two-line text on
- *  the right. Always camera-billboarded + always-on-top so it works as a
- *  waypoint visible from anywhere in the lobby. Scaled per-frame by the
- *  proximity-check in update(). */
-function makeRobloxPortalSprite(label: string): THREE.Sprite {
-  const W = 1024, H = 256;
+/** Per-mode screenshot URL — these match /client/public/screenshots/*. */
+const MODE_THUMBS: Record<ModeId, string> = {
+  survival_offline: "/screenshots/survival.jpg",
+  survival_mp:      "/screenshots/survival.jpg",
+  creative_offline: "/screenshots/creative.jpg",
+  creative_mp:      "/screenshots/creative.jpg",
+  bedwars_mp:       "/screenshots/bedwars.jpg",
+  parkour_mp:       "/screenshots/parkour.jpg",
+  oneblock:         "/screenshots/oneblock.jpg",
+  buildbattle_mp:   "/screenshots/buildbattle.jpg",
+  hideandseek_mp:   "/screenshots/hideandseek.jpg",
+  shooter_mp:       "/screenshots/shooter.jpg",
+  infection_mp:     "/screenshots/infection.jpg",
+  squidgames_mp:    "/screenshots/squidgames.webp",
+};
+
+/** Roblox-style portal waypoint:
+ *    ┌─────────────┐
+ *    │  thumbnail  │   ← the mode's screenshot (loaded async)
+ *    ├─────────────┤
+ *    │   E  Mode   │   ← circled "E" key + bold mode name
+ *    └─────────────┘
+ *  Always camera-billboarded + always-on-top so it works as a waypoint
+ *  from anywhere on the plaza. The thumbnail PNG/JPG loads in the
+ *  background; the sprite redraws its texture when the image is ready. */
+function makeRobloxPortalSprite(label: string, modeId: ModeId): THREE.Sprite {
+  const W = 512, H = 720;
   const canvas = document.createElement("canvas");
   canvas.width = W; canvas.height = H;
   const ctx = canvas.getContext("2d")!;
-  // Capsule background — fully rounded.
-  ctx.fillStyle = "rgba(28, 30, 38, 0.94)";
-  roundedRect(ctx, 8, 8, W - 16, H - 16, H / 2 - 8);
-  ctx.fill();
-  // "E" key disc on the left.
-  const ex = 130, ey = H / 2;
-  const er = 80;
-  ctx.fillStyle = "rgba(255,255,255,0.10)";
-  ctx.beginPath(); ctx.arc(ex, ey, er, 0, Math.PI * 2); ctx.fill();
-  ctx.strokeStyle = "rgba(255,255,255,0.85)";
-  ctx.lineWidth = 6;
-  ctx.beginPath(); ctx.arc(ex, ey, er, 0, Math.PI * 2); ctx.stroke();
-  ctx.fillStyle = "#ffffff";
-  ctx.font = "bold 100px 'Inter', system-ui, sans-serif";
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.fillText("E", ex, ey + 4);
-  // "Enter game" caption + mode name on the right.
-  ctx.textAlign = "left";
-  ctx.fillStyle = "rgba(255,255,255,0.70)";
-  ctx.font = "500 44px 'Inter', system-ui, sans-serif";
-  ctx.fillText("Enter game", 250, 90);
-  ctx.fillStyle = "#ffffff";
-  ctx.font = "bold 78px 'Inter', system-ui, sans-serif";
-  ctx.fillText(label, 250, 165);
-  // Sprite material — always-on-top so distant pills don't get fogged.
+  const drawFrame = (thumb: HTMLImageElement | null) => {
+    ctx.clearRect(0, 0, W, H);
+    // Background card.
+    ctx.fillStyle = "rgba(20, 22, 28, 0.92)";
+    roundedRect(ctx, 8, 8, W - 16, H - 16, 26);
+    ctx.fill();
+    // Thumbnail panel (top half).
+    const tx = 24, ty = 24, tw = W - 48, th = 380;
+    ctx.fillStyle = "#0f1115";
+    roundedRect(ctx, tx, ty, tw, th, 18);
+    ctx.fill();
+    if (thumb) {
+      ctx.save();
+      // Clip to rounded rect so the JPG is contained.
+      roundedRect(ctx, tx, ty, tw, th, 18);
+      ctx.clip();
+      // Cover-fit the image.
+      const iw = thumb.naturalWidth, ih = thumb.naturalHeight;
+      const ar = iw / ih, frameAr = tw / th;
+      let dw: number, dh: number, dx: number, dy: number;
+      if (ar > frameAr) { dh = th; dw = th * ar; dx = tx + (tw - dw) / 2; dy = ty; }
+      else              { dw = tw; dh = tw / ar; dx = tx; dy = ty + (th - dh) / 2; }
+      ctx.drawImage(thumb, dx, dy, dw, dh);
+      ctx.restore();
+    } else {
+      // Loading placeholder.
+      ctx.fillStyle = "rgba(255,255,255,0.4)";
+      ctx.font = "500 22px 'Inter', system-ui, sans-serif";
+      ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.fillText("Loading…", W / 2, ty + th / 2);
+    }
+    // "E" disc on the bottom row.
+    const ex = 90, ey = ty + th + 100;
+    const er = 56;
+    ctx.fillStyle = "rgba(255,255,255,0.10)";
+    ctx.beginPath(); ctx.arc(ex, ey, er, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = "rgba(255,255,255,0.92)";
+    ctx.lineWidth = 5;
+    ctx.beginPath(); ctx.arc(ex, ey, er, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "bold 64px 'Inter', system-ui, sans-serif";
+    ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillText("E", ex, ey + 2);
+    // Mode name — bold white, right of the E.
+    ctx.textAlign = "left";
+    ctx.font = "bold 60px 'Inter', system-ui, sans-serif";
+    ctx.shadowColor = "rgba(0,0,0,0.7)";
+    ctx.shadowOffsetX = 2; ctx.shadowOffsetY = 2;
+    ctx.fillText(label, ex + er + 24, ey - 4);
+    ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 0;
+    // "Enter game" caption below the name.
+    ctx.fillStyle = "rgba(255,255,255,0.62)";
+    ctx.font = "500 28px 'Inter', system-ui, sans-serif";
+    ctx.fillText("Enter game", ex + er + 24, ey + 50);
+  };
+  // Draw the frame once immediately (placeholder).
+  drawFrame(null);
   const tex = new THREE.CanvasTexture(canvas);
   tex.minFilter = THREE.LinearFilter;
   tex.magFilter = THREE.LinearFilter;
+  // Kick off the thumbnail load; redraw + flag texture dirty when it lands.
+  const url = MODE_THUMBS[modeId];
+  if (url) {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => { drawFrame(img); tex.needsUpdate = true; };
+    img.onerror = () => { console.warn("[lobby] thumb failed", url); };
+    img.src = url;
+  }
   const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false });
   const sprite = new THREE.Sprite(mat);
-  // 4:1 aspect at 1.6× world units = about ~6.4 wide. Matches a 16:9 in
-  // visual weight against the 4-block-tall portal frame.
-  sprite.scale.set(1.6, 0.4, 1);
+  // Portrait aspect ratio matching the canvas (W:H = 512:720).
+  sprite.scale.set(1, 1.4, 1);
   sprite.renderOrder = 1000;
   return sprite;
 }

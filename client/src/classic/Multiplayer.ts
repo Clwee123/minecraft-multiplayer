@@ -190,7 +190,7 @@ export class Multiplayer {
 
   async connect(
     serverUrl: string,
-    mode: "survival" | "creative" | "bedwars" | "parkour" | "oneblock" = "survival",
+    mode: "survival" | "creative" | "bedwars" | "parkour" | "oneblock" | "lobby" = "survival",
     /** Optional Bloxity room id (from `?roomId=...`) — when set we joinById
      *  instead of joinOrCreate so friends actually land in the same room. */
     targetRoomId: string | null = null,

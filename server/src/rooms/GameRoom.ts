@@ -193,6 +193,8 @@ export class GameRoom extends Room<GameState> {
     this.setState(new GameState());
     const mode = String(options.mode || "survival").toLowerCase();
     this.state.mode = mode;
+    // Lobby rooms have a smaller cap so the 3D plaza doesn't get crowded.
+    if (mode === "lobby") this.maxClients = 20;
     // Pick a random world seed once per room so all clients here generate
     // the same terrain. Replicated through state.seed.
     this.state.seed = Math.floor(Math.random() * 0xfffffff) >>> 0;
