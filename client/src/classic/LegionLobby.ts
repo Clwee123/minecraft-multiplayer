@@ -48,7 +48,12 @@ export class LegionLobby {
   private renderer: THREE.WebGLRenderer;
   private scene: THREE.Scene;
   private camera: THREE.PerspectiveCamera;
-  private world: World;
+  // World is created AFTER the atlas finishes loading — the World
+  // constructor calls initMaterials() which needs the atlas texture, and
+  // we don't want to block the constructor on it (boot-flash bad UX).
+  // Until it's ready, this.world is null and the render loop guards against
+  // calling its methods.
+  private world: World | null = null;
   private playerRig: { root: THREE.Object3D; mixer: any; walkAction: any; idleAction: any } | null = null;
   // Player state — minimal kinematic body. We don't need the full Player
   // class here; the lobby is small + flat + no combat.
@@ -104,8 +109,9 @@ export class LegionLobby {
     this.scene.add(sun);
     this.scene.add(new THREE.HemisphereLight(0xb0d8ff, 0x5a7a3a, 0.4));
 
-    // ── World ──
-    this.world = new World(this.scene, 12345, { infinite: false });
+    // World creation is deferred until preloadAtlas() resolves — see the
+    // async boot block below. We start the render loop with no world; the
+    // user sees just the sky for the ~50-100ms it takes the atlas to load.
 
     // ── HUD overlays ──
     this.titleEl = document.createElement("div");
@@ -146,14 +152,17 @@ export class LegionLobby {
     document.body.appendChild(this.hudEl);
     this.refreshHud();
 
-    // ── Build lobby + portals ──
-    this.buildLobby();
-
-    // ── Player rig (loaded async, doesn't block scene render) ──
+    // ── Async boot: atlas first (World needs it), then world + portals,
+    //   then player GLB. Render loop starts immediately so the user sees
+    //   the sky while assets load.
     (async () => {
       try {
         await preloadAtlas();
+        if (this.disposed) return;
+        this.world = new World(this.scene, 12345, { infinite: false });
+        this.buildLobby();
         await preloadPlayerModel();
+        if (this.disposed) return;
         const rig = spawnPlayer();
         if (!rig) return;
         this.playerRig = rig;
@@ -180,6 +189,7 @@ export class LegionLobby {
 
   /** Build the platform + portals. */
   private buildLobby() {
+    if (!this.world) return;  // belt-and-braces — caller should have awaited preloadAtlas
     // Big circular stone-brick plaza, raised on a sandstone base. Glowstone
     // ring around the centre platform for atmosphere.
     this.world.protectMode = true;
@@ -244,6 +254,7 @@ export class LegionLobby {
    *  text label spawns as a sprite above the frame. */
   private placePortal(gx: number, gy: number, gz: number, facing: number, m: { id: ModeId; inner: number; ring: number; label: string }) {
     const w = this.world;
+    if (!w) return;  // buildLobby's own guard already checked; this is a TS narrow.
     // Determine sideways direction (perpendicular to `facing`) to lay the
     // frame across. We snap to the cardinal axis closest to `facing`.
     const dx = Math.cos(facing), dz = Math.sin(facing);
@@ -383,6 +394,13 @@ export class LegionLobby {
   private resolveCollision(dt: number) {
     const px = this.pos.x, py = this.pos.y, pz = this.pos.z;
     const w = this.world;
+    // No-world fallback (still loading) — fall under gravity but skip
+    // collision checks so the player doesn't get stuck mid-air.
+    if (!w) {
+      this.pos.y += this.vel.y * dt;
+      this.vel.y -= 24 * dt;
+      return;
+    }
     // Try X then Z then Y. Player body = 0.6×1.8×0.6 box centred on (x, y+0.9, z).
     const r = 0.3, h = 1.8;
     // X
@@ -416,6 +434,7 @@ export class LegionLobby {
   }
   private collides(x: number, y: number, z: number, r: number, h: number): boolean {
     const w = this.world;
+    if (!w) return false;
     for (let dx of [-r, r]) for (let dz of [-r, r]) {
       const x0 = Math.floor(x + dx);
       const z0 = Math.floor(z + dz);
@@ -539,8 +558,10 @@ export class LegionLobby {
     // Keep nearby chunks meshed + flush any dirty geometry. We pass a small
     // render distance (2) since the lobby is a single 36×36 plaza and we
     // never need world-streaming beyond that.
-    this.world.updateAroundPlayer(this.pos.x, this.pos.z, 2);
-    this.world.rebuildDirty(4, this.pos.x, this.pos.z);
+    if (this.world) {
+      this.world.updateAroundPlayer(this.pos.x, this.pos.z, 2);
+      this.world.rebuildDirty(4, this.pos.x, this.pos.z);
+    }
     this.renderer.render(this.scene, this.camera);
     this.rafId = requestAnimationFrame(this.loop);
   };
