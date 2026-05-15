@@ -643,12 +643,20 @@ export class ArmEditor {
 
   /** Apply one frame of Unity-style fly motion to the camera. WASD moves
    *  along camera-local axes; QE moves along world up. Mouse delta
-   *  rotates around camera position. */
+   *  rotates around camera position.
+   *
+   *  CRITICAL: OrbitControls.update() — which we still call every frame
+   *  for damping — ends with camera.lookAt(orbit.target), which would
+   *  snap the rotation we just applied back to facing the (now-stale)
+   *  orbit target. The fix is to keep orbit.target SYNCED to a point
+   *  directly along the new camera-forward direction each frame, so
+   *  orbit.update() becomes effectively a no-op while flying. Without
+   *  this, mouse-look would visibly jitter back to the last orbit
+   *  orientation one frame after each move. */
   private updateFlyCamera(dt: number) {
     // Apply mouse rotation around camera position.
     if (this.flyMouseDx !== 0 || this.flyMouseDy !== 0) {
       const sensitivity = 0.0035;
-      // Yaw around world up.
       const yaw = -this.flyMouseDx * sensitivity;
       const pitch = -this.flyMouseDy * sensitivity;
       const e = new THREE.Euler().setFromQuaternion(this.camera.quaternion, "YXZ");
@@ -659,7 +667,7 @@ export class ArmEditor {
       this.flyMouseDx = 0;
       this.flyMouseDy = 0;
     }
-    // Translation via WASDQE — Unity-style. Shift = double speed.
+    // Translation via WASDQE. Shift = boost.
     const k = this.flyKeys;
     let fx = 0, fy = 0, fz = 0;
     if (k.has("w")) fz -= 1;
@@ -668,24 +676,29 @@ export class ArmEditor {
     if (k.has("d")) fx += 1;
     if (k.has("e")) fy += 1;
     if (k.has("q")) fy -= 1;
-    if (fx === 0 && fy === 0 && fz === 0) return;
-    const len = Math.hypot(fx, fy, fz);
-    fx /= len; fy /= len; fz /= len;
-    const speed = (k.has("shift") ? 2.5 : 1) * this.flySpeed * dt;
-    // Move along camera local axes for x/z, world up for y.
-    const forward = new THREE.Vector3();
-    this.camera.getWorldDirection(forward);
-    const right = new THREE.Vector3();
-    right.crossVectors(forward, this.camera.up).normalize();
-    const up = new THREE.Vector3(0, 1, 0);
-    const move = new THREE.Vector3()
-      .addScaledVector(right, fx * speed)
-      .addScaledVector(forward, -fz * speed)   // -fz because we set fz-=1 for W (forward = -z input)
-      .addScaledVector(up, fy * speed);
-    this.camera.position.add(move);
-    // Also slide the orbit target the same amount so when the user
-    // re-enables Alt+LMB orbit, it pivots around the new view centre.
-    this.orbit.target.add(move);
+    if (fx !== 0 || fy !== 0 || fz !== 0) {
+      const len = Math.hypot(fx, fy, fz);
+      fx /= len; fy /= len; fz /= len;
+      const speed = (k.has("shift") ? 2.5 : 1) * this.flySpeed * dt;
+      const forward = new THREE.Vector3();
+      this.camera.getWorldDirection(forward);
+      const right = new THREE.Vector3();
+      right.crossVectors(forward, this.camera.up).normalize();
+      const up = new THREE.Vector3(0, 1, 0);
+      const move = new THREE.Vector3()
+        .addScaledVector(right, fx * speed)
+        .addScaledVector(forward, -fz * speed)
+        .addScaledVector(up, fy * speed);
+      this.camera.position.add(move);
+    }
+    // ── Sync orbit.target with new camera orientation ──
+    // Place the orbit target at a fixed distance ahead of the camera
+    // along its current forward direction. Then OrbitControls.update()'s
+    // final `camera.lookAt(target)` becomes identity (looks where we're
+    // already looking). Without this, fly rotation snapped back.
+    const fwd = new THREE.Vector3();
+    this.camera.getWorldDirection(fwd);
+    this.orbit.target.copy(this.camera.position).addScaledVector(fwd, 4);
   }
 
   /** Snapshot the current state of whatever the gizmo is editing into the
