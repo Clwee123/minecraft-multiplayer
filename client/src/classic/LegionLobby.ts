@@ -31,7 +31,7 @@
  */
 import * as THREE from "three";
 import { World } from "./World";
-import { spawnPlayer, preloadPlayerModel, applySkinToCharacter } from "./PlayerModel";
+import { spawnPlayer, preloadPlayerModel, applySkinToCharacter, swapPart } from "./PlayerModel";
 import { preloadAtlas } from "./Textures";
 import { MODES, ModeId } from "./Modes";
 import { Legion } from "./Legion";
@@ -55,6 +55,12 @@ export class LegionLobby {
   // calling its methods.
   private world: World | null = null;
   private playerRig: { root: THREE.Object3D; mixer: any; walkAction: any; idleAction: any } | null = null;
+  /** Bind-pose X-rotations of the four animated limb bones, captured at
+   *  rig spawn. The walk-swing animation offsets FROM these so idle settles
+   *  into the rig's natural arms-down pose instead of identity-flipping
+   *  the limbs into the body. Matches Multiplayer.ts.animateLimbs. */
+  private limbBaseRot: { ArmR1: number; ArmL1: number; LegR1: number; LegL1: number } | null = null;
+  private limbPhase = 0;
   // Player state — minimal kinematic body. We don't need the full Player
   // class here; the lobby is small + flat + no combat.
   private pos = new THREE.Vector3(128.5, 42, 128.5);
@@ -178,12 +184,27 @@ export class LegionLobby {
         const rig = spawnPlayer();
         if (!rig) return;
         this.playerRig = rig;
-        // Try to apply the logged-in Legion user's skin, falls back to default.
+        // ── Full Legion avatar application ──
+        // Mirror what main.ts does on game-start: skin texture, custom
+        // right-arm part swap. Falls back to default skin "0" for guests.
         const av = Legion.getAvatar?.();
-        if (av?.skinId) applySkinToCharacter(rig.root, av.skinId);
+        const skinId = String(av?.skinId || "0");
+        applySkinToCharacter(rig.root, skinId);
+        if (av?.armRId) swapPart(rig.root, "arm_R", av.armRId);
+        // ── Capture bind-pose rotations of the four animated bones ──
+        // The limb-swing walk anim offsets FROM these rest rotations so
+        // idle reverts to the rig's natural T-pose instead of identity
+        // (which would crank the limbs into the body).
+        const cap = (name: string) => rig.root.getObjectByName(name)?.rotation.x ?? 0;
+        this.limbBaseRot = {
+          ArmR1: cap("ArmR1"), ArmL1: cap("ArmL1"),
+          LegR1: cap("LegR1"), LegL1: cap("LegL1"),
+        };
         this.scene.add(rig.root);
         rig.root.position.copy(this.pos);
-        // Adjust idle action to play continuously.
+        // GLB animations (if baked) — kept around but the manual limb
+        // swing below is the actual driver since most of our rigs don't
+        // ship walk clips.
         if (rig.idleAction) { rig.idleAction.play(); rig.idleAction.weight = 1; }
         if (rig.walkAction) { rig.walkAction.play(); rig.walkAction.weight = 0; }
       } catch (e) {
@@ -319,10 +340,13 @@ export class LegionLobby {
     shimmer.rotation.y = -facing + Math.PI / 2;  // face perpendicular to portal opening
     shimmer.userData = { shimmer: true, t: Math.random() * 6.28 };
     this.scene.add(shimmer);
-    // Portal "trigger" position = one block in front of the inner pane
-    // (toward spawn). That's where the player stands to enter.
-    const triggerX = tx - Math.cos(facing) * 1.2 + 0.5;
-    const triggerZ = tz - Math.sin(facing) * 1.2 + 0.5;
+    // Portal "trigger" position = one block in FRONT of the inner pane
+    // (toward spawn — i.e. on the player side). `facing` points inward
+    // toward the centre, so the trigger lies +facing from the pane.
+    // The previous code subtracted facing → the trigger landed BEHIND
+    // the arch, outside the platform; the prompt never showed.
+    const triggerX = tx + Math.cos(facing) * 1.4 + 0.5;
+    const triggerZ = tz + Math.sin(facing) * 1.4 + 0.5;
     const group = new THREE.Group();
     group.add(labelSprite);
     group.add(shimmer);
@@ -464,8 +488,12 @@ export class LegionLobby {
     // Y
     const newY = py + this.vel.y * dt;
     if (this.vel.y <= 0 && this.collides(this.pos.x, newY, this.pos.z, r, h)) {
-      // Landed. Snap to top of block.
-      this.pos.y = Math.ceil(newY);
+      // Landed. Snap to TOP of the block the feet are inside.
+      // The previous formula `Math.ceil(newY)` failed at integer newY
+      // (Math.ceil(40.0) = 40 → planted the player INSIDE the floor
+      // block, half-sunk through the surface). Use `Math.floor(newY) + 1`
+      // so we always land on the upper face of the block at floor(newY).
+      this.pos.y = Math.floor(newY) + 1;
       this.vel.y = 0;
       this.onGround = true;
     } else if (this.vel.y > 0 && this.collides(this.pos.x, newY, this.pos.z, r, h)) {
@@ -509,14 +537,24 @@ export class LegionLobby {
     if (moving) {
       const len = Math.hypot(ix, iz);
       ix /= len; iz /= len;
-      // Rotate input into world space using camera yaw.
-      const cosY = Math.cos(this.camYaw), sinY = Math.sin(this.camYaw);
-      const wx = ix * cosY - iz * sinY;
-      const wz = ix * sinY + iz * cosY;
+      // Rotate input into camera-relative world space. With camYaw = 0 the
+      // camera sits south of the player looking north (+Z) — so W (iz=-1)
+      // should move +Z (away from the camera). Forward unit = (sin(camYaw),
+      // cos(camYaw)); right unit = (cos(camYaw), -sin(camYaw)). The previous
+      // formula had the signs inverted, which made W walk BACKWARDS toward
+      // the camera (and made the player face backwards too).
+      const fX = Math.sin(this.camYaw), fZ = Math.cos(this.camYaw);
+      const rX = Math.cos(this.camYaw), rZ = -Math.sin(this.camYaw);
+      // W (iz=-1) = +forward; S = -forward; A = -right; D = +right.
+      const wx = -iz * fX + ix * rX;
+      const wz = -iz * fZ + ix * rZ;
       const speed = this.keys["ShiftLeft"] ? 7.0 : 4.5;
       this.vel.x = wx * speed;
       this.vel.z = wz * speed;
-      this.yaw = Math.atan2(wx, wz);  // face direction of motion
+      // THREE.Object3D defaults to "forward = -Z" when rotation.y = 0, so
+      // we add π to atan2 result to make the rig face the direction it's
+      // actually walking.
+      this.yaw = Math.atan2(wx, wz) + Math.PI;
     } else {
       // Decelerate horizontal velocity.
       this.vel.x *= Math.max(0, 1 - dt * 14);
@@ -543,7 +581,6 @@ export class LegionLobby {
     if (this.playerRig) {
       const rig = this.playerRig;
       rig.root.position.copy(this.pos);
-      rig.root.position.y -= 0.0; // anchor at feet
       // Smooth yaw rotation toward target.
       const cur = rig.root.rotation.y;
       let target = this.yaw;
@@ -553,9 +590,30 @@ export class LegionLobby {
       while (d < -Math.PI) d += Math.PI * 2;
       rig.root.rotation.y = cur + d * Math.min(1, dt * 12);
       rig.mixer?.update?.(dt);
-      // Crossfade idle/walk by speed.
+      // ── Walk-swing limb animation ──
+      // Most of our rigs don't ship a baked walk clip — Multiplayer.ts
+      // does the same trick for remote players (animateLimbs). Each
+      // shoulder/hip bone swings sinusoidally about its bind-pose X-rot,
+      // arms opposite to same-side legs for a natural human gait.
+      const moving = this.walkSpeed > 0.5;
+      if (moving) this.limbPhase += Math.min(this.walkSpeed, 6) * dt * 1.4;
+      else        this.limbPhase *= 0.92;
+      const swing = Math.sin(this.limbPhase) * (moving ? 0.6 : 0);
+      const base = this.limbBaseRot;
+      if (base) {
+        const ar = rig.root.getObjectByName("ArmR1");
+        const al = rig.root.getObjectByName("ArmL1");
+        const lr = rig.root.getObjectByName("LegR1");
+        const ll = rig.root.getObjectByName("LegL1");
+        if (ar) ar.rotation.x = base.ArmR1 - swing;
+        if (al) al.rotation.x = base.ArmL1 + swing;
+        if (lr) lr.rotation.x = base.LegR1 + swing;
+        if (ll) ll.rotation.x = base.LegL1 - swing;
+      }
+      // GLB clip crossfade — only meaningful if the rig actually has
+      // baked walk/idle clips. Harmless when they're null.
       if (rig.walkAction && rig.idleAction) {
-        const m = this.walkSpeed > 0.5 ? 1 : 0;
+        const m = moving ? 1 : 0;
         rig.walkAction.weight += (m       - rig.walkAction.weight) * Math.min(1, dt * 8);
         rig.idleAction.weight += ((1 - m) - rig.idleAction.weight) * Math.min(1, dt * 8);
       }
