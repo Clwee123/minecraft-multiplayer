@@ -48,7 +48,7 @@ import {
 import { preloadAtlas, BLOCKS, ITEMS, getItemName, getItemTile } from "./Textures";
 import { blockIconCache, shouldRenderAsBlock } from "./BlockIconCache";
 
-type PoseId = "rest" | "mining" | "swing" | "eat" | "bow";
+type PoseId = "rest" | "mining" | "swing" | "eat" | "bow" | "walk" | "run";
 type GizmoTarget = "arm" | "item";
 type GizmoMode = "translate" | "rotate";
 
@@ -88,6 +88,28 @@ export class ArmEditor {
   private lastFrameTime = performance.now();
   private rafId = 0;
   private disposed = false;
+
+  // ── Unity-style fly camera ──
+  /** True while the right mouse button is held — engages WASD fly mode
+   *  (and disables OrbitControls so it can't compete). */
+  private flyMode = false;
+  /** Pixel deltas accumulated since the last frame while in fly mode.
+   *  Drives camera yaw/pitch in update(). */
+  private flyMouseDx = 0;
+  private flyMouseDy = 0;
+  /** Pressed keys (lowercased single chars) — separate from the gizmo
+   *  W/E hotkeys so we can use WASD+QE in fly mode without toggling the
+   *  gizmo. */
+  private flyKeys = new Set<string>();
+  /** Current flight speed multiplier (mouse-wheel adjusts while flying). */
+  private flySpeed = 4;
+
+  // ── Undo stack ──
+  /** A history of editable-value snapshots; Ctrl+Z pops the last entry
+   *  and reapplies it. We only snapshot before a gizmo drag, a slider
+   *  change, an item swap, or a reset — fine-grained enough for "I
+   *  didn't mean to do that". */
+  private undoStack: Array<() => void> = [];
 
   constructor() {
     // ── DOM scaffold ──
@@ -330,20 +352,36 @@ export class ArmEditor {
     const fill = new THREE.DirectionalLight(0xb0d4ff, 0.5); fill.position.set(-2, 1, 1); this.scene.add(fill);
     const rim = new THREE.DirectionalLight(0xffe6b0, 0.35); rim.position.set(0, 1, -3); this.scene.add(rim);
 
-    // Orbit + transform controls.
+    // ── Unity-style camera controls ──
+    // We DO use OrbitControls for the "Alt + LMB = orbit" + scroll-wheel
+    // zoom + middle-mouse pan, but it's only enabled while Alt is held
+    // (or when explicitly invoked). The dominant nav is "hold RMB, then
+    // WASD/QE to fly through the scene" — matches Unity's Scene view.
     this.orbit = new OrbitControls(this.camera, this.renderer.domElement);
     this.orbit.enableDamping = true;
-    this.orbit.dampingFactor = 0.08;
-    this.orbit.minDistance = 0.3;
-    this.orbit.maxDistance = 6;
+    this.orbit.dampingFactor = 0.12;
+    this.orbit.minDistance = 0.05;
+    this.orbit.maxDistance = 30;
     this.orbit.target.set(0, -0.1, 0);
+    // Match Unity's binds: middle-mouse pans, Alt+LMB orbits, scroll zooms.
+    this.orbit.mouseButtons = {
+      LEFT:   THREE.MOUSE.ROTATE,
+      MIDDLE: THREE.MOUSE.PAN,
+      RIGHT:  -1 as any,   // disable RMB on orbit (we use it for fly mode)
+    };
+    // OrbitControls' default LMB-rotate fights with the gizmo's LMB-drag.
+    // We require Alt to engage the rotate path — without Alt, LMB is free
+    // for gizmo dragging.
+    this.installOrbitAltGate();
 
     this.gizmo = new TransformControls(this.camera, this.renderer.domElement);
     this.gizmo.size = 0.6;
     this.scene.add(this.gizmo);
-    // Disable orbit while dragging the gizmo so they don't fight.
+    // Disable orbit while dragging the gizmo so they don't fight. We also
+    // SNAPSHOT the affected transform on drag-start so Ctrl+Z can undo it.
     this.gizmo.addEventListener("dragging-changed", (e: any) => {
       this.orbit.enabled = !e.value;
+      if (e.value) this.pushUndoSnapshot();
     });
     this.gizmo.addEventListener("change", () => this.onGizmoMove());
 
@@ -457,6 +495,8 @@ export class ArmEditor {
       { id: "mining", label: "Mining" },
       { id: "eat",    label: "Eat"    },
       { id: "bow",    label: "Bow"    },
+      { id: "walk",   label: "Walk"   },
+      { id: "run",    label: "Run"    },
     ];
     for (const p of poses) {
       const btn = document.createElement("button");
@@ -503,13 +543,171 @@ export class ArmEditor {
 
     this.viewport.appendChild(tb);
 
-    // Keyboard shortcuts for gizmo mode (matches Blender / Unity vibe).
+    // Keyboard:
+    //   While fly-mode is OFF (no RMB held):
+    //     W → translate gizmo mode, E → rotate gizmo mode (Unity-like)
+    //     Ctrl+Z → undo last edit
+    //   While fly-mode is ON (RMB held):
+    //     WASDQE → fly the camera (no gizmo mode swap)
+    //     Shift = faster fly speed
     window.addEventListener("keydown", (e) => {
       if (this.disposed) return;
       if ((e.target as HTMLElement)?.tagName === "INPUT") return;
-      if (e.key === "w") { this.gizmoMode = "translate"; this.gizmo.setMode("translate"); this.refreshToolbarActive(); }
-      if (e.key === "e") { this.gizmoMode = "rotate";    this.gizmo.setMode("rotate");    this.refreshToolbarActive(); }
+      const k = e.key.toLowerCase();
+      // Ctrl+Z undo — works regardless of fly mode.
+      if ((e.ctrlKey || e.metaKey) && k === "z") {
+        e.preventDefault();
+        this.undo();
+        return;
+      }
+      if (this.flyMode) {
+        // Forward to fly-key set — block default scroll-on-space behaviour.
+        this.flyKeys.add(k);
+        if (k === " " || k === "tab") e.preventDefault();
+        return;
+      }
+      // Gizmo mode hotkeys — only outside fly mode so WASD doesn't fight.
+      if (k === "w") { this.gizmoMode = "translate"; this.gizmo.setMode("translate"); this.refreshToolbarActive(); }
+      if (k === "e") { this.gizmoMode = "rotate";    this.gizmo.setMode("rotate");    this.refreshToolbarActive(); }
     });
+    window.addEventListener("keyup", (e) => {
+      this.flyKeys.delete(e.key.toLowerCase());
+    });
+
+    // ── Fly-mode mouse handling ──
+    // RMB down → engage fly; RMB up → release. While engaged the cursor
+    // is hidden (locked-feeling) and mouse delta drives camera yaw/pitch.
+    this.renderer.domElement.addEventListener("contextmenu", (e) => e.preventDefault());
+    this.renderer.domElement.addEventListener("mousedown", (e) => {
+      if (e.button === 2) {
+        this.flyMode = true;
+        this.orbit.enabled = false;
+        this.renderer.domElement.style.cursor = "none";
+      }
+    });
+    window.addEventListener("mouseup", (e) => {
+      if (e.button === 2 && this.flyMode) {
+        this.flyMode = false;
+        this.flyKeys.clear();
+        this.orbit.enabled = true;
+        this.renderer.domElement.style.cursor = "";
+      }
+    });
+    window.addEventListener("mousemove", (e) => {
+      if (!this.flyMode) return;
+      this.flyMouseDx += e.movementX || 0;
+      this.flyMouseDy += e.movementY || 0;
+    });
+    // Mouse wheel in fly mode → adjust flight speed. Outside fly mode
+    // OrbitControls handles the wheel for dolly-zoom.
+    this.renderer.domElement.addEventListener("wheel", (e) => {
+      if (!this.flyMode) return;
+      e.preventDefault();
+      // Scroll up → faster; scroll down → slower. Multiplicative so it
+      // feels logarithmic like Unity.
+      const factor = e.deltaY < 0 ? 1.18 : 1 / 1.18;
+      this.flySpeed = Math.max(0.2, Math.min(40, this.flySpeed * factor));
+    }, { passive: false });
+  }
+
+  /** OrbitControls' default LMB-rotate would steal clicks meant for the
+   *  TransformControls gizmo. We gate the rotate path behind Alt: while
+   *  Alt is held we let OrbitControls process LMB; otherwise it ignores
+   *  it. Matches Unity's Alt+LMB = orbit binding. */
+  private installOrbitAltGate() {
+    const dom = this.renderer.domElement;
+    const swap = (alt: boolean) => {
+      this.orbit.mouseButtons = {
+        LEFT:   alt ? THREE.MOUSE.ROTATE : (-1 as any),
+        MIDDLE: THREE.MOUSE.PAN,
+        RIGHT:  -1 as any,
+      };
+    };
+    swap(false);
+    window.addEventListener("keydown", (e) => { if (e.altKey) swap(true);  });
+    window.addEventListener("keyup",   (e) => { if (!e.altKey) swap(false); });
+    dom.addEventListener("mouseleave",  () => swap(false));
+  }
+
+  /** Apply one frame of Unity-style fly motion to the camera. WASD moves
+   *  along camera-local axes; QE moves along world up. Mouse delta
+   *  rotates around camera position. */
+  private updateFlyCamera(dt: number) {
+    // Apply mouse rotation around camera position.
+    if (this.flyMouseDx !== 0 || this.flyMouseDy !== 0) {
+      const sensitivity = 0.0035;
+      // Yaw around world up.
+      const yaw = -this.flyMouseDx * sensitivity;
+      const pitch = -this.flyMouseDy * sensitivity;
+      const e = new THREE.Euler().setFromQuaternion(this.camera.quaternion, "YXZ");
+      e.y += yaw;
+      e.x = Math.max(-Math.PI / 2 + 0.01, Math.min(Math.PI / 2 - 0.01, e.x + pitch));
+      e.z = 0;
+      this.camera.quaternion.setFromEuler(e);
+      this.flyMouseDx = 0;
+      this.flyMouseDy = 0;
+    }
+    // Translation via WASDQE — Unity-style. Shift = double speed.
+    const k = this.flyKeys;
+    let fx = 0, fy = 0, fz = 0;
+    if (k.has("w")) fz -= 1;
+    if (k.has("s")) fz += 1;
+    if (k.has("a")) fx -= 1;
+    if (k.has("d")) fx += 1;
+    if (k.has("e")) fy += 1;
+    if (k.has("q")) fy -= 1;
+    if (fx === 0 && fy === 0 && fz === 0) return;
+    const len = Math.hypot(fx, fy, fz);
+    fx /= len; fy /= len; fz /= len;
+    const speed = (k.has("shift") ? 2.5 : 1) * this.flySpeed * dt;
+    // Move along camera local axes for x/z, world up for y.
+    const forward = new THREE.Vector3();
+    this.camera.getWorldDirection(forward);
+    const right = new THREE.Vector3();
+    right.crossVectors(forward, this.camera.up).normalize();
+    const up = new THREE.Vector3(0, 1, 0);
+    const move = new THREE.Vector3()
+      .addScaledVector(right, fx * speed)
+      .addScaledVector(forward, -fz * speed)   // -fz because we set fz-=1 for W (forward = -z input)
+      .addScaledVector(up, fy * speed);
+    this.camera.position.add(move);
+    // Also slide the orbit target the same amount so when the user
+    // re-enables Alt+LMB orbit, it pivots around the new view centre.
+    this.orbit.target.add(move);
+  }
+
+  /** Snapshot the current state of whatever the gizmo is editing into the
+   *  undo stack. Called before each gizmo drag + each slider edit + each
+   *  item swap. */
+  private pushUndoSnapshot() {
+    if (this.gizmoTarget === "item") {
+      const id = this.currentItemId;
+      const o = { ...(ITEM_HELD_OVERRIDES[id] || {}) };
+      this.undoStack.push(() => {
+        ITEM_HELD_OVERRIDES[id] = o;
+        this.fpArm?.refreshHeldTransform?.();
+        this.refreshSliderValues();
+        this.flashStatus("Undid item-transform edit.");
+      });
+    } else if (this.gizmoTarget === "arm") {
+      const t = (window as any).__armTuner?.get?.();
+      if (!t) return;
+      const snap = { ...t };
+      this.undoStack.push(() => {
+        for (const k of Object.keys(snap)) (window as any).__armTuner?.set?.(k, snap[k]);
+        this.refreshSliderValues();
+        this.flashStatus("Undid arm-transform edit.");
+      });
+    }
+    // Cap at 50 entries so the stack can't grow unbounded.
+    if (this.undoStack.length > 50) this.undoStack.shift();
+  }
+
+  /** Pop + apply the latest undo action. No-op if stack is empty. */
+  private undo() {
+    const fn = this.undoStack.pop();
+    if (!fn) { this.flashStatus("Nothing to undo."); return; }
+    try { fn(); } catch (e) { console.warn("[ArmEditor] undo failed", e); }
   }
 
   private refreshToolbarActive() {
@@ -673,10 +871,15 @@ export class ArmEditor {
       this.applyValueChange(key, v);
       this.refreshSliderValues();
     };
+    // Snapshot for undo at slider DRAG-START (mousedown) and after a
+    // number-input commit — granular enough that Ctrl+Z reverts the
+    // whole drag, not each pixel of movement.
     this.inspectorEl.querySelectorAll<HTMLInputElement>("input[type=range]").forEach(r => {
+      r.addEventListener("mousedown", () => this.pushUndoSnapshot());
       r.oninput = () => onChange(r.dataset.key!, r.value);
     });
     this.inspectorEl.querySelectorAll<HTMLInputElement>("input[type=number]").forEach(n => {
+      n.addEventListener("focus", () => this.pushUndoSnapshot());
       n.onchange = () => onChange(n.dataset.num!, n.value);
     });
   }
@@ -845,7 +1048,7 @@ export class ArmEditor {
   }
   private updateStatus() {
     const target = this.gizmoTarget === "item" ? `held #${this.currentItemId}` : "arm";
-    this.statusEl.textContent = `pose=${this.currentPose}  ·  gizmo=${this.gizmoMode} on ${target}  ·  W/E to switch mode`;
+    this.statusEl.textContent = `pose=${this.currentPose}  ·  gizmo=${this.gizmoMode} on ${target}  ·  W/E gizmo mode  ·  RMB+WASDQE fly  ·  Alt+LMB orbit  ·  Ctrl+Z undo`;
   }
 
   // ── Animation loop ──
@@ -855,6 +1058,7 @@ export class ArmEditor {
     const dt = Math.min(0.05, (now - this.lastFrameTime) / 1000);
     this.lastFrameTime = now;
     this.orbit.update();
+    if (this.flyMode) this.updateFlyCamera(dt);
 
     if (this.fpArm && this.playing) {
       // Drive the pose. The arm exposes triggerSwing / triggerMineSwing /
@@ -865,9 +1069,13 @@ export class ArmEditor {
       // to be at rest. setEating(0) + setBowDraw(0) clear those slots.
       this.fpArm.setEating(0);
       this.fpArm.setBowDraw(0);
-      if (this.currentPose === "rest") {
-        // nothing — arm stays at rest pose.
-      } else if (this.currentPose === "mining") {
+      // Per-pose movement context. "Walking" used to be ALWAYS on (a fake
+      // walkSpeed=4 was passed every frame regardless of the selected pose),
+      // which is why the bob never stopped. We now drive walkSpeed from the
+      // current pose: 0 for static poses (rest/swing/eat/bow/mining) and
+      // a real value for the dedicated walk/run buttons.
+      let walkSpeed = 0;
+      if (this.currentPose === "mining") {
         this.fpArm.triggerMineSwing();
       } else if (this.currentPose === "swing") {
         // Re-trigger on a cycle so the swing keeps looping.
@@ -885,10 +1093,13 @@ export class ArmEditor {
         const draw = t < 0.5 ? (t / 0.5) : t < 0.7 ? (1 - (t - 0.5) / 0.2) : 0;
         this.fpArm.setBowDraw(draw);
         this.bowChargeTest = draw;
+      } else if (this.currentPose === "walk") {
+        walkSpeed = 4.317;  // vanilla MC walking speed (m/s)
+      } else if (this.currentPose === "run") {
+        walkSpeed = 5.612;  // vanilla MC sprinting speed (m/s)
       }
-      // Simulate walking at a steady speed so bob preview works.
-      const fakeCtx = { walkSpeed: 4.0, yawDelta: 0, onGround: true };
-      this.fpArm.update(dt, fakeCtx);
+      // "rest" falls through with walkSpeed = 0 → no bob, fully idle.
+      this.fpArm.update(dt, { walkSpeed, yawDelta: 0, onGround: true });
     } else if (this.fpArm) {
       // Paused — still tick at zero so the arm settles into a clean pose.
       this.fpArm.update(0, { walkSpeed: 0, yawDelta: 0, onGround: true });
