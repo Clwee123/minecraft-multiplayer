@@ -2599,6 +2599,51 @@ wirePauseButtons();
 const _bootIntent = readInstantJoinIntent();
 console.log("[Boot] instant-MP intent:", _bootIntent);
 
+/** True when the URL contains ?testmode=1 — set by the Arm Editor's
+ *  "Test in game" button. Auto-boots a Creative offline session so the
+ *  user can wave the freshly-tuned arm around, and renders a top banner
+ *  with a one-click link back to the editor. */
+const _testMode = new URLSearchParams(location.search).get("testmode") === "1";
+if (_testMode) {
+  // Hide the menu immediately so it doesn't flash during the ~50ms it
+  // takes for startGame's own hide to fire. startGame will keep it
+  // hidden once the world is ready.
+  const _m = document.getElementById("mainMenu");
+  if (_m) _m.style.display = "none";
+  const banner = document.createElement("div");
+  banner.id = "armTestBanner";
+  banner.style.cssText = `
+    position: fixed; top: 0; left: 0; right: 0; z-index: 9999;
+    background: rgba(20, 22, 28, 0.92);
+    border-bottom: 2px solid #4d7ef0;
+    color: #fff; font-family: 'Inter', system-ui, sans-serif;
+    padding: 8px 16px;
+    display: flex; align-items: center; gap: 14px;
+    text-shadow: 1px 1px 0 #000; font-size: 13px;
+  `;
+  banner.innerHTML = `
+    <span style="background:#4d7ef0;color:white;padding:2px 6px;border-radius:3px;font-size:10px;letter-spacing:0.5px;text-transform:uppercase;">Test Mode</span>
+    <span>You're in Creative offline — testing your Arm Editor tunings.</span>
+    <span style="flex:1;"></span>
+    <button id="armTestBack" style="
+      background:#4d7ef0;color:#fff;border:none;padding:6px 14px;
+      border-radius:4px;cursor:pointer;font-family:inherit;font-size:12px;font-weight:600;
+    ">← Back to Arm Editor</button>
+  `;
+  document.body.appendChild(banner);
+  banner.querySelector<HTMLButtonElement>("#armTestBack")?.addEventListener("click", () => {
+    location.href = location.pathname + "?devarm=1";
+  });
+  // Trigger the creative_offline boot path on the next tick — after Legion
+  // SDK init has fired so player name etc. are populated.
+  setTimeout(() => {
+    const savedName = localStorage.getItem("mc.playerName");
+    playerName = savedName || ("Player" + Math.floor(Math.random() * 1000));
+    mode = "creative_offline";
+    startGame(null);
+  }, 50);
+}
+
 function startInstantMultiplayer(intent: ReturnType<typeof readInstantJoinIntent>) {
   Legion.loadingStep("Preparing instant multiplayer…");
   const u = Legion.getUser();

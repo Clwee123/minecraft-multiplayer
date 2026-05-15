@@ -544,6 +544,36 @@ export class ArmEditor {
     playBtn.onclick = () => { this.playing = !this.playing; playBtn.textContent = this.playing ? "⏸ Pause" : "▶ Play"; };
     tb.appendChild(playBtn);
 
+    // ── Right-side utility group: Reset All + Test in game ──
+    // Pushed to the far right of the toolbar so they don't crowd the
+    // pose / gizmo controls. Reset wipes EVERY override (item transforms
+    // + arm defaults + animation values) and saves an empty state. Test
+    // jumps into a real creative-offline session so you can wave the arm
+    // around with the freshly-tuned values; a banner at the top of the
+    // game offers "Back to Arm Editor".
+    const spacer = document.createElement("div");
+    spacer.style.cssText = "flex:1;";
+    tb.appendChild(spacer);
+
+    const utilGroup = document.createElement("div");
+    utilGroup.className = "grp";
+    const resetBtn = document.createElement("button");
+    resetBtn.className = "ae-btn";
+    resetBtn.style.cssText = "background:#5a2a2a;border-color:#a04040;";
+    resetBtn.textContent = "↺ Reset All";
+    resetBtn.title = "Wipe ALL tunings (item offsets, arm pose, animation values) and revert to defaults.";
+    resetBtn.onclick = () => this.resetAll();
+    utilGroup.appendChild(resetBtn);
+
+    const testBtn = document.createElement("button");
+    testBtn.className = "ae-btn";
+    testBtn.style.cssText = "background:#2f7a37;border-color:#54c25e;";
+    testBtn.textContent = "▶ Test in game";
+    testBtn.title = "Save current tuning + jump into Creative offline so you can try it for real.";
+    testBtn.onclick = () => this.launchTestSession();
+    utilGroup.appendChild(testBtn);
+    tb.appendChild(utilGroup);
+
     this.viewport.appendChild(tb);
 
     // Keyboard:
@@ -1048,6 +1078,61 @@ export class ArmEditor {
         this.exportJSON();
         break;
     }
+  }
+
+  /** Wipe EVERY override the editor has produced — per-item held
+   *  transforms, arm-pose offsets, animation tunings — and persist the
+   *  empty state. Pushes an undo entry first so Ctrl+Z reverts the
+   *  reset if it was accidental. */
+  private resetAll() {
+    if (!confirm("Reset ALL arm tunings to defaults?\n\nThis wipes:\n• per-item held offsets/rotations\n• arm pose (offset / shoulder / swing)\n• animation values (mining / swing / eat / bow / bob)\n\nCtrl+Z still works to undo this if needed.")) return;
+    // Snapshot for undo before we nuke anything.
+    const itemSnapshot = JSON.parse(JSON.stringify(ITEM_HELD_OVERRIDES));
+    const armSnapshot = (window as any).__armTuner?.get?.();
+    const animSnapshot = getAnimOverrides();
+    this.undoStack.push(() => {
+      // Restore item overrides.
+      for (const k of Object.keys(ITEM_HELD_OVERRIDES)) delete (ITEM_HELD_OVERRIDES as any)[+k];
+      for (const k of Object.keys(itemSnapshot)) (ITEM_HELD_OVERRIDES as any)[+k] = itemSnapshot[k];
+      saveItemHeldOverrides();
+      // Restore arm.
+      if (armSnapshot) for (const k of Object.keys(armSnapshot)) (window as any).__armTuner?.set?.(k, armSnapshot[k]);
+      // Restore animation.
+      for (const k of Object.keys(animSnapshot)) setAnimOverride(k, (animSnapshot as any)[k]);
+      saveAnimOverrides();
+      this.fpArm?.refreshHeldTransform?.();
+      this.renderInspector();
+      this.flashStatus("Undid Reset All.");
+    });
+    // Wipe item overrides.
+    for (const k of Object.keys(ITEM_HELD_OVERRIDES)) delete (ITEM_HELD_OVERRIDES as any)[+k];
+    saveItemHeldOverrides();
+    // Reset arm to defaults.
+    for (const k of Object.keys(ARM_DEFAULTS)) {
+      (window as any).__armTuner?.set?.(k, (ARM_DEFAULTS as any)[k]);
+    }
+    // Reset animation values to defaults.
+    for (const k of Object.keys(ANIM_DEFAULTS)) setAnimOverride(k, (ANIM_DEFAULTS as any)[k]);
+    saveAnimOverrides();
+    this.fpArm?.refreshHeldTransform?.();
+    this.renderInspector();
+    this.flashStatus("Reset everything to defaults.");
+  }
+
+  /** Save the current tuning + boot a real Creative-offline game so the
+   *  user can wave the arm around with their freshly-set values. A
+   *  `?testmode=1` URL flag tells main.ts to auto-start Creative offline
+   *  and render a "Back to Arm Editor" banner at the top of the game. */
+  private launchTestSession() {
+    // Persist current state first — both keys are what the live game's
+    // PlayerModel reads from on boot.
+    saveItemHeldOverrides();
+    saveAnimOverrides();
+    this.flashStatus("Launching Creative offline test…");
+    // Brief delay so the user sees the status flash, then navigate.
+    setTimeout(() => {
+      location.href = location.pathname + "?testmode=1";
+    }, 300);
   }
 
   private exportJSON() {
