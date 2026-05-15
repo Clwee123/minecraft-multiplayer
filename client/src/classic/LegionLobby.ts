@@ -43,9 +43,13 @@ interface PortalData {
   label: string;
   pos: THREE.Vector3;     // ground centre (where the player stands to enter)
   facing: number;         // yaw the portal faces (radians)
-  group: THREE.Group;     // mesh group for animated effects
+  group: THREE.Group;     // logical handle (not in scene — see placePortal)
   /** Persistent Roblox-style waypoint sprite floating above the portal. */
   labelSprite: THREE.Sprite;
+  /** Animated "shimmer" plane in front of the portal (pulses opacity). */
+  shimmer: THREE.Mesh;
+  /** Per-shimmer phase used by the opacity oscillation. */
+  shimmerT?: number;
   /** Baseline sprite scale — we lerp toward this when the player is far,
    *  scale UP by ~1.7× when within proximity range. */
   baseScale: number;
@@ -387,9 +391,13 @@ export class LegionLobby {
     // the arch, outside the platform; the prompt never showed.
     const triggerX = tx + Math.cos(facing) * 1.4 + 0.5;
     const triggerZ = tz + Math.sin(facing) * 1.4 + 0.5;
+    // Group is JUST a logical handle for the shimmer animation loop —
+    // labelSprite and shimmer were already added to the scene directly
+    // above. Critically, we do NOT do `group.add(...)` here because
+    // adding an object to a Group implicitly REMOVES it from its current
+    // parent (the scene) — which orphaned them in the previous build
+    // and is why the portal waypoints + shimmer planes never rendered.
     const group = new THREE.Group();
-    group.add(labelSprite);
-    group.add(shimmer);
     this.portals.push({
       id: m.id,
       label: m.label,
@@ -397,8 +405,9 @@ export class LegionLobby {
       facing,
       group,
       labelSprite,
+      shimmer,  // direct ref for the animation loop
       baseScale: 3.0,  // sprite scale when player is far from this portal
-    });
+    } as any);
   }
 
   /** Bright per-portal accent colour for the shimmer plane. */
@@ -658,28 +667,26 @@ export class LegionLobby {
     if (moving) {
       const len = Math.hypot(ix, iz);
       ix /= len; iz /= len;
-      // Rotate input into camera-relative world space. With camYaw = 0 the
-      // camera sits south of the player looking north (+Z) — so W (iz=-1)
-      // should move +Z (away from the camera). Forward unit = (sin(camYaw),
-      // cos(camYaw)); right unit = (cos(camYaw), -sin(camYaw)). The previous
-      // formula had the signs inverted, which made W walk BACKWARDS toward
-      // the camera (and made the player face backwards too).
+      // Camera-relative movement. With camYaw=0 the camera is south of
+      // the player looking +Z, so:
+      //   W (iz=-1) → move +forward (+Z, away from camera)
+      //   D (ix=+1) → move +right  (player-right, which is screen-right)
+      // The previous code had A/D inverted from the user's expectation —
+      // we now treat ix as a "screen-right intent" and flip the sign
+      // when rotating into world coords. The right vector for a camera
+      // at yaw φ looking AT target is world-right = (-cos φ, 0, sin φ)
+      // (camera's local +X column of its world matrix). That's the same
+      // basis THREE uses; using it directly aligns D with screen-right.
       const fX = Math.sin(this.camYaw), fZ = Math.cos(this.camYaw);
-      const rX = Math.cos(this.camYaw), rZ = -Math.sin(this.camYaw);
-      // W (iz=-1) = +forward; S = -forward; A = -right; D = +right.
+      const rX = -Math.cos(this.camYaw), rZ = Math.sin(this.camYaw);
       const wx = -iz * fX + ix * rX;
       const wz = -iz * fZ + ix * rZ;
       const speed = this.keys["ShiftLeft"] ? 7.0 : 4.5;
       this.vel.x = wx * speed;
       this.vel.z = wz * speed;
-      // Our GLB rig is authored with "forward = +Z" baked in (same reason
-      // Multiplayer.ts adds +π when applying remote rotY — to convert from
-      // Player's yaw=0-means-(-Z) convention to the rig's +Z forward).
-      // Here we set the mesh rotation directly, so atan2(wx, wz) alone
-      // already gives the angle for the rig to face the motion vector.
-      // The previous +Math.PI was rotating the rig 180° AWAY from its
-      // motion → moonwalking; and A/D felt inverted because the player's
-      // right side was now where their left used to be.
+      // Rig rotation: our GLB has +Z baked as forward. atan2(wx, wz)
+      // gives the angle that rotates +Z onto (wx, wz), so applying it
+      // directly to mesh.rotation.y makes the rig face its motion.
       this.yaw = Math.atan2(wx, wz);
     } else {
       // Decelerate horizontal velocity.
@@ -782,14 +789,9 @@ export class LegionLobby {
       // Sprite is portrait (~5:7) — thumbnail on top + text + E pill below.
       p.labelSprite.scale.set(k, k * 1.4, 1);
       // Animate shimmer pane on every portal.
-      p.group.children.forEach(child => {
-        const ud = (child as any).userData;
-        if (ud?.shimmer) {
-          ud.t += dt;
-          const mat = (child as THREE.Mesh).material as THREE.MeshBasicMaterial;
-          mat.opacity = 0.25 + Math.sin(ud.t * 2) * 0.12;
-        }
-      });
+      p.shimmerT = (p.shimmerT ?? Math.random() * 6.28) + dt;
+      const mat = p.shimmer.material as THREE.MeshBasicMaterial;
+      mat.opacity = 0.25 + Math.sin(p.shimmerT * 2) * 0.12;
     }
     this.nearestPortal = nearest;
     // Hide the legacy bottom-centre prompt — the Roblox-style sprites ARE
@@ -822,9 +824,21 @@ export class LegionLobby {
       this.mpSendAcc += dt;
       if (this.mpSendAcc >= 0.05) {
         this.mpSendAcc = 0;
-        this.mp.sendMove(this.pos.x, this.pos.y, this.pos.z, this.yaw, 0, 0, false);
+        // Multiplayer.ts applies `mesh.rotation.y = rotY + π` when rendering
+        // remote players (it expects Player.yaw convention where yaw=0
+        // means facing -Z). Our local yaw uses the GLB convention (yaw=0
+        // = +Z). To make remote clients show our rig in the same pose we
+        // see locally, send yaw - π → remote applies +π → net rotation
+        // matches our local rig. Without this, remote players appeared to
+        // moonwalk (face one way while moving the other).
+        this.mp.sendMove(this.pos.x, this.pos.y, this.pos.z, this.yaw - Math.PI, 0, 0, false);
       }
       this.mp.update(dt, this.camera.position);
+      // Hide remote-player health badges in the lobby — players aren't
+      // taking damage here so the floating "20/20 ❤" feels noisy.
+      for (const rp of this.mp.getRemotePlayers()) {
+        if (rp.healthBadge) rp.healthBadge.visible = false;
+      }
     }
     this.renderer.render(this.scene, this.camera);
     this.rafId = requestAnimationFrame(this.loop);
