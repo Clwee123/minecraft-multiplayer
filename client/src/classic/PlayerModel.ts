@@ -177,11 +177,13 @@ export const ANIM_DEFAULTS = {
   eatShakeAmp:    0.08,  // peak shake amplitude when fully eaten
   eatShakeFreq:   0.028, // wave frequency (radians per ms)
   eatTwist:       0.25,  // extra Z-roll while eating
-  // Walking bob + sway:
-  bobAmpY:        0.012,
-  bobAmpX:        0.010,
-  bobFreq:        0.6,
-  swayMul:        18,    // yaw-delta multiplier feeding the sway target
+  // Walking bob + sway. These are vanilla-MC-tuned: amplitude clearly
+  // visible without being nauseating; frequency matches a real walking
+  // step cadence (~2 Hz at sprint, ~1.4 Hz at walk).
+  bobAmpY:        0.08,   // up/down — plants down on each step (|sin|)
+  bobAmpX:        0.06,   // left/right swing
+  bobFreq:        2.5,    // phase rad per second per block-of-speed
+  swayMul:        18,     // yaw-delta multiplier feeding the sway target
 };
 let MINING_ARC_MUL   = ANIM_DEFAULTS.miningArcMul;
 let MINING_TWIST_MUL = ANIM_DEFAULTS.miningTwistMul;
@@ -196,7 +198,11 @@ let BOB_AMP_X        = ANIM_DEFAULTS.bobAmpX;
 let BOB_FREQ         = ANIM_DEFAULTS.bobFreq;
 let SWAY_MUL         = ANIM_DEFAULTS.swayMul;
 
-const ANIM_OVERRIDES_KEY = "mc.animOverrides.v1";
+// Bumped to v2 when we retuned bob amp + freq defaults to vanilla MC scale.
+// Any saved overrides from the old (tiny / slow) defaults are ignored so
+// the player sees the new feel immediately instead of being stuck with
+// barely-visible bob from a stale ArmStudio session.
+const ANIM_OVERRIDES_KEY = "mc.animOverrides.v2";
 try {
   const raw = localStorage.getItem(ANIM_OVERRIDES_KEY);
   if (raw) {
@@ -408,6 +414,7 @@ export function buildFirstPersonArm(): FirstPersonArm | null {
   // Walking bob + yaw sway state (applied to `group` so they stack with
   // the swing-only animation on the shoulder bone).
   let walkPhase = 0;
+  let bobAmount = 0;    // smoothed 0..1 — eases on/off to kill the snap
   let swayZ = 0;        // smoothed yaw-delta drives a Z-rotation sway
   const groupBaseX = group.position.x;
   const groupBaseY = group.position.y;
@@ -484,21 +491,43 @@ export function buildFirstPersonArm(): FirstPersonArm | null {
         miningSwingPhase = 0;
       }
       // ── Walking bob + yaw sway on the whole arm ──
-      // Dialed way down from the previous values — was buzzing at sprint
-      // speed. The bob frequency scales with horizontal velocity but is
-      // clamped, and the amplitude is half what it used to be.
+      // Vanilla-MC-style bob: when walking on the ground, the camera (and
+      // by extension the arm) bobs up-and-down + side-to-side at the
+      // bipedal step cadence. The OLD code had three problems making it
+      // feel "snappy and barely visible":
+      //   1. `moving ? value : 0` — hard cutoff. Stopping made bob snap
+      //      instantly to zero. We now smooth via `bobAmount`.
+      //   2. Amplitudes 0.010 / 0.012 — tiny. Vanilla feels several times
+      //      stronger. Bumped up.
+      //   3. Phase rate `clampedSpeed * 0.6` was way too slow — bob ran
+      //      at ~2 rad/s when a real walking step cadence is ~12 rad/s.
+      //      BOB_FREQ default raised to 2.5.
+      // Also: bobY is now always negative (|sin|) so each step PLANTS the
+      // arm downward, matching vanilla's "weight on each footfall" feel.
       if (ctx) {
         const moving = ctx.walkSpeed > 0.5 && ctx.onGround;
-        const clampedSpeed = Math.min(ctx.walkSpeed, 6);
-        if (moving) walkPhase += clampedSpeed * dt * BOB_FREQ;
-        else        walkPhase *= 0.92;
-        const bobY = moving ? Math.sin(walkPhase * 2) * BOB_AMP_Y : 0;
-        const bobX = moving ? Math.sin(walkPhase)     * BOB_AMP_X : 0;
+        // Smooth the on/off transition over ~0.15s so we don't slam between
+        // bob and rest. Up-ramp slightly slower than down so the arm settles
+        // gently when you stop instead of overshooting.
+        const target = moving ? 1 : 0;
+        const rampRate = moving ? 7 : 9;
+        bobAmount += (target - bobAmount) * Math.min(1, dt * rampRate);
+        // Phase rate scales with speed but is floored when actively walking
+        // — even tiny crouch-walk movement still bobs at a readable cadence.
+        const speed = moving ? Math.max(2.5, Math.min(ctx.walkSpeed, 6)) : 0;
+        walkPhase += speed * dt * BOB_FREQ;
+        // Keep phase bounded so a long game doesn't run into float precision.
+        if (walkPhase > Math.PI * 200) walkPhase -= Math.PI * 200;
+        const bobX   = Math.sin(walkPhase)                     * BOB_AMP_X * bobAmount;
+        const bobY   = -Math.abs(Math.sin(walkPhase))          * BOB_AMP_Y * bobAmount;
+        // Subtle Z-tilt synced with the X sway — vanilla MC's first-person
+        // arm has this too, gives the bob more "shoulder roll" feel.
+        const bobRotZ = Math.sin(walkPhase) * 0.08 * bobAmount;
         const targetSway = Math.max(-0.5, Math.min(0.5, ctx.yawDelta * SWAY_MUL));
         swayZ += (targetSway - swayZ) * Math.min(1, dt * 10);
         group.position.x = groupBaseX + bobX + swayZ * 0.025;
         group.position.y = groupBaseY + bobY;
-        group.rotation.z = -swayZ * 0.18;
+        group.rotation.z = -swayZ * 0.18 + bobRotZ;
       } else {
         group.position.x = groupBaseX;
         group.position.y = groupBaseY;
