@@ -31,7 +31,7 @@
  */
 import * as THREE from "three";
 import { World } from "./World";
-import { spawnPlayer, preloadPlayerModel, applySkinToCharacter, swapPart } from "./PlayerModel";
+import { spawnPlayer, preloadPlayerModel, applyEquippedSet } from "./PlayerModel";
 import { preloadAtlas } from "./Textures";
 import { MODES, ModeId } from "./Modes";
 import { Legion } from "./Legion";
@@ -42,6 +42,11 @@ interface PortalData {
   pos: THREE.Vector3;     // ground centre (where the player stands to enter)
   facing: number;         // yaw the portal faces (radians)
   group: THREE.Group;     // mesh group for animated effects
+  /** Persistent Roblox-style waypoint sprite floating above the portal. */
+  labelSprite: THREE.Sprite;
+  /** Baseline sprite scale — we lerp toward this when the player is far,
+   *  scale UP by ~1.7× when within proximity range. */
+  baseScale: number;
 }
 
 export class LegionLobby {
@@ -167,8 +172,14 @@ export class LegionLobby {
     `;
     document.body.appendChild(this.hudEl);
     this.refreshHud();
-    // Re-render the HUD whenever Legion auth state changes.
-    Legion.onUserChanged?.(() => this.refreshHud());
+    // Re-render the HUD whenever Legion auth state changes + invalidate
+    // the nickname sprite so it refreshes with the new display name.
+    Legion.onUserChanged?.(() => {
+      this.refreshHud();
+      this.lastNickname = "";
+      this.applyAvatarFromLegion();
+    });
+    Legion.onAvatarChanged?.(() => this.applyAvatarFromLegion());
 
     // ── Async boot: atlas first (World needs it), then world + portals,
     //   then player GLB. Render loop starts immediately so the user sees
@@ -185,12 +196,14 @@ export class LegionLobby {
         if (!rig) return;
         this.playerRig = rig;
         // ── Full Legion avatar application ──
-        // Mirror what main.ts does on game-start: skin texture, custom
-        // right-arm part swap. Falls back to default skin "0" for guests.
-        const av = Legion.getAvatar?.();
-        const skinId = String(av?.skinId || "0");
-        applySkinToCharacter(rig.root, skinId);
-        if (av?.armRId) swapPart(rig.root, "arm_R", av.armRId);
+        // applyEquippedSet swaps EVERY body part the player has equipped
+        // (skin texture, head, both arms, both legs, torso, hat, back).
+        // The previous code only did `applySkinToCharacter` + arm_R swap,
+        // which is fine for first-person (you only see arm_R) but wrong
+        // for the third-person lobby where the whole body is visible —
+        // that's why the user saw a "stunted" rig with the wrong
+        // proportions.
+        this.applyAvatarFromLegion();
         // ── Capture bind-pose rotations of the four animated bones ──
         // The limb-swing walk anim offsets FROM these rest rotations so
         // idle reverts to the rig's natural T-pose instead of identity
@@ -228,10 +241,11 @@ export class LegionLobby {
     this.world.protectMode = true;
     const cx = 128, cz = 128, y = 40;
     // ── Spawn position ──
-    // Spawn at a clear tile a few blocks SOUTH of centre so we don't drop
-    // the player INSIDE the central beacon (which would AABB-block every
-    // direction → "can't move" bug the user reported).
-    this.pos.set(cx + 0.5, y + 1.01, cz + 4.5);
+    // Spawn a couple of blocks IN THE AIR above the spawn tile so gravity
+    // settles the player onto the floor cleanly. Previously we spawned at
+    // y+1.01 exactly, which when combined with a fractional drift could
+    // leave the rig partially clipped through the stone-brick floor.
+    this.pos.set(cx + 0.5, y + 3, cz + 4.5);
     this.spawnPlatformY = y + 1;
     const R = 18;
     // Floor (stone bricks centre + sandstone outer ring + cobble walkway).
@@ -324,10 +338,11 @@ export class LegionLobby {
     }
     // Decorative glowstone on top centre.
     w.setBlock(tx, gy + 5, tz, 22);
-    // Floating sprite label above the portal. Bigger + brighter than the
-    // first pass so it's actually readable from across the plaza.
-    const labelSprite = makeLabelSprite(m.label, this.shimmerColorFor(m.id));
-    labelSprite.position.set(tx + 0.5, gy + 6.5, tz + 0.5);
+    // Roblox-style "E · Enter game · {Mode}" pill, floating above the
+    // portal frame. Always visible from any angle. Scales up when the
+    // player is close.
+    const labelSprite = makeRobloxPortalSprite(m.label);
+    labelSprite.position.set(tx + 0.5, gy + 6, tz + 0.5);
     this.scene.add(labelSprite);
     // Animated "shimmer" plane in front of the portal for liveliness.
     const shimmerGeo = new THREE.PlaneGeometry(0.9, 2.7);
@@ -356,6 +371,8 @@ export class LegionLobby {
       pos: new THREE.Vector3(triggerX, gy, triggerZ),
       facing,
       group,
+      labelSprite,
+      baseScale: 1.6,  // sprite scale when player is far from this portal
     });
   }
 
@@ -424,6 +441,54 @@ export class LegionLobby {
     this.promptEl.style.borderColor = "#57e57c";
   }
 
+  /** Pull the current Legion avatar (if any) and apply EVERY equipped
+   *  part — same call signature Multiplayer.ts uses for remote players.
+   *  Re-runs on Legion.onAvatarChanged so cosmetics swap live. */
+  private applyAvatarFromLegion() {
+    const rig = this.playerRig;
+    if (!rig) return;
+    const av = Legion.getAvatar?.() || {};
+    applyEquippedSet(rig.root, {
+      skinId: String((av as any).skinId || "0"),
+      hatId:   (av as any).hatId,
+      backId:  (av as any).backId,
+      headId:  (av as any).headId,
+      armLId:  (av as any).armLId,
+      armRId:  (av as any).armRId,
+      legLId:  (av as any).legLId,
+      legRId:  (av as any).legRId,
+      torsoId: (av as any).torsoId,
+    });
+  }
+
+  /** Build the Roblox-style billboard nametag floating above the player
+   *  head — visible from any angle, lerps to match the player position
+   *  each frame in update(). The current display name comes from Legion
+   *  if logged in, otherwise from localStorage (or the rename input).
+   *  Re-rendered whenever the name changes (login/logout/rename). */
+  private nicknameSprite: THREE.Sprite | null = null;
+  private lastNickname = "";
+  private ensureNicknameSprite(name: string) {
+    if (name === this.lastNickname && this.nicknameSprite) return;
+    if (this.nicknameSprite) {
+      this.scene.remove(this.nicknameSprite);
+      (this.nicknameSprite.material as THREE.SpriteMaterial).map?.dispose?.();
+      this.nicknameSprite.material.dispose();
+    }
+    this.lastNickname = name;
+    this.nicknameSprite = makeNicknameSprite(name);
+    this.scene.add(this.nicknameSprite);
+  }
+
+  /** Current display name for the local player — Legion display name when
+   *  logged in, the guest-input value (or saved localStorage value)
+   *  otherwise. */
+  private getLocalName(): string {
+    const u = Legion.getUser?.();
+    if (u) return u.displayName || u.username || "Player";
+    return (localStorage.getItem("mc.playerName") || "Guest").slice(0, 24);
+  }
+
   private refreshHud() {
     const u = Legion.getUser?.();
     if (u) {
@@ -446,9 +511,14 @@ export class LegionLobby {
         Legion.logout?.();
       });
     } else {
-      // Guest — show login CTA.
+      // Guest — name input + login CTA.
+      const savedName = (localStorage.getItem("mc.playerName") || "").slice(0, 24);
       this.hudEl.innerHTML = `
-        <div style="opacity:0.85;">👤 Playing as guest</div>
+        <span style="opacity:0.75;font-size:11px;">Name:</span>
+        <input id="lobbyNameInput" type="text" maxlength="24" value="${escapeHtml(savedName)}" placeholder="Guest"
+          style="background:#1a1c22;border:1px solid #3a3d48;color:#fff;
+                 padding:5px 8px;border-radius:3px;font-family:inherit;
+                 font-size:12px;width:130px;outline:none;" />
         <button id="lobbyLogin" style="
           background:linear-gradient(rgba(0,0,0,0.18), rgba(0,0,0,0.18)),
                      repeating-linear-gradient(0deg, #2f7a37 0 3px, #266a2d 3px 6px);
@@ -461,6 +531,21 @@ export class LegionLobby {
       this.hudEl.querySelector<HTMLButtonElement>("#lobbyLogin")?.addEventListener("click", () => {
         Legion.showAuthPopup?.();
       });
+      const nameInput = this.hudEl.querySelector<HTMLInputElement>("#lobbyNameInput");
+      if (nameInput) {
+        const save = () => {
+          const v = (nameInput.value || "").trim().slice(0, 24);
+          if (!v) return;
+          localStorage.setItem("mc.playerName", v);
+          // Force-rebuild the nickname sprite next frame.
+          this.lastNickname = "";
+        };
+        nameInput.addEventListener("input",  save);
+        nameInput.addEventListener("change", save);
+        // Stop WASD from leaking into the input.
+        nameInput.addEventListener("keydown", (e) => e.stopPropagation());
+        nameInput.addEventListener("keyup",   (e) => e.stopPropagation());
+      }
     }
   }
 
@@ -502,9 +587,15 @@ export class LegionLobby {
       this.pos.y = newY;
       this.onGround = false;
     }
-    // Standing-on check (for jump): the world should be solid one block below feet.
+    // Standing-on check — and SNAP to the block's top face. The previous
+    // code only set onGround=true, leaving pos.y at whatever fractional
+    // value the gravity tick had produced (e.g. 40.998). When the rig is
+    // anchored at the feet that 0.002-block drift visibly sinks the legs
+    // into the stone-brick floor — that's the screenshot the user sent.
     if (!this.onGround) {
-      if (w.isSolid(Math.floor(this.pos.x), Math.floor(this.pos.y - 0.05), Math.floor(this.pos.z))) {
+      const below = Math.floor(this.pos.y - 0.05);
+      if (w.isSolid(Math.floor(this.pos.x), below, Math.floor(this.pos.z))) {
+        this.pos.y = below + 1;  // snap to block-top face
         this.onGround = true;
         this.vel.y = 0;
       }
@@ -577,6 +668,16 @@ export class LegionLobby {
       this.vel.set(0, 0, 0);
     }
 
+    // ── Nickname billboard ──
+    // Track the local player's display name (Legion display name or the
+    // saved guest name) and pin the sprite above the rig's head each
+    // frame. Each *remote* player would get their own sprite — for the
+    // single-player lobby we only have ourselves to render.
+    this.ensureNicknameSprite(this.getLocalName());
+    if (this.nicknameSprite) {
+      this.nicknameSprite.position.set(this.pos.x, this.pos.y + 2.25, this.pos.z);
+    }
+
     // ── Player rig ──
     if (this.playerRig) {
       const rig = this.playerRig;
@@ -628,14 +729,24 @@ export class LegionLobby {
     this.camera.lookAt(target);
 
     // ── Portal proximity ──
+    // Each portal sprite scales with distance to the player — base size
+    // for far-away portals, ~1.7× when within the trigger zone — matching
+    // the Roblox "small badge → big badge" pattern in the user's reference.
+    const PROXIMITY = 3.5;   // distance where the label starts growing
+    const TRIGGER   = 2.5;   // distance where E can be pressed
     let nearest: PortalData | null = null;
-    let nearestD = 2.5;
+    let nearestD = TRIGGER;
     for (const p of this.portals) {
       const dx = this.pos.x - p.pos.x;
       const dz = this.pos.z - p.pos.z;
       const d = Math.hypot(dx, dz);
       if (d < nearestD) { nearest = p; nearestD = d; }
-      // Animate the shimmer mesh on every portal regardless of proximity.
+      // Scale sprite: 1.0× when d >= PROXIMITY, lerps up to 1.7× as d → 0.
+      const t = Math.max(0, Math.min(1, 1 - d / PROXIMITY));
+      const k = p.baseScale * (1 + t * 0.7);
+      // Sprite aspect 4:1 — keep that ratio.
+      p.labelSprite.scale.set(k, k * 0.25, 1);
+      // Animate shimmer pane on every portal.
       p.group.children.forEach(child => {
         const ud = (child as any).userData;
         if (ud?.shimmer) {
@@ -645,15 +756,12 @@ export class LegionLobby {
         }
       });
     }
-    if (nearest !== this.nearestPortal) {
-      this.nearestPortal = nearest;
-      if (nearest) {
-        this.promptEl.style.borderColor = "#ffd23f";
-        this.promptEl.textContent = `${nearest.label}  ·  Press E to enter`;
-        this.promptEl.style.display = "block";
-      } else {
-        this.promptEl.style.display = "none";
-      }
+    this.nearestPortal = nearest;
+    // Hide the legacy bottom-centre prompt — the Roblox-style sprites ARE
+    // the prompt now. The bottom DIV stays alive for the "Entering …"
+    // flash on portal entry.
+    if (!nearest && this.promptEl.style.borderColor !== "#57e57c") {
+      this.promptEl.style.display = "none";
     }
   }
 
@@ -688,6 +796,11 @@ export class LegionLobby {
     window.removeEventListener("mousemove", this.onMouseMove);
     window.removeEventListener("mouseup",   this.onMouseUp);
     window.removeEventListener("resize",    this.onResize);
+    if (this.nicknameSprite) {
+      this.scene.remove(this.nicknameSprite);
+      (this.nicknameSprite.material as THREE.SpriteMaterial).map?.dispose?.();
+      this.nicknameSprite.material.dispose();
+    }
     this.renderer.dispose();
     this.renderer.domElement.remove();
     this.titleEl.remove();
@@ -700,41 +813,81 @@ function escapeHtml(s: string): string {
   return s.replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
 }
 
-/** Build a canvas-text Sprite for portal labels — billboarded so it
- *  always faces the camera. We use a roomy 512×128 canvas + bold high-
- *  contrast text + a coloured underline strip so each portal's label
- *  stands out at distance and reads as a clickable signpost. */
-function makeLabelSprite(text: string, accentColor: number): THREE.Sprite {
+/** Roblox-style "E · Enter game · {Mode}" pill for a portal — a rounded
+ *  dark capsule with a circled "E" key on the left and two-line text on
+ *  the right. Always camera-billboarded + always-on-top so it works as a
+ *  waypoint visible from anywhere in the lobby. Scaled per-frame by the
+ *  proximity-check in update(). */
+function makeRobloxPortalSprite(label: string): THREE.Sprite {
+  const W = 1024, H = 256;
   const canvas = document.createElement("canvas");
-  canvas.width = 512; canvas.height = 128;
+  canvas.width = W; canvas.height = H;
   const ctx = canvas.getContext("2d")!;
-  // Dark rounded backdrop with accent bottom-border.
-  const r = 18;
-  ctx.fillStyle = "rgba(10,12,16,0.86)";
-  roundedRect(ctx, 6, 6, canvas.width - 12, canvas.height - 12 - 12, r);
+  // Capsule background — fully rounded.
+  ctx.fillStyle = "rgba(28, 30, 38, 0.94)";
+  roundedRect(ctx, 8, 8, W - 16, H - 16, H / 2 - 8);
   ctx.fill();
-  // Accent strip at the bottom — the mode's portal colour, so blue for
-  // creative / green for survival / red for squidgames etc.
-  const accentHex = "#" + accentColor.toString(16).padStart(6, "0");
-  ctx.fillStyle = accentHex;
-  roundedRect(ctx, 6, canvas.height - 18, canvas.width - 12, 12, 4);
-  ctx.fill();
-  // Text.
-  ctx.font = "bold 56px 'Minecraft', 'Inter', sans-serif";
+  // "E" key disc on the left.
+  const ex = 130, ey = H / 2;
+  const er = 80;
+  ctx.fillStyle = "rgba(255,255,255,0.10)";
+  ctx.beginPath(); ctx.arc(ex, ey, er, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = "rgba(255,255,255,0.85)";
+  ctx.lineWidth = 6;
+  ctx.beginPath(); ctx.arc(ex, ey, er, 0, Math.PI * 2); ctx.stroke();
   ctx.fillStyle = "#ffffff";
+  ctx.font = "bold 100px 'Inter', system-ui, sans-serif";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.shadowColor = "rgba(0,0,0,0.95)";
-  ctx.shadowOffsetX = 3; ctx.shadowOffsetY = 3;
-  ctx.fillText(text, canvas.width / 2, canvas.height / 2 - 6);
+  ctx.fillText("E", ex, ey + 4);
+  // "Enter game" caption + mode name on the right.
+  ctx.textAlign = "left";
+  ctx.fillStyle = "rgba(255,255,255,0.70)";
+  ctx.font = "500 44px 'Inter', system-ui, sans-serif";
+  ctx.fillText("Enter game", 250, 90);
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "bold 78px 'Inter', system-ui, sans-serif";
+  ctx.fillText(label, 250, 165);
+  // Sprite material — always-on-top so distant pills don't get fogged.
   const tex = new THREE.CanvasTexture(canvas);
   tex.minFilter = THREE.LinearFilter;
   tex.magFilter = THREE.LinearFilter;
-  const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, depthTest: false });
+  const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false });
   const sprite = new THREE.Sprite(mat);
-  // Sized so the label is large + readable from across the plaza.
-  sprite.scale.set(4.5, 1.125, 1);
-  sprite.renderOrder = 1000;  // always-on-top so distant labels aren't fogged out
+  // 4:1 aspect at 1.6× world units = about ~6.4 wide. Matches a 16:9 in
+  // visual weight against the 4-block-tall portal frame.
+  sprite.scale.set(1.6, 0.4, 1);
+  sprite.renderOrder = 1000;
+  return sprite;
+}
+
+/** Minecraft-style nametag floating above a player head — dark rounded
+ *  background, single line of white text. Always camera-billboarded +
+ *  always-on-top. Re-created from scratch whenever the name changes. */
+function makeNicknameSprite(name: string): THREE.Sprite {
+  const W = 512, H = 96;
+  const canvas = document.createElement("canvas");
+  canvas.width = W; canvas.height = H;
+  const ctx = canvas.getContext("2d")!;
+  // Background pill.
+  ctx.fillStyle = "rgba(0,0,0,0.62)";
+  roundedRect(ctx, 8, 8, W - 16, H - 16, 24);
+  ctx.fill();
+  // Name text.
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "bold 52px 'Inter', 'Minecraft', system-ui, sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.shadowColor = "rgba(0,0,0,0.85)";
+  ctx.shadowOffsetX = 2; ctx.shadowOffsetY = 2;
+  ctx.fillText(name || "Player", W / 2, H / 2);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.minFilter = THREE.LinearFilter;
+  tex.magFilter = THREE.LinearFilter;
+  const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false });
+  const sprite = new THREE.Sprite(mat);
+  sprite.scale.set(1.4, 0.26, 1);  // 4:1-ish aspect
+  sprite.renderOrder = 1001;
   return sprite;
 }
 function roundedRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
